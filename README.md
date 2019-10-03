@@ -1,6 +1,6 @@
 # Audio-Steganography
 
-###Following are the contents here:
+Following are the contents here:
 
 Orignal Audio sample is in : **sample.wav** 
 
