@@ -43,5 +43,5 @@ def decode():
 
 while(1):
 	print("\nSelect an option: \n1)Encode\n2)Decode\n3)exit")
-	val = input("\nChoice:")
+	val = int(input("\nChoice:"))
 	case(val)
