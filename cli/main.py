@@ -1,5 +1,6 @@
 import os
 import sys
+from tqdm import tqdm
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(project_root)
@@ -34,13 +35,20 @@ def handle_encode(algo_choice, input_file, output_file, secret_message):
     """Encodes a message using the chosen algorithm."""
     algorithm = ALGORITHMS[algo_choice]
     logger.info(f"Encoding using {algorithm['name']}. Output file will be: {output_file}")
-    algorithm['encode'](input_file, output_file, secret_message)
+    
+    # Example of using tqdm for encoding progress
+    for _ in tqdm(range(1), desc="Encoding Progress"):
+        algorithm['encode'](input_file, output_file, secret_message)
 
 def handle_decode(algo_choice, output_file):
     """Decodes a message using the chosen algorithm."""
     algorithm = ALGORITHMS[algo_choice]
     logger.info(f"Decoding using {algorithm['name']} and output file: {output_file}")
-    decoded_message = algorithm['decode'](output_file)
+    
+    # Example of using tqdm for decoding progress
+    for _ in tqdm(range(1), desc="Decoding Progress"):
+        decoded_message = algorithm['decode'](output_file)
+    
     if decoded_message:
         print(f"Decoded message: {decoded_message}")
     else:
@@ -62,7 +70,10 @@ def handle_accuracy_check():
     output_file = get_file_path(algo_choice, is_input=False)
 
     algorithm = ALGORITHMS[algo_choice]
-    calculate_accuracy(original_message, algorithm, input_file_path=input_file, output_file_path=output_file)
+    
+    # Example of using tqdm for accuracy calculation
+    for _ in tqdm(range(1), desc="Accuracy Calculation Progress"):
+        calculate_accuracy(original_message, algorithm, input_file_path=input_file, output_file_path=output_file)
 
 def handle_main_choice(choice):
     """Handles the user's main menu choice."""
