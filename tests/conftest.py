@@ -51,10 +51,19 @@ def words_of(value):
 def refuse_sound(event, args):
     names = {os.path.splitext(os.path.basename(word))[0] for part in args[:2] for word in words_of(part)} \
         if event in STARTS else set()
-    if event == "winsound.PlaySound" or names & PLAYERS:
-        raise AssertionError("A test tried to play sound.")
+    if names & PLAYERS:
+        play_nothing()
+
+def play_nothing(*args, **options):
+    raise AssertionError("A test tried to play sound.")
 
 sys.addaudithook(refuse_sound)
+try:
+    import winsound
+except ImportError:
+    pass
+else:
+    winsound.PlaySound = winsound.Beep = winsound.MessageBeep = play_nothing
 """
 
 

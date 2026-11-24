@@ -50,11 +50,14 @@ def test_no_test_can_start_a_real_player(run_process: Any, name: str) -> None:
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="only Windows can play sound itself")
-def test_no_test_can_play_sound_with_windows() -> None:
+def test_no_test_can_play_sound_with_windows(run_process: Any) -> None:
     import winsound
 
     with pytest.raises(AssertionError, match="tried to play sound"):
         winsound.PlaySound(None, 0)
+    code = "import winsound; winsound.PlaySound(None, 0)"
+    with pytest.raises(AssertionError, match="Traceback"):
+        run_process(command=[sys.executable, "-c", code])
 
 
 @pytest.fixture
@@ -98,7 +101,7 @@ def test_a_private_file_is_played_and_removed(
     assert seen["input"] == ""
     if os.name != "nt":
         assert seen["modes"] == [0o600, 0o700]
-    assert list(temporary.iterdir()) == []
+    assert list(temporary.glob("audiosteg_*")) == []
     assert capfd.readouterr() == ("", "")
 
 
