@@ -12,6 +12,7 @@ from audiosteg.cli.options import (
     add_message_options,
     add_passphrase_options,
     algorithm_key,
+    file_path,
     message_source,
     passphrase_source,
 )
@@ -19,8 +20,9 @@ from audiosteg.cli.questions import ask_yes_no
 from audiosteg.cli.results import HideResult
 from audiosteg.cli.views import View
 from audiosteg.core import crypto
-from audiosteg.core.stego_file import encode, file_can_hold
-from audiosteg.core.wav_io import check_regular_file
+from audiosteg.core.message_codec import message_to_bytes
+from audiosteg.core.stego_file import count_message_bytes, encode, message_fits
+from audiosteg.core.wav_io import count_input_samples
 from audiosteg.errors import CapacityError, UnsafeOutputError
 from audiosteg.utils.output_path import check_output_path, normalize_output_path
 from audiosteg.utils.text import escape_text
@@ -77,10 +79,24 @@ def check_output(input_file: str, chosen_path: str) -> tuple[str, bool]:
     return output_file, os.path.exists(output_file)
 
 
+def check_not_source(output_file: str, sources: list[str | None]) -> None:
+    """Refuse to replace a file that holds the message or the passphrase."""
+    for source in sources:
+        if source is not None and os.path.exists(output_file) and os.path.samefile(source, output_file):
+            raise UnsafeOutputError("The output path is the message file or the passphrase file.")
+
+
+def largest_message(samples: int, encrypted: bool) -> int:
+    """Return the size of the largest message that fits with any algorithm."""
+    return max(count_message_bytes(samples, known.bits_per_byte, encrypted) for known in ALGORITHMS.values())
+
+
 def advise(request: HideRequest) -> str:
     """Say how a message that is too large could fit."""
+    samples = count_input_samples(request.input_file)
+    length = len(message_to_bytes(request.message))
     for key, algorithm in ALGORITHMS.items():
-        if file_can_hold(request.input_file, request.message, algorithm, request.passphrase is not None):
+        if message_fits(length, samples, algorithm.bits_per_byte, request.passphrase is not None):
             return f"Use the algorithm {key}, which can hold it, or a longer audio file."
     return "Use a longer audio file or a shorter message."
 
@@ -107,7 +123,7 @@ def may_replace(output_file: str, force: bool) -> bool:
     """Ask before replacing a file. Without a terminal, only --force replaces it."""
     if force:
         return True
-    if not sys.stdin.isatty():
+    if not sys.stdin.isatty() or not sys.stderr.isatty():
         raise FileExistsError(f"The output file already exists: {output_file}")
     if not ask_yes_no(f"{escape_text(output_file)} already exists. Overwrite it?"):
         raise CancelledError("Nothing was written.")
@@ -117,13 +133,16 @@ def may_replace(output_file: str, force: bool) -> bool:
 def run(args: argparse.Namespace, view: View) -> int:
     """Run the command. Return the exit code."""
     input_file = find_input(args.input)
-    check_regular_file(input_file)
-    output_file, exists = check_output(input_file, args.output or default_output(input_file))
+    samples = count_input_samples(input_file)
+    chosen_output = default_output(input_file) if args.output is None else args.output
+    output_file, exists = check_output(input_file, chosen_output)
+    check_not_source(output_file, [args.message_file, args.passphrase_file])
     overwrite = exists and may_replace(output_file, args.force)
     passphrases = passphrase_source(args)
     if passphrases.wanted:
         crypto.check_available()
-    message = message_source(args).read("Message to hide: ", os.path.getsize(input_file))
+    limit = largest_message(samples, passphrases.wanted)
+    message = message_source(args).read("Message to hide: ", limit)
     passphrase = passphrases.read_new(view.note)
     view.progress("Hiding the message...")
     view.show_hide(hide(HideRequest(input_file, output_file, message, args.algorithm, passphrase, overwrite)))
@@ -133,7 +152,10 @@ def run(args: argparse.Namespace, view: View) -> int:
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """Add the options of this command."""
     parser.add_argument(
-        "input", metavar="INPUT", help="the WAV file to copy, or the word sample (./sample means a file)"
+        "input",
+        type=file_path,
+        metavar="INPUT",
+        help="the WAV file to copy, or the word sample (./sample means a file)",
     )
     add_message_options(parser)
     parser.add_argument(
@@ -146,6 +168,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     )
     add_passphrase_options(parser, "and encrypt the message")
     parser.add_argument(
-        "-o", "--output", metavar="OUTPUT", help="the new WAV file (default: INPUT.stego.wav in this folder)"
+        "-o",
+        "--output",
+        type=file_path,
+        metavar="OUTPUT",
+        help="the new WAV file (default: INPUT.stego.wav in this folder)",
     )
     parser.add_argument("--force", action="store_true", help="replace an existing output file")

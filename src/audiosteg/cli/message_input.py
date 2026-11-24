@@ -7,7 +7,7 @@ from typing import BinaryIO
 
 from audiosteg.cli.errors import UsageError
 from audiosteg.cli.questions import ask_line
-from audiosteg.errors import InvalidMessageError
+from audiosteg.errors import CapacityError, InvalidMessageError
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class MessageSource:
         Get the message. Files and pipes are read exactly as they are.
 
         :param question: The question for the person at the terminal
-        :param limit: The most bytes that can be hidden, so that nothing larger is read
+        :param limit: The most bytes that the audio file can hold, so that nothing larger is read
         :return: The message
         """
         if self.text is not None:
@@ -44,7 +44,10 @@ def read_utf8(source: BinaryIO, limit: int) -> str:
     """Read UTF-8 text, and refuse more bytes than the limit."""
     data = source.read(limit + 1)
     if len(data) > limit:
-        raise InvalidMessageError("The message is larger than the audio file. Use a longer audio file.")
+        raise CapacityError(
+            f"The message is too large: the audio file can hold {limit} bytes. "
+            "Use a longer audio file or a shorter message."
+        )
     with suppress(UnicodeDecodeError):
         return data.decode("utf-8")
     raise InvalidMessageError("The message is not valid UTF-8 text.")

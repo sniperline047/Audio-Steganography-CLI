@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from audiosteg.algorithms.detection import decode, detect
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
-from audiosteg.cli.options import add_reading_options, passphrase_source
+from audiosteg.cli.options import add_reading_options, file_path, passphrase_source
 from audiosteg.cli.passphrase import PassphraseSource
 from audiosteg.cli.results import RevealResult
 from audiosteg.cli.views import View
@@ -89,5 +89,5 @@ def run(args: argparse.Namespace, view: View) -> int:
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """Add the options of this command."""
-    parser.add_argument("file", metavar="FILE", help="the WAV file with the hidden message")
+    parser.add_argument("file", type=file_path, metavar="FILE", help="the WAV file with the hidden message")
     add_reading_options(parser)

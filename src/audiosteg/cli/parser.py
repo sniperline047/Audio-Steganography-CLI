@@ -71,6 +71,9 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
 
 def parse(parser: Parser, commands: dict[str, Parser], words: Sequence[str]) -> argparse.Namespace:
     """Parse the command line. Words that are not understood are never repeated."""
+    options_only = words[: words.index("--")] if "--" in words else words
+    if any(word.startswith("-p") and word != "-p" for word in options_only):
+        raise UsageError("-p takes no value: it asks for the passphrase. Write other options separately.")
     args, extra = parser.parse_known_args(words)
     if not extra:
         return args

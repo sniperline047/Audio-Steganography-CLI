@@ -65,12 +65,13 @@ def run_guided(parser: Parser, args: argparse.Namespace, view: View) -> int:
     """Start the guided mode, or show how to use the commands where it cannot run."""
     if args.json:
         raise UsageError("--json needs a command.")
-    if not sys.stdin.isatty() or not sys.stdout.isatty() or is_dumb_terminal():
+    streams = (sys.stdin, sys.stdout, sys.stderr)
+    if not all(stream.isatty() for stream in streams) or is_dumb_terminal():
         view.err.write(parser.format_help())
         view.note("")
         view.note("Error: The guided mode needs a terminal. Choose a command instead.", "bold red")
         return WRONG_USAGE
-    from audiosteg.cli.guided import run
+    from audiosteg.cli.guided.menu import run
 
     return run(view)
 

@@ -6,12 +6,14 @@ import os
 from collections.abc import Mapping
 from typing import Any, TextIO
 
+from rich.cells import cell_len
 from rich.console import Console, detect_legacy_windows
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.cli.accuracy import AccuracyResult
 from audiosteg.cli.errors import OutputClosedError, error_type, explain, next_step
 from audiosteg.cli.logo import MINIMUM_WIDTH, draw_logo, plain_title
 from audiosteg.cli.results import HideResult, RevealResult, VerifyResult
@@ -22,6 +24,8 @@ DRAWING_CHARACTERS = "╭─╮│╰╯▀▄"
 DUMB_TERMINALS = ("dumb", "unknown")
 NOT_ENCRYPTED = "This message was not encrypted, so anyone could have written it."
 ENCRYPTED = "This message was encrypted."
+COLUMN_GAP = 2
+PANEL_FRAME = 6
 Rows = list[tuple[str, str]]
 
 
@@ -56,6 +60,22 @@ def yes_no(value: bool) -> str:
     return "yes" if value else "no"
 
 
+def display_path(path: str) -> str:
+    """Return an absolute path relative to the current folder if it is inside that folder."""
+    folder = os.path.realpath(os.curdir)
+    try:
+        inside = os.path.commonpath([folder, path]) == folder
+    except ValueError:
+        inside = False
+    return os.path.relpath(path, folder) if inside else path
+
+
+def format_percentage(accuracy: AccuracyResult) -> str:
+    """Return a percentage with two decimals. Only an exact match is shown as 100.00%."""
+    percentage = accuracy.percentage if accuracy.exact_match else min(accuracy.percentage, 99.99)
+    return f"{percentage:.2f}%"
+
+
 class Screen:
     """One output stream, and what it can show."""
 
@@ -82,18 +102,24 @@ class Screen:
         except OSError as error:
             raise OutputClosedError("The output was closed.") from error
 
-    def line(self, text: str, style: str = "") -> None:
-        """Write one escaped line, in colour if possible."""
+    def line(self, text: str, style: str = "", start: str = "") -> None:
+        """Write one escaped line at once, in colour if possible, after the start."""
+        shown = Text(start).append(escape_text(text), style if self.coloured else "")
         if self.coloured and style:
-            self.draw(Text(escape_text(text), style), soft_wrap=True)
+            self.draw(shown, soft_wrap=True)
         else:
-            self.write(f"{escape_text(text)}\n")
+            self.write(f"{shown.plain}\n")
 
     def draw(self, renderable: Panel | Text, soft_wrap: bool = False) -> None:
         """Draw something. Rich never writes to the stream itself, so it cannot end the program."""
         with self.console.capture() as captured:
             self.console.print(renderable, soft_wrap=soft_wrap)
         self.write(captured.get())
+
+    def fits_in_panel(self, rows: Rows, path: str) -> bool:
+        """Say whether a path fits on one line of a panel."""
+        names = max(cell_len(name) for name, _ in rows)
+        return names + COLUMN_GAP + cell_len(escape_text(path)) + PANEL_FRAME <= self.console.width
 
     def panel(self, title: str, rows: Rows, style: str) -> None:
         """Show names and values in a panel, or as lines where panels cannot be drawn."""
@@ -102,7 +128,7 @@ class Screen:
             for name, value in rows:
                 self.line(f"{name}: {value}")
             return
-        table = Table.grid(padding=(0, 2))
+        table = Table.grid(padding=(0, COLUMN_GAP, 0, 0))
         table.add_column(style="bold", no_wrap=True)
         table.add_column(overflow="fold")
         for name, value in rows:
@@ -124,10 +150,10 @@ class View:
         """Write the only JSON document."""
         self.out.write(json.dumps({"ok": ok, "command": command, **fields}) + "\n")
 
-    def note(self, text: str, style: str = "") -> None:
+    def note(self, text: str, style: str = "", start: str = "") -> None:
         """Write a line for the person, away from the result. Nobody has to see it."""
         with contextlib.suppress(OutputClosedError):
-            self.err.line(text, style)
+            self.err.line(text, style, start)
 
     def progress(self, text: str) -> None:
         """Say what is happening, if a person is watching."""
@@ -161,12 +187,17 @@ class View:
             }
             self.show_json("hide", True, fields)
             return
+        path = display_path(result.output_file)
+        output = ("Output", path)
         rows = [
-            ("Output", result.output_file),
             ("Algorithm", result.algorithm),
             ("Encrypted", "yes" if result.encrypted else "no, anyone can read the message"),
         ]
-        self.out.panel("Message hidden", rows, "green")
+        fits = not self.out.drawn or self.out.fits_in_panel([output, *rows], path)
+        self.out.panel("Message hidden", [output, *rows] if fits else rows, "green")
+        if not fits:
+            self.out.line("Output:")
+            self.out.line(path)
 
     def show_reveal(self, result: RevealResult) -> None:
         """Write the message to stdout and everything else to stderr, the protection line last."""
@@ -174,13 +205,15 @@ class View:
             fields = {**reveal_fields(result), "message": clean_for_json(result.message)}
             self.show_json("reveal", True, fields)
             return
+        start = ""
         if not result.message:
             self.note("The message is empty.")
         elif self.out.is_terminal:
             self.out.line(result.message)
         else:
             self.write_exactly(result.message)
-        self.note(protection(result.encrypted), "green" if result.encrypted else "yellow")
+            start = "\n" if self.err.is_terminal else ""
+        self.note(protection(result.encrypted), "green" if result.encrypted else "yellow", start)
 
     def write_exactly(self, message: str) -> None:
         """Write a message as UTF-8, whatever the encoding of the output is."""
@@ -206,7 +239,7 @@ class View:
             return
         rows = [
             ("Exact match", yes_no(accuracy.exact_match)),
-            ("Accuracy", f"{accuracy.percentage:.2f}%"),
+            ("Accuracy", format_percentage(accuracy)),
             ("Expected length", str(accuracy.expected_length)),
             ("Found length", str(accuracy.decoded_length)),
             ("Protection", protection(result.revealed.encrypted)),

@@ -22,6 +22,13 @@ def legacy_key(text: str) -> str:
     return text
 
 
+def file_path(text: str) -> str:
+    """Refuse an empty path."""
+    if not text:
+        raise UsageError("A path is empty.")
+    return text
+
+
 def add_output_options(parser: argparse.ArgumentParser, default: object = argparse.SUPPRESS) -> None:
     """Add the options that choose how results are shown."""
     parser.add_argument(
@@ -38,14 +45,18 @@ def add_message_options(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "-m", "--message", metavar="TEXT", help="the message; other programs on this computer may see it"
     )
-    group.add_argument("--message_file", metavar="FILE", help="read the message from a UTF-8 text file")
+    group.add_argument(
+        "--message_file", type=file_path, metavar="FILE", help="read the message from a UTF-8 text file"
+    )
 
 
 def add_passphrase_options(parser: argparse.ArgumentParser, purpose: str) -> None:
     """Add the options that ask for a passphrase. A passphrase is never a value on the command line."""
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-p", "--passphrase", action="store_true", help=f"ask for a passphrase {purpose}")
-    group.add_argument("--passphrase_file", metavar="FILE", help="read the passphrase from a file")
+    group.add_argument(
+        "--passphrase_file", type=file_path, metavar="FILE", help="read the passphrase from a file"
+    )
 
 
 def add_reading_options(parser: argparse.ArgumentParser) -> None:

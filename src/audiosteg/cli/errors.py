@@ -38,6 +38,8 @@ def error_type(error: BaseException) -> str:
 def explain_file_error(error: OSError) -> str:
     """Explain a problem with a file."""
     name = error.filename2 or error.filename
+    if name == "":
+        return "The path is empty."
     if error.errno is None or name is None:
         return error.strerror or str(error)
     if isinstance(error, FileNotFoundError):

@@ -62,13 +62,6 @@ def check_capacity(message_length: int, samples: int, bits_per_byte: int, encryp
         )
 
 
-def file_can_hold(path: str, message: str, algorithm: Algorithm, encrypted: bool) -> bool:
-    """Say whether a message fits in a WAV file with this algorithm."""
-    with open_pcm_wav(path) as audio:
-        samples = count_sample_bytes(audio, path) // audio.getsampwidth()
-    return message_fits(len(message_to_bytes(message)), samples, algorithm.bits_per_byte, encrypted)
-
-
 def encode(
     input_path: str,
     output_path: str,
