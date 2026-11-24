@@ -1,5 +1,7 @@
 # Audio Steganography CLI
 
+[![Test coverage](https://github.com/sniperline047/Audio-Steganography-CLI/raw/coverage_badge/coverage.svg)](https://github.com/sniperline047/Audio-Steganography-CLI/actions/workflows/tests.yml)
+
 A learning project that hides a text message inside a WAV file and reads it back. It offers three least significant bit (LSB) algorithms through an interactive menu and needs only the Python standard library.
 
 > **Messages are not encrypted or authenticated.** Anyone who knows the algorithm can read a hidden message, change it, or replace it. Do not use this project to protect real secrets.
@@ -7,7 +9,7 @@ A learning project that hides a text message inside a WAV file and reads it back
 ## Requirements
 
 - Python 3.11 or newer
-- An uncompressed integer PCM WAV file (8, 16, 24, or 32-bit)
+- An uncompressed integer PCM WAV file (8, 16, 24, or 32-bit). The limit for encoding is 1 GiB. Streamed files with no stated audio size and files with padded samples are not supported.
 
 Some PCM files use the "extensible" WAV header. Python 3.11 cannot read that header; Python 3.12 and newer can.
 
@@ -41,7 +43,7 @@ The menu has four options:
 
 At a path prompt, press Enter (or answer `y` or `yes`) to use the default file. Answer `n` or `no` to type another path.
 
-The program exits with code 1 if any operation in the session failed, and 0 otherwise.
+The program exits with code 0 when every operation succeeded, 1 when an operation failed or the input ended in the middle of one, and 130 after Ctrl-C.
 
 ### Encode a message
 
@@ -58,7 +60,7 @@ The input file is never changed. The program refuses to write to the input file 
 1. Choose **Decode a message**, then the algorithm that was used to encode.
 2. Choose the encoded audio file. The default is that algorithm's output file.
 
-Characters that could control the terminal are shown as escape codes such as `\x1b`.
+Characters that could control the terminal are shown as escape codes such as `\x1b`. This only changes the display; the hidden message stays the same. Invisible joiners are also escaped, so some combined emoji appear as separate emoji and a code such as `\u200d`.
 
 ### Calculate accuracy
 
@@ -70,7 +72,9 @@ This reads an existing file and changes nothing. The score is the number of matc
 
 ## Algorithms
 
-Each algorithm first stores the message length in bits as a 32-bit number, then the message as UTF-8 text. Files made by older versions with Latin-1 characters can still be decoded.
+Each algorithm first stores the message length in bits as a 32-bit number, then the message as UTF-8 text.
+
+Older versions stored one byte per character. If a message is not valid UTF-8, it is read as Latin-1, so most old messages still decode. A few old messages with accented letters also happen to be valid UTF-8 and show different characters. The earliest files, which have no length header and are padded with `#`, are not supported.
 
 | Menu | Algorithm | Bits per sample byte | Code | Default output |
 | --- | --- | --- | --- | --- |
@@ -119,11 +123,12 @@ Audio-Steganography-CLI/
 │   └── generate_sample_audio.py
 ├── utils/
 │   ├── errors.py       Error types
-│   ├── logging_util.py Logging setup
 │   ├── message_codec.py Message and bit conversion
+│   ├── output_path.py  Output path checks
+│   ├── safe_write.py   One-step file writing
 │   ├── stego_file.py   Shared encode and decode steps
 │   ├── text.py         Safe terminal text
-│   └── wav_io.py       WAV reading and safe writing
+│   └── wav_io.py       WAV reading and writing
 ├── LICENSE
 ├── pyproject.toml
 └── requirements_dev.txt
