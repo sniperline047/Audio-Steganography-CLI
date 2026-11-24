@@ -66,7 +66,7 @@ The program exits with code 0 when every operation succeeded, 1 when an operatio
 
 1. Choose **Encode a message**, then an algorithm. After an invalid choice, the program asks again. Choose **Back** to return to the main menu.
 2. Type the secret message.
-3. Type a passphrase twice to encrypt the message, or press Enter for no encryption. A terminal does not show the passphrase. Without the `crypto` extra, the program skips this step and says so.
+3. Type a passphrase twice to encrypt the message, or press Enter for no encryption. A terminal does not show the passphrase. Without the `crypto` extra, the program skips this step and says so, so a script that types answers should install the extra.
 4. Choose the input audio file. The default is the sample tune that is included in the package.
 5. Choose the output audio file. The default is `message_encoded.wav` in the current folder.
 6. If the output file exists, confirm that it may be overwritten. The default answer is no.
@@ -76,10 +76,10 @@ The input file is never changed. The program refuses to write to the input file,
 ### Decode a message
 
 1. Choose **Decode a message**, then the encoded audio file. The default is `message_encoded.wav` in the current folder.
-2. The program detects the algorithm. If the message is encrypted, type its passphrase.
+2. The program detects the algorithm. If the message is encrypted, type its passphrase. The program says whether the message was encrypted.
 3. If nothing is detected, the program offers the algorithms of older versions. Choose the one that was used to encode, or **Back**.
 
-If you expect an encrypted message and the program does not ask for a passphrase, do not trust the message.
+If you expect an encrypted message and the program says that it was not encrypted, do not trust the message.
 
 Characters that could control the terminal are shown as escape codes such as `\x1b`. This only changes the display; the hidden message stays the same. Invisible joiners are also escaped, so some combined emoji appear as separate emoji and a code such as `\u200d`.
 
@@ -108,14 +108,14 @@ print(decode("private.wav", passphrase="correct horse battery staple"))
 
 `decode` detects the algorithm unless you pass one. `encode` refuses to replace an existing output file unless you pass `overwrite=True`.
 
-Every error the package raises on purpose is a `StegoError`, except `ValueError` for an empty or invalid passphrase:
+Every error the package raises on purpose is a `StegoError`, except `ValueError` for a passphrase that is empty, contains a null character, or is not valid text, and `TypeError` for something that is not an algorithm:
 
 | Error | Meaning |
 | --- | --- |
 | `CapacityError` | The message does not fit |
 | `DamagedMessageError` | A message was found, but it was changed or cut off |
 | `InvalidMessageError` | The message is not valid text |
-| `MissingLibraryError` | Encryption needs `pip install ".[crypto]"` |
+| `MissingLibraryError` | Encryption is not available; it usually needs `pip install ".[crypto]"` |
 | `NoMessageError` | No message was found |
 | `NotEncryptedError` | A passphrase was given, but the message is not encrypted |
 | `PassphraseRequiredError` | The message is encrypted and no passphrase was given |
@@ -304,6 +304,8 @@ pip install -e .
    ```
 
 The menu, detection, the capacity check, and the file handling need no changes.
+
+Detection tries the algorithms in order and stops at the first message. If the input audio already holds a message from an algorithm earlier in the list, that old message can be found instead of the new one. To avoid this, pass the algorithm to `decode`.
 
 ## Moving from the old layout
 
