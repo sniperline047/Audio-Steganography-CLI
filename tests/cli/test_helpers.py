@@ -1,28 +1,25 @@
 """Tests for cli/helpers.py."""
 
+import io
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
-from cli.helpers import ask_yes_no, get_file_path, get_user_choice
+from cli.config import ALGORITHMS
+from cli.helpers import OutputClosedError, ask, ask_yes_no, choose_algorithm, get_file_path, get_user_choice
 
 Answer = Callable[..., list[str]]
 
 
 @pytest.fixture
 def answer(monkeypatch: pytest.MonkeyPatch) -> Answer:
-    """Return a function that sets the next answers and collects the prompts."""
+    """Return a function that sets the next answers and returns the ones not used yet."""
 
     def set_answers(*answers: str) -> list[str]:
         remaining = list(answers)
-        prompts: list[str] = []
-
-        def fake_input(prompt: str = "") -> str:
-            prompts.append(prompt)
-            return remaining.pop(0)
-
-        monkeypatch.setattr("builtins.input", fake_input)
-        return prompts
+        monkeypatch.setattr("builtins.input", lambda prompt="": remaining.pop(0))
+        return remaining
 
     return set_answers
 
@@ -42,46 +39,70 @@ def test_an_invalid_choice_is_explained(
     assert "valid" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("default", [True, False])
 @pytest.mark.parametrize(
     ("text", "expected"),
-    [("y", True), ("YES", True), (" yes ", True), ("n", False), ("No", False), ("", None), ("  ", None)],
+    [("y", True), ("YES", True), (" yes ", True), ("n", False), ("No", False), ("", False), ("  ", False)],
 )
-def test_yes_no_answers(answer: Answer, text: str, expected: bool | None, default: bool) -> None:
+def test_yes_no_answers(answer: Answer, text: str, expected: bool) -> None:
     answer(text)
-    assert ask_yes_no("Sure?", default) is (default if expected is None else expected)
+    assert ask_yes_no("Sure?") is expected
 
 
-def test_an_unclear_answer_is_asked_again(answer: Answer) -> None:
-    prompts = answer("maybe", "yess", "/some/path.wav", "n")
-    assert ask_yes_no("Sure?", default=True) is False
-    assert len(prompts) == 4
+def test_an_unclear_answer_is_asked_again(answer: Answer, capsys: pytest.CaptureFixture[str]) -> None:
+    remaining = answer("maybe", "yess", "/some/path.wav", "y")
+    assert ask_yes_no("Sure?") is True
+    assert remaining == []
+    output = capsys.readouterr().out
+    assert output.count("Sure? (y/N): ") == 4
+    assert output.count("Please answer y or n.") == 3
 
 
-def test_the_hint_shows_the_default(answer: Answer) -> None:
-    prompts = answer("", "")
-    ask_yes_no("Sure?", default=True)
-    ask_yes_no("Sure?", default=False)
-    assert "Y/n" in prompts[0] and "y/N" in prompts[1]
+def test_an_invalid_algorithm_is_asked_again(answer: Answer, capsys: pytest.CaptureFixture[str]) -> None:
+    answer("0", "x", "4", "2")
+    assert choose_algorithm() is ALGORITHMS[2]
+    assert capsys.readouterr().out.count("Select an algorithm:") == 4
 
 
 @pytest.mark.parametrize(
-    ("answers", "path"),
+    ("text", "path"),
     [
-        ([""], "default.wav"),
-        (["yes"], "default.wav"),
-        (["n", "other.wav"], "other.wav"),
-        (["no", "my folder/a file.wav"], "my folder/a file.wav"),
-        (["n", ""], "default.wav"),
-        (["n", "   "], "default.wav"),
+        ("", "default.wav"),
+        ("   ", "default.wav"),
+        ("other.wav", "other.wav"),
+        ("my folder/a file.wav", "my folder/a file.wav"),
+        (" \t other.wav \t", "other.wav"),
     ],
 )
-def test_file_path_answers(answer: Answer, answers: list[str], path: str) -> None:
-    answer(*answers)
-    assert get_file_path("input audio file", "default.wav") == path
+def test_file_path_answers(answer: Answer, text: str, path: str) -> None:
+    answer(text)
+    assert get_file_path("Input audio file", "default.wav") == path
 
 
-def test_an_unsafe_default_path_is_shown_escaped_but_used_as_it_is(answer: Answer) -> None:
-    prompts = answer("")
-    assert get_file_path("input audio file", "a\x1b[2J\u202e.wav") == "a\x1b[2J\u202e.wav"
-    assert "\x1b" not in prompts[0] and "\\x1b[2J\\u202e.wav" in prompts[0]
+def test_a_tilde_means_the_home_folder(
+    answer: Answer, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    for variable in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(variable, str(tmp_path))
+    answer(" ~/a.wav ", "./~/a.wav")
+    assert Path(get_file_path("Input audio file", "default.wav")) == tmp_path / "a.wav"
+    assert get_file_path("Input audio file", "default.wav") == "./~/a.wav"
+
+
+def test_an_unsafe_default_path_is_shown_escaped_but_used_as_it_is(
+    answer: Answer, capsys: pytest.CaptureFixture[str]
+) -> None:
+    answer("")
+    assert get_file_path("Input audio file", "a\x1b[2J\u202e.wav") == "a\x1b[2J\u202e.wav"
+    assert capsys.readouterr().out == "\nInput audio file [a\\x1b[2J\\u202e.wav]: "
+
+
+def test_nothing_is_read_after_the_output_is_closed(answer: Answer, monkeypatch: pytest.MonkeyPatch) -> None:
+    class ClosedOutput(io.StringIO):
+        def flush(self) -> None:
+            raise BrokenPipeError
+
+    remaining = answer("unread")
+    monkeypatch.setattr("sys.stdout", ClosedOutput())
+    with pytest.raises(OutputClosedError):
+        ask("Prompt: ")
+    assert remaining == ["unread"]

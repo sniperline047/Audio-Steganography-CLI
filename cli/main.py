@@ -11,13 +11,16 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from cli.accuracy import calculate_accuracy
-from cli.config import ALGORITHMS, STANDARD_INPUT_FILE_PATH, Algorithm
+from cli.config import STANDARD_INPUT_FILE_PATH
 from cli.helpers import (
+    OutputClosedError,
+    ask,
     ask_yes_no,
-    display_algorithm_menu,
+    choose_algorithm,
     display_menu,
     get_file_path,
     get_user_choice,
+    require_output,
 )
 from utils.errors import StegoError
 from utils.output_path import check_output_path, normalize_output_path
@@ -27,32 +30,25 @@ from utils.wav_io import check_regular_file
 EXIT_CHOICE = 4
 
 
-def choose_algorithm() -> Algorithm | None:
-    """Ask the user for an algorithm."""
-    display_algorithm_menu()
-    choice = get_user_choice(len(ALGORITHMS))
-    return None if choice is None else ALGORITHMS[choice]
-
-
 def handle_encode() -> None:
     """Ask for a message and hide it in a copy of an audio file."""
     algorithm = choose_algorithm()
-    if algorithm is None:
-        return
-    secret_message = input("Enter the secret message to encode: ")
-    input_file = get_file_path("input audio file", STANDARD_INPUT_FILE_PATH)
-    chosen_path = get_file_path("output audio file", algorithm["output_file"])
+    secret_message = ask("Enter the secret message to encode: ")
+    input_file = get_file_path("Input audio file", STANDARD_INPUT_FILE_PATH)
+    chosen_path = get_file_path("Output audio file", algorithm["output_file"])
 
     check_regular_file(input_file)
     output_file = normalize_output_path(chosen_path)
     check_output_path(input_file, output_file, overwrite=True)
     overwrite = False
     if os.path.exists(output_file):
-        overwrite = ask_yes_no(f"{escape_text(output_file)} already exists. Overwrite it?", default=False)
+        overwrite = ask_yes_no(f"{escape_text(output_file)} already exists. Overwrite it?")
         if not overwrite:
             print("Nothing was written.")
             return
 
+    print("Encoding...")
+    require_output()
     algorithm["encode"](input_file, output_file, secret_message, overwrite)
     print(f"Message encoded into {escape_text(output_file)}")
 
@@ -60,9 +56,7 @@ def handle_encode() -> None:
 def handle_decode() -> None:
     """Show the message hidden in an audio file."""
     algorithm = choose_algorithm()
-    if algorithm is None:
-        return
-    encoded_file = get_file_path("encoded audio file", algorithm["output_file"])
+    encoded_file = get_file_path("Encoded audio file", algorithm["output_file"])
     decoded_message = algorithm["decode"](encoded_file)
     if decoded_message:
         print(f"Decoded message: {escape_text(decoded_message)}")
@@ -72,11 +66,9 @@ def handle_decode() -> None:
 
 def handle_accuracy_check() -> None:
     """Compare the message hidden in an audio file with the expected one."""
-    expected_message = input("Enter the expected secret message: ")
+    expected_message = ask("Enter the expected secret message: ")
     algorithm = choose_algorithm()
-    if algorithm is None:
-        return
-    encoded_file = get_file_path("encoded audio file", algorithm["output_file"])
+    encoded_file = get_file_path("Encoded audio file", algorithm["output_file"])
     result = calculate_accuracy(expected_message, algorithm, encoded_file)
     print(f"Accuracy of decoded message: {result.percentage:.2f}%")
     print(f"Exact match: {'yes' if result.exact_match else 'no'}")
@@ -153,6 +145,9 @@ def run_session() -> int:
     except KeyboardInterrupt:
         show_error("Interrupted.")
         return 130
+    except OutputClosedError as error:
+        show_error(str(error))
+        return 1
     except OSError as error:
         show_error(f"The program cannot read its input or write its output: {error}")
         return 1

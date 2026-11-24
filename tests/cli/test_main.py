@@ -86,15 +86,15 @@ def run(
 
 
 def encode_lines(source: Path, output: Path | str, message: str = "hidden", algorithm: int = 1) -> list[str]:
-    return ["1", str(algorithm), message, "n", str(source), "n", str(output)]
+    return ["1", str(algorithm), message, str(source), str(output)]
 
 
 def decode_lines(path: Path | str, algorithm: int = 1) -> list[str]:
-    return ["2", str(algorithm), "n", str(path)]
+    return ["2", str(algorithm), str(path)]
 
 
 def accuracy_lines(path: Path, expected: str, algorithm: int = 1) -> list[str]:
-    return ["3", expected, str(algorithm), "n", str(path)]
+    return ["3", expected, str(algorithm), str(path)]
 
 
 @pytest.fixture
@@ -138,8 +138,8 @@ def test_default_paths_work_from_another_folder(
 ) -> None:
     sample = (project / "input" / "original_sample.wav").read_bytes()
     result = run(
-        "1", str(number), "Hello 🎵", "", "y",
-        "2", str(number), "yes",
+        "1", str(number), "Hello 🎵", "", "",
+        "2", str(number), "",
         "3", "Hello 🎵", str(number), "",
         EXIT,
         script=project / "cli" / "main.py",
@@ -181,22 +181,34 @@ def test_the_module_entry_point_from_the_project_folder(
 
 def test_relative_paths_belong_to_the_current_folder(make_wav: Callable[..., Path], tmp_path: Path) -> None:
     make_wav()
-    result = run("1", "1", "hidden", "n", "input.wav", "n", "a folder/out.wav", EXIT, cwd=tmp_path)
+    result = run("1", "1", "hidden", "input.wav", "a folder/out.wav", EXIT, cwd=tmp_path)
     assert result.code == 0
     assert basic_lsb_steganography.decode(str(tmp_path / "a folder" / "out.wav")) == "hidden"
 
 
 def test_menus_are_in_the_documented_order() -> None:
-    result = run("1", "", EXIT)
+    result = run("2", "1", "missing.wav", EXIT)
     assert MAIN_MENU in result.output
     assert ALGORITHM_MENU in result.output
     assert result.output.index(MAIN_MENU) < result.output.index(ALGORITHM_MENU)
 
 
-def test_invalid_choices_return_to_the_menu_without_failing() -> None:
-    result = run("0", "5", "x", "", "1", "4", "2", "x", "3", "text", "0", EXIT)
+def test_invalid_menu_choices_are_asked_again_without_failing() -> None:
+    result = run("0", "5", "x", "", EXIT)
     assert (result.code, result.errors) == (0, "")
-    assert result.output.count(MAIN_MENU) == 8
+    assert result.output.count(MAIN_MENU) == 5
+
+
+def test_an_invalid_algorithm_is_asked_again_and_the_message_is_kept(
+    make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    output = tmp_path / "output.wav"
+    basic_lsb_steganography.encode(str(make_wav()), str(output), "hidden")
+    result = run("3", "hidden", "4", "", "x", "1", str(output), EXIT)
+    assert (result.code, result.errors) == (0, "")
+    assert "Exact match: yes\n" in result.output
+    assert result.output.count(ALGORITHM_MENU) == 4
+    assert result.output.count(MAIN_MENU) == 2
 
 
 @pytest.mark.parametrize(
@@ -278,7 +290,7 @@ def test_a_later_success_does_not_hide_an_earlier_failure(
 ) -> None:
     lines = [*decode_lines(tmp_path / "missing.wav"), *encode_lines(make_wav(), tmp_path / "out.wav")]
     assert run(*lines, EXIT).code == 1
-    assert run(*lines[:4]).code == 1
+    assert run(*lines[:3]).code == 1
 
 
 def test_a_failure_for_lack_of_memory_is_reported(
@@ -287,7 +299,7 @@ def test_a_failure_for_lack_of_memory_is_reported(
     def run_out_of_memory(path: str) -> str:
         raise MemoryError
 
-    answers = ["1", "", ""]
+    answers = ["1", ""]
     monkeypatch.setattr("builtins.input", lambda prompt="": answers.pop(0))
     monkeypatch.setitem(ALGORITHMS[1], "decode", run_out_of_memory)
     assert main.run_operation(main.handle_decode) is False
@@ -361,7 +373,7 @@ def test_the_message_is_not_shown_or_logged_when_it_is_hidden(
 
 def test_bytes_that_are_not_text_are_refused(make_wav: Callable[..., Path], tmp_path: Path) -> None:
     output = tmp_path / "out.wav"
-    result = run("1", "1", b"bad \xff", "n", str(make_wav()), "n", str(output), EXIT)
+    result = run("1", "1", b"bad \xff", str(make_wav()), str(output), EXIT)
     assert result.code == 1
     assert "not valid text" in result.errors
     assert not output.exists()
@@ -382,7 +394,7 @@ def test_end_of_input_at_the_menu_is_a_normal_exit() -> None:
     assert run("9").code == 0
 
 
-@pytest.mark.parametrize("answered", range(1, 8))
+@pytest.mark.parametrize("answered", range(1, 6))
 def test_end_of_input_during_an_operation_is_a_failure(
     make_wav: Callable[..., Path], tmp_path: Path, answered: int
 ) -> None:
@@ -434,6 +446,54 @@ def test_a_reader_that_leaves_early_is_a_failure_without_a_traceback(start: Star
         errors = process.stderr.read()
         process.wait(timeout=TIMEOUT)
     assert Result(process.returncode, b"", errors).code == 1
+
+
+@pytest.mark.parametrize(
+    ("typed_before", "prompt", "typed_after"),
+    [(2, b"encode: ", 3), (4, b"]: ", 1), (5, b"(y/N): ", 1)],
+    ids=["message", "output_path", "overwrite"],
+)
+def test_nothing_is_written_after_the_reader_leaves(
+    make_wav: Callable[..., Path],
+    tmp_path: Path,
+    start: StartProcess,
+    typed_before: int,
+    prompt: bytes,
+    typed_after: int,
+) -> None:
+    output = tmp_path / "out.wav"
+    existing = prompt == b"(y/N): "
+    if existing:
+        output.write_bytes(b"keep me")
+    lines = [*encode_lines(make_wav(), output), *(["y"] if existing else [])]
+    assert len(lines) == typed_before + typed_after
+    with start() as process:
+        assert process.stdin is not None and process.stdout is not None and process.stderr is not None
+        process.stdin.write("".join(f"{line}\n" for line in lines[:typed_before]).encode())
+        process.stdin.flush()
+        read_until(process.stdout, prompt)
+        if typed_before == 4:
+            read_until(process.stdout, prompt)
+        process.stdout.close()
+        process.stdin.write("".join(f"{line}\n" for line in lines[typed_before:]).encode())
+        process.stdin.close()
+        errors = process.stderr.read()
+        process.wait(timeout=TIMEOUT)
+    result = Result(process.returncode, b"", errors)
+    assert result.code == 1
+    assert result.errors.strip() == "Error: The output was closed."
+    assert output.read_bytes() == b"keep me" if existing else not output.exists()
+
+
+def test_the_program_stops_without_waiting_when_the_reader_leaves(start: StartProcess) -> None:
+    with start() as process:
+        assert process.stdin is not None and process.stdout is not None
+        read_until(process.stdout, b"Choice: ")
+        process.stdout.close()
+        process.stdin.write(b"9\n")
+        process.stdin.flush()
+        assert process.wait(timeout=TIMEOUT) == 1
+        process.stdin.close()
 
 
 @posix_shell
