@@ -79,13 +79,14 @@ def test_decibels_are_rounded_down(value: float, shown: str) -> None:
     ],
 )
 def test_only_nothing_is_0_percent_and_only_everything_is_100_percent(value: float, shown: str) -> None:
-    assert format_percentage(value) == shown
+    assert format_percentage(Fraction(value)) == shown
 
 
-@pytest.mark.xfail(strict=True, reason="a float is a little smaller than the exact percentage")
 def test_an_exact_percentage_is_not_rounded() -> None:
     exact = quality(part=Part(0, 10_000), total_frames=10_000, changed=29)
     assert "(0.29%)" in changes_text(exact)
+    exact = quality(part=Part(0, 10_000), total_frames=10_000, changed=9999)
+    assert "(99.99%)" in changes_text(exact)
 
 
 @pytest.mark.parametrize(
@@ -99,24 +100,31 @@ def test_an_exact_percentage_is_not_rounded() -> None:
             "amplified 2,743.33 times (capped from 9,000 times to a safe level)",
         ),
         (Fraction(8230), Fraction(8230), "amplified 8,230 times"),
-        (Fraction(1), None, "amplified 1 times"),
+        (Fraction(1), None, "not amplified"),
         (Fraction(1, 2), None, "reduced to 50.00%"),
-        (Fraction(1, 8), Fraction(1), "reduced to 12.50% (capped from 1 times to a safe level)"),
+        (Fraction(1, 10**6), None, "reduced to less than 0.01%"),
+        (Fraction(1001, 1000), None, "amplified less than 1.01 times"),
+        (Fraction(9999, 1000), Fraction(10), "amplified 9.99 times (capped from 10 times to a safe level)"),
+        (
+            Fraction(8230),
+            Fraction("8230.000001"),
+            "amplified 8,230 times (capped from 8,230.000001 times to a safe level)",
+        ),
+        (Fraction(1, 8), Fraction(1), "reduced to 12.50% (capped from 1 time to a safe level)"),
     ],
 )
 def test_the_gain_in_words(gain: Fraction, wanted: Fraction | None, shown: str) -> None:
     assert format_gain(gain, wanted) == shown
 
 
-@pytest.mark.xfail(strict=True, reason="a reduction is rounded up to 100.00%")
 def test_a_reduction_is_never_shown_as_100_percent() -> None:
     assert "100.00%" not in format_gain(Fraction(539423503, 539423504), None)
 
 
-@pytest.mark.xfail(strict=True, reason="the number is rounded to the nearest, unlike other decibels")
 def test_a_limit_is_never_shown_before_it_is_reached() -> None:
     almost = quality(signal=10**17 - 1, noise=10**10, format=SampleFormat(1, 4, 8000))
     assert (almost.word, snr_text(almost)) == ("Good", "69.9 dB")
+    assert almost.snr is not None and almost.snr < 70
 
 
 @pytest.mark.parametrize(
@@ -170,9 +178,9 @@ def test_the_largest_change_in_words(largest: int, shown: str) -> None:
     ("changes", "shown"),
     [
         (SAME, "nowhere"),
-        ({}, "from 0.000 s to 0.001 s"),
-        ({"first_changed": 999, "last_changed": 999}, "from 0.125 s to 0.125 s"),
-        ({"last_changed": 12}, "from 0.000 s to 0.002 s"),
+        ({}, "from 0.000 s to 0.0013 s"),
+        ({"first_changed": 999, "last_changed": 999}, "from 0.1249 s to 0.125 s"),
+        ({"last_changed": 12}, "from 0.000 s to 0.0017 s"),
         ({"format": SampleFormat(1, 2, 1000), "first_changed": 5}, "from 0.005 s to 0.010 s"),
     ],
 )

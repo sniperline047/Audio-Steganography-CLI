@@ -132,8 +132,6 @@ def listening(sounds: list[Any], monkeypatch: pytest.MonkeyPatch) -> list[Any]:
         (DOWN * 2 + ENTER, 1, "--play original"),
         (DOWN * 3 + ENTER, 1, "--play encoded"),
         (DOWN * 4 + ENTER, 1, "--play difference"),
-        (DOWN * 5 + ENTER, 0, None),
-        (ESCAPE, 0, None),
     ],
 )
 def test_listening(guide: Any, listening: list[Any], answer: str, played: int, option: str | None) -> None:
@@ -143,6 +141,28 @@ def test_listening(guide: Any, listening: list[Any], answer: str, played: int, o
     expected = ["compare a.wav b.wav"]
     assert commands(result.text) == expected + ([f"{expected[0]} {option}"] if option else [])
     assert result.text.index("Sounds the same?") < result.text.index(LISTEN)
+
+
+@pytest.mark.parametrize("back", [DOWN * 5 + ENTER, ESCAPE])
+def test_back_instead_of_listening_returns_to_the_question_before(
+    guide: Any, listening: list[Any], back: str
+) -> None:
+    result = guide(
+        COMPARE,
+        *FILES,
+        CHOOSE,
+        (NAMES, f"snr{ENTER}"),
+        (LISTEN, back),
+        (NAMES, ESCAPE),
+        DETAILED,
+        (LISTEN, back),
+        (LEVEL, ESCAPE),
+        (COPY, ESCAPE),
+        (ORIGINAL, ESCAPE),
+    )
+    assert (result.code, listening) == (0, [])
+    assert commands(result.text) == ["compare a.wav b.wav --show snr", "compare a.wav b.wav --details"]
+    assert "add --details" not in result.text
 
 
 def test_a_later_comparison_does_not_play(guide: Any, listening: list[Any]) -> None:

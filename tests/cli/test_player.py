@@ -307,6 +307,29 @@ def test_an_ignored_signal_stays_ignored() -> None:
         signal.signal(signal.SIGTERM, before)
 
 
+@pytest.mark.parametrize("name", ["SIGTERM", "SIGHUP", "SIGINT"])
+def test_a_signal_while_the_player_starts_still_ends_it(
+    fake_player: Any, temporary: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    if not hasattr(signal, name):
+        pytest.skip("this system has no such signal")
+    fake_player("hang")
+    started: list[subprocess.Popen[bytes]] = []
+    start = subprocess.Popen
+
+    def start_and_signal(*words: Any, **options: Any) -> subprocess.Popen[bytes]:
+        started.append(start(*words, **options))
+        signal.raise_signal(getattr(signal, name))
+        return started[-1]
+
+    monkeypatch.setattr(subprocess, "Popen", start_and_signal)
+    before = handlers()
+    with pytest.raises((SystemExit, KeyboardInterrupt)):
+        player.play_private(write_sound, 0)
+    assert started[0].returncode not in (None, 0)
+    assert (list(temporary.iterdir()), handlers()) == ([], before)
+
+
 def test_another_thread_can_play(fake_player: Any, temporary: Path, tmp_path: Path) -> None:
     fake_player("0")
     before = handlers()

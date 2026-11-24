@@ -147,7 +147,6 @@ def test_a_header_that_promises_4_gib_is_not_believed(make_wav: Callable[..., Pa
     assert found.cannot_hide == "The WAV file is shorter than its header says."
 
 
-@pytest.mark.xfail(strict=True, reason="inspect cannot read a file that reveal can read")
 def test_a_file_whose_two_sizes_disagree(make_wav: Callable[..., Path], embed: Callable[..., bytes]) -> None:
     container = b"ASTG\x01\x00\x00\x00\x00\x01A"
     path = make_wav(frames=embed(container + crc32(container).to_bytes(4, "big"), 1))

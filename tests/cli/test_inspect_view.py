@@ -26,7 +26,7 @@ def test_every_line_about_a_file(run: Any, make_wav: Callable[..., Path]) -> Non
         "Format: 24-bit PCM WAV",
         "Channels: 2 (stereo)",
         "Sample rate: 44,100 Hz",
-        "Duration: 0.101 s (4,440 frames)",
+        "Duration: 0.1007 s (4,440 frames)",
         "Room with lsb: 1,096 bytes, or 1,056 encrypted",
         "Room with lsb_2: 2,206 bytes, or 2,166 encrypted",
         "Hidden message: none detected",
@@ -43,7 +43,7 @@ def test_the_channels(run: Any, make_wav: Callable[..., Path], channels: int, sh
     make_wav(frames=bytes(channels), channels=channels)
     output = run("inspect", "input.wav").output
     assert f"\nChannels: {shown}\n" in output
-    assert "Duration: 0.000 s (1 frame)\n" in output
+    assert "Duration: 0.0002 s (1 frame)\n" in output
 
 
 @pytest.mark.parametrize(
@@ -71,7 +71,7 @@ def test_files_that_cannot_hide_anything(run: Any, make_wav: Callable[..., Path]
     path = make_wav(frames=bytes(8000))
     path.write_bytes(path.read_bytes()[:-1])
     output = run("inspect", "input.wav").output
-    assert "Duration: 1.000 s (7,999 frames)\nRoom: none. The WAV file is shorter than its" in output
+    assert "Duration: 0.9999 s (7,999 frames)\nRoom: none. The WAV file is shorter than its" in output
     assert "Room with" not in output
 
 

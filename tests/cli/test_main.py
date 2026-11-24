@@ -57,7 +57,7 @@ ANALYSIS = ["audiosteg.analysis.quality", "audiosteg.analysis.walkthrough", "aud
         (["algorithms"], [*GUIDED, *ANALYSIS, "audiosteg.cli.player"]),
         (["explain"], [*GUIDED, "audiosteg.cli.player", *ANALYSIS[::2]]),
         (["inspect", "input.wav"], [*GUIDED, "audiosteg.cli.player", *ANALYSIS[:2]]),
-        (["compare", "input.wav", "input.wav"], [*GUIDED, "audiosteg.cli.player", *ANALYSIS[1:]]),
+        (["compare", "input.wav", "input.wav", "--json"], [*GUIDED, "audiosteg.cli.player", *ANALYSIS[1:]]),
     ],
 )
 def test_commands_load_only_what_they_need(

@@ -237,3 +237,10 @@ def test_a_file_name_cannot_control_the_terminal(run: Any, make_samples: Callabl
     result = run("explain", "lsb", "--file", name, terminals=ALL)
     assert "8 samples of x\\x1b[2J\\u202e\\n.wav, from 0.000 s" in result.text
     assert "\x1b[2J" not in result.seen and "‮" not in result.seen
+
+
+def test_samples_that_already_held_the_bits(run: Any, make_samples: Any) -> None:
+    make_samples("a.wav", [1000] * 64)
+    advice = "These samples already held the bits, so nothing had to change. To see a change, try another"
+    assert advice in run("explain", "lsb", "--file", "a.wav", "--letter", "\0").output
+    assert advice not in run("explain", "lsb", "--file", "a.wav").output

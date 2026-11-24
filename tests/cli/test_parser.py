@@ -183,3 +183,12 @@ def test_a_word_after_play_is_never_repeated(run: Any) -> None:
     for words in (["compare", "a", "b", "c"], ["compare", "a", "--play", "b", "c", "--", "d"]):
         assert run(*words).code == 2
     assert "--play" not in run("inspect", "a", "--play", "SECRET").errors
+
+
+def test_an_option_of_another_command_is_not_a_misspelling(run: Any) -> None:
+    for words in (
+        ["hide", "a.wav", "--play"],
+        ["reveal", "a.wav", "--letter=x"],
+        ["inspect", "a", "--from", "1"],
+    ):
+        assert "Did you mean" not in run(*words).errors

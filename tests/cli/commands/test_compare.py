@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import sys
 import wave
@@ -15,14 +16,14 @@ from conftest import ALL, pack
 
 from audiosteg.analysis import difference
 from audiosteg.cli import player
-from audiosteg.cli.commands.compare import HINT, gain_number, number, width_number
+from audiosteg.cli.commands.compare import DETAILS_HINT, PLAY_HINT, gain_number, number, width_number
 from audiosteg.cli.commands.hide import SAMPLE_FILE
 from audiosteg.cli.errors import UsageError
 
 SUMMARY = (
     "Sounds the same? Very likely. The change is far quieter than the sound, but only listening can tell.\n"
     "Quality:         Excellent (SNR: 86.0 dB)\n"
-    "Changed:         1 of 8,000 samples (0.01%), from 0.013 s to 0.013 s\n"
+    "Changed:         1 of 8,000 samples (0.01%), from 0.0125 s to 0.0127 s\n"
 )
 
 
@@ -35,7 +36,7 @@ def pair(make_pair: Callable[..., tuple[str, str]]) -> tuple[str, str]:
 
 def test_three_lines_for_people_who_do_not_need_numbers(run: Any, pair: tuple[str, str]) -> None:
     result = run("compare", *pair)
-    assert (result.code, result.output, result.errors) == (0, SUMMARY, f"{HINT}\n")
+    assert (result.code, result.output, result.errors) == (0, SUMMARY, f"{DETAILS_HINT}\n")
     assert run("compare", *pair, terminals=ALL).errors.startswith("Comparing the files...\n")
 
 
@@ -43,7 +44,7 @@ SHOWN = {
     "snr": "SNR: 86.0 dB",
     "psnr": "PSNR: 129.3 dB",
     "changes": "Changed samples: 1 of 8,000",
-    "where": "Where: from 0.013 s",
+    "where": "Where: from 0.0125 s",
     "waveform": "Waveform: original",
 }
 
@@ -458,9 +459,9 @@ def test_what_is_played(
     assert [seconds for _, seconds in sounds] == [3 / 8000] * len(names)
     said = [line for line in result.errors.splitlines() if line.startswith("Playing")]
     expected = {
-        "original": "Playing the original (0.000 s). Ctrl-C stops.",
-        "encoded": "Playing the encoded file (0.000 s). Ctrl-C stops.",
-        "difference": "Playing the difference, amplified 4,115 times (0.000 s). Ctrl-C stops.",
+        "original": "Playing the original (0.0004 s). Ctrl-C stops.",
+        "encoded": "Playing the encoded file (0.0004 s). Ctrl-C stops.",
+        "difference": "Playing the difference, amplified 4,115 times (0.0004 s). Ctrl-C stops.",
     }
     assert said == [expected[name] for name in names]
     assert "Playing" not in result.output
@@ -475,7 +476,7 @@ def test_only_the_part_is_played_with_the_wanted_gain(
         pack(values, 16) for values in ([225, 225], [226, 225], [8230, 0])
     ]
     assert {seconds for _, seconds in sounds} == {2 / 8000}
-    assert "amplified 8,230 times (capped from 9,000 times to a safe level) (0.000 s)" in result.errors
+    assert "amplified 8,230 times (capped from 9,000 times to a safe level) (0.0003 s)" in result.errors
 
 
 def test_no_difference_is_not_played(run: Any, pair: tuple[str, str], sounds: list[Any]) -> None:
@@ -537,8 +538,26 @@ def test_a_name_cannot_control_the_terminal(
         assert run(*words, "--json").output.isascii()
 
 
-@pytest.mark.xfail(strict=True, reason="a duration is rounded up, so the time that is shown is refused")
 def test_the_duration_that_is_shown_is_accepted(run: Any, make_wav: Callable[..., Path]) -> None:
     make_wav(frames=bytes(49_996), frame_rate=10_000)
     shown = run("inspect", "input.wav").output.split("Duration: ")[1].split(" s ")[0]
     assert run("compare", "input.wav", "input.wav", "--to", shown).code == 0
+
+
+def test_every_time_that_is_shown_finds_its_frame_again(run: Any, make_pair: Any) -> None:
+    for rate, frames in [(8000, 99), (22050, 94_400), (44100, 70_001), (192_000, 12_347), (7, 50)]:
+        values = [100] * frames
+        changed = [*values[: frames // 3], 101, *values[frames // 3 + 1 :]]
+        words = ["compare", *make_pair(values, changed, frame_rate=rate)]
+        shown = re.findall(r"from ([0-9.]+) s to ([0-9.]+) s", run(*words).output)[0]
+        found = json.loads(run(*words, "--from", shown[0], "--to", shown[1], "--json").output)
+        assert (found["first_frame"], found["frames"], found["changed_samples"]) == (frames // 3, 1, 1)
+        length = run("inspect", words[1]).output.split("Duration: ")[1].split(" s ")[0]
+        assert json.loads(run(*words, "--to", length, "--json").output)["frames"] == frames
+
+
+def test_the_hint_names_only_what_can_be_added(run: Any, pair: tuple[str, str], sounds: list[Any]) -> None:
+    assert run("compare", *pair).errors == f"{DETAILS_HINT} {PLAY_HINT}\n"
+    played = run("compare", *pair, "--play", "original").errors
+    assert DETAILS_HINT in played and PLAY_HINT not in played
+    assert "To see every number" not in run("compare", *pair, "--show", "snr").errors
