@@ -652,7 +652,7 @@ python -m build
 
 On Windows, activate the environment with `.venv\Scripts\activate`.
 
-Mark a test that needs the `crypto` extra with `@pytest.mark.needs_crypto`. It is skipped when the library is missing, unless the environment variable `AUDIOSTEG_REQUIRE_CRYPTO` is set. The automated checks run the tests with and without the extra, and set that variable when the extra is installed.
+Mark a test that needs the `crypto` extra with `@pytest.mark.needs_crypto`. It is skipped when the library is missing, unless the environment variable `AUDIOSTEG_REQUIRE_CRYPTO` is set. The automated checks run the tests with and without the extra, and set that variable when the extra is installed. They run on Linux and Windows for every pull request, and on macOS once a week or when started by hand.
 
 ## Contributing
 

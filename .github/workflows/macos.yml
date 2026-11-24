@@ -1,0 +1,44 @@
+name: Tests on macOS
+
+on:
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Python 3.15 on macos-latest${{ !matrix.crypto && ' without crypto' || '' }}
+    runs-on: macos-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        crypto: [true, false]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15"
+      - run: python -m pip install -r requirements_dev.txt "${{ matrix.crypto && '.[crypto]' || '.' }}"
+      - name: Check that the installed package is tested
+        run: python -c "import audiosteg; assert 'site-packages' in audiosteg.__file__, audiosteg.__file__"
+      - name: Check that the crypto extra is missing
+        if: ${{ !matrix.crypto }}
+        run: python -c "import importlib.util; assert importlib.util.find_spec('cryptography') is None"
+      - name: Test without the crypto extra
+        if: ${{ !matrix.crypto }}
+        run: python -m pytest
+      - name: Test with the crypto extra
+        if: ${{ matrix.crypto }}
+        env:
+          AUDIOSTEG_REQUIRE_CRYPTO: "1"
+        run: python -m pytest --cov --cov-report=term-missing
