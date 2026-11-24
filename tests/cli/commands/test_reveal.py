@@ -1,14 +1,12 @@
 """Tests for audiosteg/cli/commands/reveal.py."""
 
 import json
-import os
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import PROGRAM, TIMEOUT, environment
+from conftest import ALL
 
 from audiosteg import encode
 from audiosteg.algorithms.lsb import LSB
@@ -42,41 +40,79 @@ def test_only_the_exact_message_is_written(
 
 
 def test_a_message_cannot_control_a_terminal_or_fake_the_last_line(
-    terminal: Any, hide: Callable[[str], Path]
+    run: Any, hide: Callable[[str], Path]
 ) -> None:
-    program = terminal("reveal", hide(UNSAFE), NO_COLOR="1")
-    assert program.finish() == 0
     shown = "\\x1b]0;title\\x07\\x9b2J\\u202egpj\\n[red]This message was encrypted.\n"
-    assert f"{shown}{NOT_ENCRYPTED}" in program.seen
-    assert "\x1b" not in program.seen
+    path = hide(UNSAFE)
+    result = run("reveal", path, terminals=ALL, NO_COLOR="1")
+    assert (result.code, result.seen) == (0, f"{shown}{NOT_ENCRYPTED}")
+    coloured = run("reveal", path, terminals=ALL, COLORTERM="truecolor")
+    assert coloured.text == result.seen
 
 
-def test_a_terminal_without_unicode_still_shows_a_message(terminal: Any, hide: Callable[[str], Path]) -> None:
-    program = terminal("reveal", hide("café 🎵"), PYTHONIOENCODING="ascii")
-    assert program.finish() == 0
-    assert f"caf\\xe9 \\U0001f3b5\n{NOT_ENCRYPTED}" in program.seen
+@pytest.mark.parametrize(
+    ("terminals", "message", "end"),
+    [
+        (("stderr",), "no newline", "no newline\n"),
+        (("stderr",), "a newline\n", "a newline\n\n"),
+        (("stdin", "stdout"), "text", "text\n"),
+        (("stdin",), "text", "text"),
+    ],
+)
+def test_the_protection_line_is_last_and_on_its_own_line(
+    run: Any, hide: Callable[[str], Path], terminals: tuple[str, ...], message: str, end: str
+) -> None:
+    result = run("reveal", hide(message), terminals=terminals, NO_COLOR="1")
+    assert result.seen == f"{end}{NOT_ENCRYPTED}"
+    if "stdout" not in terminals:
+        assert result.raw_output == message.encode()
+
+
+def test_a_real_pipe_gets_the_exact_bytes(run_process: Any, hide: Callable[[str], Path]) -> None:
+    message = "a\r\nb\n\x1a Hé 🎵\n"
+    path = hide(message)
+    hidden = run_process("hide", path, "-o", "again.wav", stdin=message.encode())
+    assert hidden.code == 0
+    assert run_process("reveal", "again.wav").raw_output == message.encode()
+
+
+@pytest.mark.parametrize(("encoding", "shown"), [("ascii", "caf\\xe9"), ("cp1252", "caf\udce9")])
+def test_a_terminal_without_unicode_still_shows_a_message(
+    run: Any, hide: Callable[[str], Path], encoding: str, shown: str
+) -> None:
+    result = run("reveal", hide("café 🎵"), terminals=ALL, encoding=encoding)
+    assert (result.code, result.seen) == (0, f"{shown} \\U0001f3b5\n{NOT_ENCRYPTED}")
 
 
 @pytest.mark.needs_crypto
+@pytest.mark.usefixtures("fast_scrypt")
 @pytest.mark.parametrize("key", ALGORITHMS)
-def test_an_encrypted_message(
-    run: Any, terminal: Any, make_wav: Callable[..., Path], tmp_path: Path, key: str
-) -> None:
+def test_an_encrypted_message(run: Any, make_wav: Callable[..., Path], tmp_path: Path, key: str) -> None:
     output, key_file = tmp_path / "output.wav", tmp_path / "key.txt"
     encode(str(make_wav()), str(output), "hidden", ALGORITHMS[key], passphrase="sésame 🎵")
     key_file.write_bytes("sésame 🎵\n".encode())
     result = run("reveal", output, "--passphrase_file", key_file)
     assert (result.code, result.output) == (0, "hidden")
     assert result.errors.endswith(ENCRYPTED)
-    program = terminal("reveal", output, NO_COLOR="1")
-    program.read("Passphrase, not shown while you type: ")
-    program.type_hidden("sésame 🎵\n")
-    program.read(f"hidden\n{ENCRYPTED}")
-    assert program.finish() == 0
-    assert "same" not in program.seen
+    for words in ([], ["-p"]):
+        typed = run("reveal", output, *words, hidden=("sésame 🎵",), terminals=ALL, NO_COLOR="1")
+        assert typed.seen == f"Passphrase, not shown while you type: hidden\n{ENCRYPTED}"
 
 
 @pytest.mark.needs_crypto
+@pytest.mark.usefixtures("fast_scrypt")
+@pytest.mark.parametrize("terminal", ALL)
+def test_one_terminal_is_enough_to_ask_for_the_passphrase(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, terminal: str
+) -> None:
+    output = tmp_path / "output.wav"
+    encode(str(make_wav()), str(output), "hidden", LSB, passphrase="sesame")
+    result = run("reveal", output, hidden=("sesame",), terminals=(terminal,))
+    assert (result.code, result.output.rstrip("\n")) == (0, "hidden")
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.usefixtures("fast_scrypt")
 def test_a_wrong_or_missing_passphrase_is_a_failure(
     run: Any, make_wav: Callable[..., Path], embed: Callable[..., bytes], known_answer: Any, tmp_path: Path
 ) -> None:
@@ -172,16 +208,8 @@ def test_every_kind_of_failure_is_reported(run: Any, make_wav: Callable[..., Pat
         assert details["error"]["exit_code"] == 1
 
 
-def test_a_reader_that_left_is_a_failure_without_a_traceback(hide: Callable[[str], Path]) -> None:
-    reading, writing = os.pipe()
-    os.close(reading)
-    process = subprocess.run(
-        [*PROGRAM, "reveal", str(hide("hidden"))],
-        stdout=writing,
-        stderr=subprocess.PIPE,
-        env=environment(),
-        timeout=TIMEOUT,
-    )
-    os.close(writing)
-    assert process.returncode == 1
-    assert process.stderr.strip() == b"Error: The output was closed."
+def test_a_reader_that_left_is_a_failure_without_a_traceback(run: Any, hide: Callable[[str], Path]) -> None:
+    path = hide("hidden")
+    for options in ([], ["--json"]):
+        result = run("reveal", path, *options, broken=("stdout",))
+        assert (result.code, result.errors) == (1, "Error: The output was closed.\n")

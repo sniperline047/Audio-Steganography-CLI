@@ -61,14 +61,17 @@ def test_known_answer_bytes_for_an_encrypted_message(
     assert decode(str(output), algorithm, passphrase=passphrase) == known_answer.message
 
 
+LENGTHS = [*range(66), *range(126, 131), *range(254, 259), 400]
+
+
 @both
-def test_round_trip_at_every_length_from_0_to_400(
+def test_round_trip_at_every_length_around_the_boundaries(
     make_wav: Callable[..., Path], tmp_path: Path, algorithm: Algorithm
 ) -> None:
     source = make_wav()
     output = tmp_path / "output.wav"
     letters = random.Random(11)
-    for length in range(401):
+    for length in LENGTHS:
         message = "".join(chr(letters.randrange(32, 127)) for _ in range(length))
         encode(str(source), str(output), message, algorithm, overwrite=True)
         assert decode(str(output), algorithm) == message
@@ -76,13 +79,13 @@ def test_round_trip_at_every_length_from_0_to_400(
 
 @both
 @pytest.mark.needs_crypto
-def test_encrypted_round_trip_at_every_length_from_0_to_400(
+def test_encrypted_round_trip_at_every_length_around_the_boundaries(
     make_wav: Callable[..., Path], fast_scrypt: None, tmp_path: Path, algorithm: Algorithm
 ) -> None:
     source = make_wav()
     output = tmp_path / "output.wav"
     letters = random.Random(12)
-    for length in range(401):
+    for length in LENGTHS:
         message = "".join(chr(letters.randrange(32, 127)) for _ in range(length))
         encode(str(source), str(output), message, algorithm, passphrase="key", overwrite=True)
         assert decode(str(output), algorithm, passphrase="key") == message

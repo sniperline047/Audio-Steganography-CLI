@@ -1,21 +1,21 @@
 """Tests for audiosteg/cli/commands/hide.py."""
 
 import hashlib
+import io
 import json
 import os
-import subprocess
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import NO_SIGINT, PROGRAM, TIMEOUT, environment
+from conftest import ALL, NO_SIGINT
 
 from audiosteg import decode, encode
 from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.commands import hide
 from audiosteg.cli.commands.hide import HideRequest, check_not_sample, check_output, default_output
+from audiosteg.cli.results import HideResult
 from audiosteg.errors import UnsafeOutputError
 
 needs_sigint = pytest.mark.skipif(NO_SIGINT, reason="Ctrl-C cannot be sent to one process here")
@@ -110,16 +110,94 @@ def test_unusable_messages_are_refused_without_showing_them(
     ("answer", "replaced"), [("", False), ("n", False), ("no", False), ("y", True), ("yes", True)]
 )
 def test_a_terminal_asks_before_overwriting(
-    terminal: Any, make_wav: Callable[..., Path], tmp_path: Path, answer: str, replaced: bool
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, answer: str, replaced: bool
 ) -> None:
     source, output = make_wav(), tmp_path / "output.wav"
     encode(str(source), str(output), "old", ALGORITHMS["lsb"])
-    program = terminal("hide", source, "-m", "new", "-o", output)
-    program.read("output.wav already exists. Overwrite it? (y/N): ")
-    program.type(f"{answer}\n")
-    assert program.finish() == (0 if replaced else 1)
+    words = ["hide", source, "-m", "new", "-o", output]
+    result = run(*words, stdin=f"{answer}\n".encode(), terminals=ALL)
+    assert "output.wav already exists. Overwrite it? (y/N): " in result.errors
+    assert result.code == (0 if replaced else 1)
     assert decode(str(output)) == ("new" if replaced else "old")
-    assert ("Nothing was written." in program.seen) is not replaced
+    assert ("Error: Nothing was written." in result.errors) is not replaced
+
+
+@pytest.mark.parametrize("missing", ["stdin", "stderr"])
+def test_the_overwrite_question_needs_a_terminal_for_input_and_errors(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, missing: str
+) -> None:
+    (tmp_path / "output.wav").write_bytes(b"old")
+    terminals = tuple(name for name in ALL if name != missing)
+    words = ["hide", make_wav(), "-m", "new", "-o", "output.wav"]
+    result = run(*words, stdin=b"y\n", terminals=terminals)
+    assert (result.code, "--force" in result.errors) == (1, True)
+    assert (tmp_path / "output.wav").read_bytes() == b"old"
+    piped = run(*words, stdin=b"y\n", terminals=("stdin", "stderr"))
+    assert piped.code == 0
+    assert "Overwrite it?" not in piped.output
+
+
+@pytest.mark.parametrize("kind", ["message", "passphrase", "hard_link"])
+def test_the_message_and_passphrase_files_cannot_be_the_output(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, kind: str
+) -> None:
+    path = tmp_path / "text.wav"
+    path.write_text("precious")
+    path.chmod(0o600)
+    output = path
+    if kind == "hard_link":
+        output = tmp_path / "link.wav"
+        os.link(path, output)
+    option = "--passphrase_file" if kind == "passphrase" else "--message_file"
+    words = ["hide", make_wav(), option, path, "-o", output, "--force"]
+    result = run(*words, *(["-m", "x"] if kind == "passphrase" else []))
+    assert result.code == 1
+    assert "The output path is the message file or the passphrase file." in result.errors
+    assert path.read_text() == "precious"
+
+
+def test_the_word_sample_is_the_included_tune_and_a_path_is_a_file(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    make_wav(name="sample")
+    sizes = []
+    for word in ("sample", "./sample"):
+        assert run("hide", word, "-m", "x", "-o", "out.wav", "--force").code == 0
+        sizes.append((tmp_path / "out.wav").stat().st_size)
+    assert sizes[0] == Path(hide.SAMPLE_FILE).stat().st_size
+    assert sizes[1] == (tmp_path / "sample").stat().st_size
+
+
+def test_an_empty_path_is_refused(run: Any, make_wav: Callable[..., Path], tmp_path: Path) -> None:
+    source = make_wav()
+    for words in (["hide", "", "-m", "x"], ["hide", source, "-m", "x", "-o", ""]):
+        result = run(*words)
+        assert (result.code, "Error: A path is empty." in result.errors) == (2, True)
+    assert os.listdir(tmp_path) == ["input.wav"]
+
+
+@pytest.mark.parametrize("encrypted", [False, pytest.param(True, marks=pytest.mark.needs_crypto)])
+@pytest.mark.usefixtures("fast_scrypt")
+def test_the_largest_message_fits_and_one_byte_more_does_not(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, key_file: Path, encrypted: bool
+) -> None:
+    source, output = make_wav(frames=bytes(800)), tmp_path / "out.wav"
+    passphrase = "TOP_SECRET" if encrypted else None
+    limit = 800 * 2 // 8 - (54 if encrypted else 14)
+    words = ["hide", source, "-a", "lsb_2", "-o", output]
+    words += ["--passphrase_file", key_file] if encrypted else []
+    refused = run(*words, stdin=b"x" * (limit + 1))
+    assert (refused.code, output.exists()) == (1, False)
+    assert f"can hold {limit} bytes" in refused.errors
+    assert run(*words, stdin=b"x" * limit).code == 0
+    assert decode(str(output), passphrase=passphrase) == "x" * limit
+
+
+def test_nothing_is_asked_about_a_file_that_cannot_be_used(run: Any, tmp_path: Path) -> None:
+    (tmp_path / "text.wav").write_text("not audio " * 10)
+    for name in ("text.wav", "missing.wav"):
+        result = run("hide", name, terminals=ALL, stdin=b"x\n")
+        assert (result.code, "Message to hide" in result.seen) == (1, False)
 
 
 def test_without_a_terminal_only_force_overwrites(
@@ -194,12 +272,11 @@ def test_a_missing_sample_does_not_block_other_files(tmp_path: Path, monkeypatch
 
 
 def test_an_output_folder_is_refused_before_any_overwrite_question(
-    terminal: Any, make_wav: Callable[..., Path], tmp_path: Path
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path
 ) -> None:
-    program = terminal("hide", make_wav(), "-m", "x", "-o", tmp_path)
-    program.read("not a regular file")
-    assert program.finish() == 1
-    assert "Overwrite" not in program.seen
+    result = run("hide", make_wav(), "-m", "x", "-o", tmp_path, terminals=ALL)
+    assert (result.code, "not a regular file" in result.errors) == (1, True)
+    assert "Overwrite" not in result.seen
 
 
 def test_a_message_that_fits_another_algorithm_is_told_so(
@@ -217,6 +294,7 @@ def test_a_message_that_fits_another_algorithm_is_told_so(
 
 
 @pytest.mark.needs_crypto
+@pytest.mark.usefixtures("fast_scrypt")
 def test_a_passphrase_file_encrypts_and_stays_out_of_files_and_output(
     run: Any, make_wav: Callable[..., Path], tmp_path: Path, key_file: Path
 ) -> None:
@@ -269,14 +347,73 @@ def test_a_terminal_never_shows_the_passphrase(
     assert decode(str(tmp_path / "out.wav"), passphrase="sésame") == "my message"
 
 
+def test_a_message_and_a_passphrase_typed_in_any_terminal(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    requests = []
+
+    def remember(request: HideRequest) -> HideResult:
+        requests.append(request)
+        return HideResult(request.input_file, request.output_file, request.algorithm, True)
+
+    monkeypatch.setattr(hide, "hide", remember)
+    monkeypatch.setattr(hide.crypto, "check_available", lambda: None)
+    hidden = ("key", "Key", "", "key\n", "key", "key")
+    result = run("hide", make_wav(), "-p", stdin=b" my message \n", hidden=hidden, terminals=ALL)
+    assert result.code == 0
+    assert (requests[0].message, requests[0].passphrase) == (" my message ", "key")
+    for reason in ("do not match", "The passphrase is empty", "line break"):
+        assert f"{reason}" in result.errors
+    assert result.errors.count("Please try again.") == 3
+
+
+PROMPTS = ["overwrite", "message", "passphrase", "repeated"]
+
+
+@pytest.mark.parametrize(("error", "code"), [(EOFError, 1), (KeyboardInterrupt, 130)])
+@pytest.mark.parametrize("prompt", PROMPTS)
+def test_leaving_any_prompt_changes_nothing(
+    run: Any,
+    make_wav: Callable[..., Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    prompt: str,
+    error: type[BaseException],
+    code: int,
+) -> None:
+    monkeypatch.setattr(hide.crypto, "check_available", lambda: None)
+    source, output = make_wav(), tmp_path / "out.wav"
+    output.write_bytes(b"keep me")
+    number = PROMPTS.index(prompt)
+
+    class Typing(io.BytesIO):
+        def read1(self, size: int | None = -1) -> bytes:
+            line = self.readline()
+            if line:
+                return line
+            raise error
+
+    typed = [b"y\n", b"my message\n"][:number]
+    hidden = {2: (error,), 3: ("sesame", error)}.get(number, ())
+    stdin = b"".join(typed)
+    result = run("hide", source, "-p", "-o", output, stdin=stdin, hidden=hidden, terminals=ALL, typing=Typing)
+    assert result.code == code
+    assert "Error: Interrupted." in result.errors or "Error: The input ended" in result.errors
+    assert "sesame" not in result.seen
+    assert output.read_bytes() == b"keep me"
+    assert sorted(os.listdir(tmp_path)) == ["input.wav", "out.wav"]
+
+
 @needs_sigint
-@pytest.mark.needs_crypto
 @pytest.mark.parametrize(
-    ("key", "code", "reason"),
-    [("\x04", 1, "The input ended"), ("\x03", 130, "Interrupted.")],
-    ids=["end_of_input", "ctrl_c"],
+    ("key", "code", "reason", "prompt"),
+    [
+        ("\x04", 1, "The input ended", "message"),
+        ("\x03", 130, "Interrupted.", "overwrite"),
+        pytest.param("\x03", 130, "Interrupted.", "repeated", marks=pytest.mark.needs_crypto),
+        pytest.param("\x04", 1, "The input ended", "passphrase", marks=pytest.mark.needs_crypto),
+    ],
 )
-@pytest.mark.parametrize("prompt", ["message", "passphrase", "repeated", "overwrite"])
 def test_leaving_a_prompt_shows_typing_again_and_changes_nothing(
     terminal: Any,
     make_wav: Callable[..., Path],
@@ -289,7 +426,8 @@ def test_leaving_a_prompt_shows_typing_again_and_changes_nothing(
     source, output = make_wav(), tmp_path / "out.wav"
     if prompt == "overwrite":
         output.write_bytes(b"keep me")
-    program = terminal("hide", source, "-p", "-o", output)
+    option = ["-p"] if prompt in ("passphrase", "repeated") else []
+    program = terminal("hide", source, *option, "-o", output)
     if prompt == "overwrite":
         program.read("(y/N): ")
         program.type(key)
@@ -316,15 +454,6 @@ def test_a_prompted_passphrase_without_a_terminal_is_refused(
     assert not (tmp_path / "out.wav").exists()
 
 
-def broken_library(tmp_path: Path) -> list[str]:
-    """Return a command for the program without the encryption library."""
-    package = tmp_path / "broken" / "cryptography"
-    package.mkdir(parents=True)
-    (package / "__init__.py").write_text("raise ImportError('not here')\n")
-    start = f"import sys; sys.path.insert(0, {str(package.parent)!r})"
-    return [sys.executable, "-c", f"{start}; from audiosteg.cli.main import main; sys.exit(main())"]
-
-
 def test_without_the_library_plain_messages_work_and_a_passphrase_is_refused(
     run: Any,
     make_wav: Callable[..., Path],
@@ -332,16 +461,16 @@ def test_without_the_library_plain_messages_work_and_a_passphrase_is_refused(
     known_answer: Any,
     tmp_path: Path,
     key_file: Path,
+    no_library: None,
 ) -> None:
-    command = broken_library(tmp_path)
     private = make_wav(name="private.wav", frames=embed(known_answer.container, 1))
     source, output = make_wav(), tmp_path / "output.wav"
-    refused = run("hide", source, "-m", "x", "--passphrase_file", key_file, "-o", output, command=command)
+    refused = run("hide", source, "-m", "x", "--passphrase_file", key_file, "-o", output)
     assert refused.code == 1
     assert not output.exists()
-    assert run("hide", source, "-m", "hidden", "-o", output, command=command).code == 0
-    assert run("reveal", output, command=command).output == "hidden"
-    unread = run("reveal", private, "--passphrase_file", key_file, command=command)
+    assert run("hide", source, "-m", "hidden", "-o", output).code == 0
+    assert run("reveal", output).output == "hidden"
+    unread = run("reveal", private, "--passphrase_file", key_file)
     assert unread.code == 1
     for result in (refused, unread):
         assert "Error: Encryption needs an optional library. To install it, run: pip" in result.errors
@@ -413,15 +542,13 @@ def test_paths_cannot_control_the_terminal(run: Any, make_wav: Callable[..., Pat
         assert not any(character in result.output + result.errors for character in "\x1b\u202e")
 
 
-def test_a_terminal_shows_no_markup_from_a_path(
-    terminal: Any, make_wav: Callable[..., Path], tmp_path: Path
-) -> None:
-    program = terminal(
-        "hide", make_wav(), "-m", "x", "-o", "[bold red]x[link=a]\u202e.wav", COLORTERM="truecolor"
-    )
-    assert program.finish() == 0
-    assert "[bold red]x[link=a]\\u202e.wav" in program.seen
-    assert "╭" in program.seen
+def test_a_terminal_shows_no_markup_from_a_path(run: Any, make_wav: Callable[..., Path]) -> None:
+    name = "[bold red]x[link=a]:smile:\u202e.wav" if os.name != "nt" else "[bold red]x[link=a]\u202e.wav"
+    words = ["hide", make_wav(), "-m", "x", "-o", name]
+    result = run(*words, terminals=ALL, COLORTERM="truecolor")
+    assert result.code == 0
+    assert name.replace("\u202e", "\\u202e") in result.text
+    assert "╭" in result.text
 
 
 def test_json_describes_the_result(run: Any, make_wav: Callable[..., Path], tmp_path: Path) -> None:
@@ -437,17 +564,3 @@ def test_json_describes_the_result(run: Any, make_wav: Callable[..., Path], tmp_
         "algorithm": "lsb",
         "encrypted": False,
     }
-
-
-def test_a_reader_that_left_is_a_failure_without_a_traceback(
-    make_wav: Callable[..., Path], tmp_path: Path
-) -> None:
-    reading, writing = os.pipe()
-    os.close(reading)
-    words = ["hide", str(make_wav()), "-m", "x", "-o", str(tmp_path / "out.wav")]
-    process = subprocess.run(
-        [*PROGRAM, *words], stdout=writing, stderr=subprocess.PIPE, env=environment(), timeout=TIMEOUT
-    )
-    os.close(writing)
-    assert process.returncode == 1
-    assert process.stderr.strip() == b"Error: The output was closed."

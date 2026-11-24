@@ -19,3 +19,14 @@ def test_json_lists_every_algorithm(run: Any) -> None:
     result = json.loads(run("algorithms", "--json").output)
     assert [algorithm["key"] for algorithm in result["algorithms"]] == list(ALGORITHMS)
     assert [algorithm["key"] for algorithm in result["legacy"]] == list(LEGACY_ALGORITHMS)
+
+
+def test_json_describes_an_algorithm(run: Any) -> None:
+    result = json.loads(run("algorithms", "--json").output)
+    assert (result["ok"], result["command"]) == (True, "algorithms")
+    assert result["algorithms"][1] == {
+        "key": "lsb_2",
+        "name": ALGORITHMS["lsb_2"].name,
+        "bits_per_byte": 2,
+        "explanation": ALGORITHMS["lsb_2"].explanation,
+    }

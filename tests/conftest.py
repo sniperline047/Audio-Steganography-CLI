@@ -3,22 +3,33 @@
 import contextlib
 import hashlib
 import importlib.util
+import io
 import os
 import random
+import re
 import select
 import signal
 import subprocess
 import sys
 import time
 import wave
+from asyncio import get_running_loop
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import pytest
+import rich.console
+from prompt_toolkit.application import create_app_session
+from prompt_toolkit.data_structures import Size
+from prompt_toolkit.input import create_pipe_input
+from prompt_toolkit.output.vt100 import Vt100_Output
+from questionary import Question
 
+from audiosteg.cli import passphrase as passphrase_module
 from audiosteg.cli.commands.hide import SAMPLE_FILE
+from audiosteg.cli.main import main
 from audiosteg.core import crypto
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -167,18 +178,6 @@ TIMEOUT = 60
 NO_SIGINT = os.name == "nt" or signal.getsignal(signal.SIGINT) == signal.SIG_IGN
 
 
-class Result:
-    """The outcome of one CLI run."""
-
-    def __init__(self, code: int, output: bytes, errors: bytes) -> None:
-        self.code = code
-        self.raw_output = output
-        self.output = output.decode("utf-8", "surrogateescape").replace("\r\n", "\n")
-        self.errors = errors.decode("utf-8", "surrogateescape").replace("\r\n", "\n")
-        assert "Traceback" not in self.errors
-        assert "Exception ignored" not in self.errors
-
-
 def environment(**changes: str) -> dict[str, str]:
     """Return an environment that does not depend on the one of the test run."""
     unwanted = ("NO_COLOR", "FORCE_COLOR", "COLORTERM", "COLUMNS", "LINES")
@@ -186,16 +185,192 @@ def environment(**changes: str) -> dict[str, str]:
     return {**kept, "PYTHONIOENCODING": "utf-8", "TERM": "xterm-256color", **changes}
 
 
+def remove_styles(shown: str) -> str:
+    """Return what a terminal showed, without colours and cursor movements."""
+    return re.sub(r"\x1b(\[[0-?]*[ -/]*[@-~]|[=>])", "", shown)
+
+
+class Result:
+    """The outcome of one CLI run."""
+
+    def __init__(self, code: int, output: bytes, errors: bytes, seen: bytes = b"") -> None:
+        self.code = code
+        self.raw_output = output
+        self.output = output.decode("utf-8", "surrogateescape").replace("\r\n", "\n")
+        self.errors = errors.decode("utf-8", "surrogateescape").replace("\r\n", "\n")
+        self.seen = seen.decode("utf-8", "surrogateescape").replace("\r\n", "\n")
+        assert "Traceback" not in self.errors
+        assert "Exception ignored" not in self.errors
+
+    @property
+    def text(self) -> str:
+        """What a terminal showed, without colours and cursor movements."""
+        return remove_styles(self.seen)
+
+
+class Pipe(io.BytesIO):
+    """An output that also adds everything to one transcript."""
+
+    def __init__(self, transcript: bytearray) -> None:
+        super().__init__()
+        self.transcript = transcript
+
+    def write(self, data: Any) -> int:
+        self.transcript += data
+        return super().write(data)
+
+
+class Stream(io.TextIOWrapper):
+    """A standard stream that may pretend to be a terminal."""
+
+    terminal = False
+
+    def isatty(self) -> bool:
+        return self.terminal
+
+
+class Console:
+    """Runs the CLI in this process, on every system, with streams that may pretend to be a terminal."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, folder: Path) -> None:
+        self.monkeypatch = monkeypatch
+        self.folder = folder
+
+    def run(
+        self,
+        *words: str | Path,
+        stdin: bytes = b"",
+        hidden: tuple[str | type[BaseException], ...] = (),
+        cwd: Path | None = None,
+        encoding: str = "utf-8",
+        terminals: tuple[str, ...] = (),
+        columns: int = 300,
+        broken: tuple[str, ...] = (),
+        prompts: tuple[tuple[str, Any], ...] = (),
+        typing: type[io.BytesIO] = io.BytesIO,
+        **changes: str,
+    ) -> Result:
+        """
+        Run one command.
+
+        :param words: The command line
+        :param stdin: What is typed or piped
+        :param hidden: What is typed where typing is hidden, or errors to raise there
+        :param terminals: The streams that are terminals
+        :param broken: The streams whose reader has left
+        :param prompts: Questions of the guided mode, and the keys that answer each
+        :param typing: The kind of input, which may raise errors
+        :param changes: Changes of the environment
+        """
+        transcript = bytearray()
+        raw = {"stdin": typing(stdin), "stdout": Pipe(transcript), "stderr": Pipe(transcript)}
+        answers = iter(hidden)
+
+        def getpass(prompt: str) -> str:
+            transcript.extend(prompt.encode())
+            answer = next(answers)
+            if isinstance(answer, str):
+                return answer
+            raise answer
+
+        def write_nowhere(data: Any) -> int:
+            raise BrokenPipeError(32, "Broken pipe")
+
+        with self.monkeypatch.context() as patch:
+            patch.chdir(cwd or self.folder)
+            for name in ("NO_COLOR", "FORCE_COLOR", "COLORTERM", "LINES"):
+                patch.delenv(name, raising=False)
+            for name, value in {"TERM": "xterm-256color", "COLUMNS": str(columns), **changes}.items():
+                patch.setenv(name, value)
+            patch.setattr(rich.console, "WINDOWS", False)
+            patch.setattr(passphrase_module, "getpass", getpass)
+            for name, buffer in raw.items():
+                stream = Stream(buffer, encoding=encoding, write_through=True)
+                stream.terminal = name in terminals
+                if name in broken:
+                    patch.setattr(buffer, "write", write_nowhere)
+                patch.setattr(sys, name, stream)
+            with answer_questions(patch, prompts, transcript, columns):
+                code = main([str(word) for word in words])
+            result = Result(code, raw["stdout"].getvalue(), raw["stderr"].getvalue(), bytes(transcript))
+        assert next(answers, None) is None, "a hidden answer was not used"
+        return result
+
+
+@contextlib.contextmanager
+def answer_questions(
+    patch: pytest.MonkeyPatch, prompts: tuple[tuple[str, Any], ...], transcript: bytearray, columns: int
+) -> Iterator[None]:
+    """Answer the questions of the guided mode with keys from a pipe. This works on every system."""
+    script = iter(prompts)
+    original = Question.unsafe_ask
+
+    with create_pipe_input() as keys:
+
+        def ask(question: Question, patch_stdout: bool = False) -> Any:
+            expected, answer = next(script, ("", None))
+            start = len(transcript)
+            answered = False
+
+            def shown() -> str:
+                return remove_styles(bytes(transcript[start:]).decode("utf-8", "replace"))
+
+            def fail(reason: str) -> None:
+                if not question.application.future.done():
+                    question.application.exit(exception=AssertionError(f"{reason}: {shown()}"))
+
+            def type_answer(application: Any) -> None:
+                nonlocal answered
+                if answered:
+                    return
+                answered = True
+                application.timeoutlen = application.ttimeoutlen = 0.02
+                get_running_loop().call_later(10, fail, f"{expected!r} was not answered")
+                if answer is None or expected not in shown():
+                    fail(f"{expected!r} was expected, not this question")
+                elif isinstance(answer, str):
+                    keys.send_text(answer)
+                else:
+                    answer(application)
+
+            question.application.after_render += type_answer
+            return original(question, patch_stdout)
+
+        patch.setattr(Question, "unsafe_ask", ask)
+        screen = Vt100_Output(
+            sys.stdout, lambda: Size(rows=40, columns=columns), term="xterm-256color", enable_cpr=False
+        )
+        with create_app_session(input=keys, output=screen):
+            yield
+    assert next(script, None) is None, "a question was not asked"
+
+
 @pytest.fixture
-def run() -> Callable[..., Result]:
+def run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Callable[..., Result]:
+    """Return a function that runs one command in this process, in tmp_path, without a terminal."""
+    return Console(monkeypatch, tmp_path).run
+
+
+ALL = ("stdin", "stdout", "stderr")
+
+
+@pytest.fixture
+def guide(run: Callable[..., Result]) -> Callable[..., Result]:
+    """Return a function that answers the questions of the guided mode, the last of them with Ctrl-D."""
+
+    def answer(*prompts: tuple[str, Any], leave: bool = True, **options: Any) -> Result:
+        leaving = (("What would you like to do?", "\x04"),) if leave else ()
+        return run(prompts=(*prompts, *leaving), terminals=ALL, **options)
+
+    return answer
+
+
+@pytest.fixture
+def run_process(tmp_path: Path) -> Callable[..., Result]:
     """Return a function that runs one command in a real process without a terminal."""
 
     def run_command(
-        *words: str | Path,
-        stdin: bytes = b"",
-        command: list[str] | None = None,
-        cwd: Path | None = None,
-        encoding: str = "utf-8",
+        *words: str | Path, stdin: bytes = b"", command: list[str] | None = None, cwd: Path = tmp_path
     ) -> Result:
         detached = {} if os.name == "nt" else {"start_new_session": True}
         finished = subprocess.run(
@@ -203,7 +378,7 @@ def run() -> Callable[..., Result]:
             input=stdin,
             capture_output=True,
             cwd=cwd,
-            env=environment(PYTHONIOENCODING=encoding),
+            env=environment(),
             timeout=TIMEOUT,
             **detached,
         )

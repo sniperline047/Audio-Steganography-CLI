@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import ALL
 
 from audiosteg import encode
 from audiosteg.algorithms.registry import ALGORITHMS
@@ -54,14 +55,78 @@ def test_a_difference_is_reported_and_fails(run: Any, make_wav: Callable[..., Pa
 
 
 @pytest.mark.needs_crypto
-def test_an_encrypted_message_is_compared(
-    run: Any, make_wav: Callable[..., Path], embed: Callable[..., bytes], known_answer: Any, tmp_path: Path
-) -> None:
-    path, key_file = make_wav(frames=embed(known_answer.container, 1)), tmp_path / "key.txt"
-    key_file.write_bytes(known_answer.passphrase.encode())
-    result = run("verify", path, "-m", known_answer.message, "--passphrase_file", key_file)
+@pytest.mark.usefixtures("fast_scrypt")
+def test_an_encrypted_message_is_compared(run: Any, make_wav: Callable[..., Path], tmp_path: Path) -> None:
+    path, key_file = tmp_path / "output.wav", tmp_path / "key.txt"
+    encode(str(make_wav()), str(path), "hidden", ALGORITHMS["lsb"], passphrase="sesame")
+    key_file.write_text("sesame")
+    result = run("verify", path, "-m", "hidden", "--passphrase_file", key_file)
     assert result.code == 0
     assert "Protection: This message was encrypted.\n" in result.output
+    wrong = run("verify", path, "-m", "hidden", hidden=("wrong",), terminals=ALL)
+    assert (wrong.code, "Accuracy" in wrong.seen, "hidden" in wrong.output) == (1, False, False)
+
+
+def test_the_expected_message_comes_from_a_file_or_a_terminal(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    path, expected = tmp_path / "output.wav", tmp_path / "expected.txt"
+    encode(str(make_wav()), str(path), "Hé\n", ALGORITHMS["lsb"])
+    expected.write_bytes("Hé\n".encode())
+    assert run("verify", path, "--message_file", expected).code == 0
+    typed = run("verify", path, stdin="Hé\n".encode(), terminals=ALL)
+    assert typed.code == 1
+    assert "Expected message: " in typed.errors
+    nothing = run("verify", path)
+    assert (nothing.code, nothing.output) == (2, "")
+
+
+def test_a_damaged_message_is_an_error_not_a_score(
+    run: Any, make_wav: Callable[..., Path], embed: Callable[..., bytes]
+) -> None:
+    result = run("verify", make_wav(frames=embed(b"ASTG\x01\0\0\0\0\x01A\0\0\0\0", 1)), "-m", "A")
+    assert (result.code, result.output) == (1, "")
+    assert "Error: The hidden message is damaged" in result.errors
+
+
+@pytest.mark.parametrize(("key", "bits"), [("basic", 1), ("enhanced", 2)])
+def test_an_expected_message_may_be_as_long_as_an_old_message(
+    run: Any, make_wav: Callable[..., Path], key: str, bits: int
+) -> None:
+    path = make_wav(frames=bytes(320))
+    limit = (320 * bits - 32) // 8
+    fits = run("verify", path, "--legacy", key, stdin=b"x" * limit)
+    assert (fits.code, "Accuracy: 0.00%" in fits.output) == (1, True)
+    assert run("verify", path, "--legacy", key, stdin=b"x" * (limit + 1)).output == ""
+
+
+@pytest.mark.xfail(strict=True, reason="the limit counts UTF-8 bytes, and this old message is Latin-1")
+def test_a_long_latin_1_message_of_an_old_file_matches(run: Any, make_wav: Callable[..., Path]) -> None:
+    hidden = b"\xe9" * 100
+    digits = f"{len(hidden) * 8:032b}" + "".join(f"{byte:08b}" for byte in hidden)
+    path = make_wav(frames=bytes(int(digit) for digit in digits))
+    assert run("reveal", path, "--legacy", "basic").output == "é" * 100
+    assert run("verify", path, "--legacy", "basic", stdin=("é" * 100).encode()).code == 0
+
+
+@pytest.mark.xfail(strict=True, reason="the advice for hide is shown")
+def test_a_too_long_expected_message_is_not_answered_with_advice_for_hide(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    output = tmp_path / "output.wav"
+    encode(str(make_wav()), str(output), "hidden", ALGORITHMS["lsb"])
+    result = run("verify", output, stdin=b"x" * 5000)
+    assert result.code == 1
+    assert "longer audio file" not in result.errors
+
+
+@pytest.mark.xfail(strict=True, reason="the advice for hide is shown")
+def test_a_missing_expected_message_is_not_answered_with_advice_for_hide(
+    run: Any, make_wav: Callable[..., Path]
+) -> None:
+    result = run("verify", make_wav())
+    assert result.code == 2
+    assert "To hide nothing" not in result.errors
 
 
 def test_a_file_without_a_message_is_an_error_not_a_score(run: Any, make_wav: Callable[..., Path]) -> None:
