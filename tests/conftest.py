@@ -1,5 +1,6 @@
 """Shared fixtures."""
 
+import atexit
 import contextlib
 import hashlib
 import importlib.util
@@ -8,9 +9,11 @@ import os
 import random
 import re
 import select
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import wave
 from asyncio import get_running_loop
@@ -28,11 +31,48 @@ from prompt_toolkit.output.vt100 import Vt100_Output
 from questionary import Question
 
 from audiosteg.cli import passphrase as passphrase_module
+from audiosteg.cli import player
 from audiosteg.cli.commands.hide import SAMPLE_FILE
 from audiosteg.cli.main import main
 from audiosteg.core import crypto
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+SOUND_GUARD = """
+import os, sys
+PLAYERS = {"afplay", "aplay", "paplay", "ffplay"}
+STARTS = {"subprocess.Popen", "os.posix_spawn", "os.exec", "os.system"}
+
+def words_of(value):
+    if isinstance(value, (str, bytes, os.PathLike)):
+        return os.fsdecode(value).split()
+    return [word for part in value for word in words_of(part)] if isinstance(value, (list, tuple)) else []
+
+def refuse_sound(event, args):
+    names = {os.path.splitext(os.path.basename(word))[0] for part in args[:2] for word in words_of(part)} \
+        if event in STARTS else set()
+    if event == "winsound.PlaySound" or names & PLAYERS:
+        raise AssertionError("A test tried to play sound.")
+
+sys.addaudithook(refuse_sound)
+"""
+
+
+def pytest_configure() -> None:
+    """Make starting a real player an error, in this process and in every Python process it starts."""
+    folder = tempfile.mkdtemp(prefix="audiosteg_tests_")
+    atexit.register(shutil.rmtree, folder, ignore_errors=True)
+    Path(folder, "sitecustomize.py").write_text(SOUND_GUARD)
+    paths = [folder, os.environ.get("PYTHONPATH", "")]
+    os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, paths))
+    exec(SOUND_GUARD, {})
+
+
+@pytest.fixture(autouse=True)
+def no_real_player(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every test run on a system without a player."""
+    monkeypatch.setattr(player, "MAC_PLAYERS", ())
+    monkeypatch.setattr(player, "LINUX_FOLDERS", ())
 
 
 class KnownAnswer(NamedTuple):
@@ -390,7 +430,9 @@ def run_process(tmp_path: Path) -> Callable[..., Result]:
 TERMINAL_PROGRAM = """
 import fcntl, sys, termios
 fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+from audiosteg.cli import player
 from audiosteg.cli.main import main
+player.MAC_PLAYERS = player.LINUX_FOLDERS = ()
 code = main(sys.argv[1:])
 print("Typing is", "shown" if termios.tcgetattr(0)[3] & termios.ECHO else "hidden")
 sys.stdin.readline()
