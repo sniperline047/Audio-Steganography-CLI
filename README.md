@@ -2,7 +2,7 @@
 
 [![Test coverage](https://github.com/sniperline047/Audio-Steganography-CLI/raw/coverage_badge/coverage.svg)](https://github.com/sniperline047/Audio-Steganography-CLI/actions/workflows/tests.yml)
 
-A learning project that hides a text message inside a WAV file and reads it back. It offers two least significant bit (LSB) algorithms through an interactive menu and a small Python API. It needs only the Python standard library. Optional encryption needs one extra library.
+A learning project that hides a text message inside a WAV file and reads it back. It offers two least significant bit (LSB) algorithms through commands, a guided mode, and a small Python API. The Python API needs only the standard library. The commands also use [Rich](https://rich.readthedocs.io/) and [questionary](https://questionary.readthedocs.io/), which are installed automatically. Optional encryption needs one extra library.
 
 > **Without a passphrase, anyone can read, change, or replace a hidden message.** Read [Security](#security) before you hide anything private.
 
@@ -51,44 +51,143 @@ uv run --extra crypto audiosteg
 
 The second command adds encryption. From another folder, use `uv run --project path/to/Audio-Steganography-CLI audiosteg`.
 
-The menu has four options:
+Without a command, this starts the [guided mode](#guided-mode).
 
-1. **Encode a message**
-2. **Decode a message**
-3. **Calculate accuracy**
-4. **Exit**
+## Commands
 
-At a path prompt, press Enter to use the default file shown in brackets, or type another path. Spaces around a typed path are removed, so a path cannot start or end with spaces. `~` means your home folder. To use a file whose name starts with `~`, type `./` before it.
+```bash
+audiosteg hide sample -m "Hello"
+audiosteg reveal sample.stego.wav
+audiosteg verify sample.stego.wav -m "Hello"
+audiosteg algorithms
+audiosteg --version
+```
 
-The program exits with code 0 when every operation succeeded, 1 when an operation failed or the input ended in the middle of one, and 130 after Ctrl-C. If the output is closed (for example, by a pipe such as `| head`), it stops with code 1 without starting another operation.
+Add `--help` to any command to see its options and examples.
 
-### Encode a message
+The word `sample` as the input of `hide` means the tune that is included in the package. To use a file named `sample`, write `./sample`.
 
-1. Choose **Encode a message**, then an algorithm. After an invalid choice, the program asks again. Choose **Back** to return to the main menu.
-2. Type the secret message.
-3. Type a passphrase twice to encrypt the message, or press Enter for no encryption. A terminal does not show the passphrase. Without the `crypto` extra, the program skips this step and says so, so a script that types answers should install the extra.
-4. Choose the input audio file. The default is the sample tune that is included in the package.
-5. Choose the output audio file. The default is `message_encoded.wav` in the current folder.
-6. If the output file exists, confirm that it may be overwritten. The default answer is no.
+### hide
 
-The input file is never changed. The program refuses to write to the input file, the included sample, or a symbolic link. Only the audio is copied; tags and other metadata are not.
+Hides a message in a copy of a WAV file. The input file is never changed.
 
-### Decode a message
+```bash
+audiosteg hide song.wav -m "Meet me at noon"
+audiosteg hide song.wav -p
+audiosteg hide song.wav -a lsb_2 -o secret.wav --message_file letter.txt
+printf "Hello" | audiosteg hide song.wav
+```
 
-1. Choose **Decode a message**, then the encoded audio file. The default is `message_encoded.wav` in the current folder.
-2. The program detects the algorithm. If the message is encrypted, type its passphrase. The program says whether the message was encrypted.
-3. If nothing is detected, the program offers the algorithms of older versions. Choose the one that was used to encode, or **Back**.
+| Option | Meaning |
+| --- | --- |
+| `-m TEXT`, `--message TEXT` | The message. Other users of the computer and the shell history may see it. |
+| `--message_file FILE` | Read the message from a UTF-8 text file |
+| `-a`, `--algorithm` | `lsb` (default) or `lsb_2` |
+| `-p`, `--passphrase` | Ask for a passphrase, twice, and encrypt the message |
+| `--passphrase_file FILE` | Read the passphrase from a file |
+| `-o`, `--output` | The new file. The default is the name of the input with `.stego.wav`, in the current folder. |
+| `--force` | Replace an existing output file |
 
-If you expect an encrypted message and the program says that it was not encrypted, do not trust the message.
+Without `-m` and `--message_file`, the message is typed in a terminal, or read from a pipe. Files and pipes are hidden exactly as they are, including a newline at the end. `echo` adds such a newline; `printf` does not. Many terminals limit how long a typed line can be, so use a file for a long message.
 
-Characters that could control the terminal are shown as escape codes such as `\x1b`. This only changes the display; the hidden message stays the same. Invisible joiners are also escaped, so some combined emoji appear as separate emoji and a code such as `\u200d`.
+If the output file exists, a terminal asks before replacing it; anywhere else, `--force` is needed. The program refuses to write to the input file, the included sample, or a symbolic link. Only the audio is copied; tags and other metadata are not.
 
-### Calculate accuracy
+### reveal
 
-1. Choose **Calculate accuracy**, then the encoded audio file. Detection, the passphrase, and older files work as they do for decoding.
-2. Type the expected message.
+Reads a hidden message. The algorithm is detected.
 
-This reads an existing file and changes nothing. The score is the number of matching character positions divided by the longer message length, so missing and extra characters lower it. The program also says whether the messages match exactly.
+```bash
+audiosteg reveal song.stego.wav
+audiosteg reveal song.stego.wav > message.txt
+audiosteg reveal song.stego.wav --passphrase_file key.txt
+audiosteg reveal old.wav --legacy basic
+```
+
+| Option | Meaning |
+| --- | --- |
+| `-a`, `--algorithm` | `lsb` or `lsb_2`, instead of detecting it |
+| `--legacy` | `basic`, `enhanced`, or `enhanced_flip`, for files of older versions, which are not detected |
+| `-p`, `--passphrase` | Ask for the passphrase. A terminal asks without this option if the message is encrypted. |
+| `--passphrase_file FILE` | Read the passphrase from a file |
+
+Only the message goes to stdout. Everything else, such as whether the message was encrypted, goes to stderr. If you expect an encrypted message and the program says that it was not encrypted, do not trust the message. With a passphrase option, a message that is not encrypted is refused.
+
+In a file or a pipe, the message is written exactly, as UTF-8, with nothing added at the end. A terminal shows characters that could control it as escape codes such as `\x1b`, adds a newline, and shows the line about encryption last. Invisible joiners are also escaped, so some combined emoji appear as separate emoji and a code such as `\u200d`.
+
+### verify
+
+Compares a hidden message with the expected one and changes nothing. It has the options `-m` and `--message_file` of `hide` and all options of `reveal`.
+
+```bash
+audiosteg verify song.stego.wav -m "Meet me at noon"
+```
+
+The score is the number of matching character positions divided by the longer message length, so missing and extra characters lower it. The exit code is 1 if the messages are not exactly the same.
+
+### algorithms
+
+Lists the names that `-a` and `--legacy` accept.
+
+### Passphrases
+
+A passphrase is never a value on the command line. `-p` asks for it in the terminal without showing it. A passphrase file must be a regular UTF-8 file. Exactly one newline at its end is removed. If other users can read the file, the program shows a warning (not on Windows).
+
+### Output for programs
+
+Every command accepts these options:
+
+- `--json` writes one JSON document to stdout.
+- `--plain` uses no colour and no drawing. This also happens without a terminal, with `TERM=dumb`, and where the encoding cannot show the drawing. The environment variable `NO_COLOR` turns off colour only.
+
+The JSON document has `ok` and `command`, and:
+
+| Result | Other fields |
+| --- | --- |
+| `hide` | `input`, `output`, `algorithm`, `encrypted` |
+| `reveal` | `file`, `algorithm`, `legacy`, `encrypted`, `message` |
+| `verify` | `file`, `algorithm`, `legacy`, `encrypted`, `exact_match`, `percentage`, `expected_length`, `found_length` |
+| `algorithms` | `algorithms` and `legacy`: lists of `key`, `name`, `bits_per_byte`, `explanation` |
+| `--version` | `version` (`command` is `null`) |
+| Error | `error`: `type`, `message`, `hint` (or `null`), `exit_code` |
+
+`ok` says whether the command finished. If `verify` finds a difference, `ok` is `true`, `exact_match` is `false`, and the exit code is 1. Only `reveal` shows a message. A passphrase is never shown.
+
+The error types are `usage`, `cancelled`, `interrupted`, `input_ended`, `out_of_memory`, `file`, `file_exists`, `file_not_found`, `invalid_value`, `capacity`, `damaged_message`, `invalid_message`, `missing_library`, `no_message`, `not_encrypted`, `passphrase_required`, `unsafe_output`, `unsupported_algorithm`, `unsupported_format`, and `wrong_passphrase`.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | Failure, or `verify` found a difference |
+| 2 | Wrong usage |
+| 130 | Ctrl-C |
+
+If the output is closed (for example, by a pipe such as `| head`), the code is 1. A wrong command line is explained without repeating its words, because one of them may be a secret.
+
+## Guided mode
+
+`audiosteg` without a command shows a menu to hide, reveal, and verify messages and to learn about the algorithms. It asks for everything it needs:
+
+- The arrow keys and Enter choose from a menu. Enter at a text question accepts the default in brackets.
+- Back, or the Esc key, returns to the question before.
+- Ctrl-C leaves.
+- After each action, it shows the command that does the same. The message and the passphrase are never part of it.
+
+Spaces around a typed path are removed, and `~` means your home folder. The exit code is 1 if an action failed. The guided mode needs a terminal; without one, the program shows the help and exits with code 2.
+
+### Moving from the numbered menu
+
+The numbered menu of earlier versions is gone, so scripts that typed its numbers must use the commands:
+
+| Menu | Command |
+| --- | --- |
+| 1) Encode a message | `audiosteg hide` |
+| 2) Decode a message | `audiosteg reveal` |
+| 3) Calculate accuracy | `audiosteg verify` |
+| An algorithm number | `-a lsb` or `-a lsb_2` |
+| An old algorithm number | `--legacy basic`, `enhanced_flip`, or `enhanced` |
+| `message_encoded.wav` | `INPUT.stego.wav` |
 
 ## Use from Python
 
@@ -143,10 +242,10 @@ The oldest of these files stored one byte per character. If a message is not val
 
 ## Algorithms
 
-| Menu | Algorithm | Bits per sample | Largest change to a sample |
+| Name | Algorithm | Bits per sample | Largest change to a sample |
 | --- | --- | --- | --- |
-| 1 | `LSB` | 1 (lowest bit) | 1 |
-| 2 | `LSB_2` | 2 (two lowest bits) | 3 |
+| `lsb` | `LSB` | 1 (lowest bit) | 1 |
+| `lsb_2` | `LSB_2` | 2 (two lowest bits) | 3 |
 
 Both are in `algorithms/lsb.py`. They change only the lowest byte of each sample. The samples of all channels are used in the order in which they are stored.
 
@@ -231,11 +330,21 @@ Audio-Steganography-CLI/
 │   │   ├── detection.py    Detection and decode
 │   │   ├── legacy.py       Reading files from older versions
 │   │   ├── lsb.py          The two algorithms
-│   │   └── registry.py     The numbered lists of algorithms
+│   │   └── registry.py     The names of the algorithms
 │   ├── cli/
+│   │   ├── commands/       One file per command
 │   │   ├── accuracy.py     Message comparison
+│   │   ├── errors.py       Plain explanations of errors
+│   │   ├── guided.py       Guided mode
+│   │   ├── logo.py         The logo
 │   │   ├── main.py         Program entry point
-│   │   └── prompts.py      Menus and prompts
+│   │   ├── message_input.py Messages from options, files, and pipes
+│   │   ├── options.py      Options that commands share
+│   │   ├── parser.py       The command line
+│   │   ├── passphrase.py   Passphrases from prompts and files
+│   │   ├── questions.py    Questions of the commands
+│   │   ├── results.py      What the commands found or did
+│   │   └── views.py        Text and JSON output
 │   ├── core/
 │   │   ├── algorithm.py    The Algorithm type
 │   │   ├── crypto.py       Optional encryption
@@ -292,20 +401,21 @@ pip install -e .
        bits_per_byte=1,
        embed_bits=embed_bits,
        extract_bits=extract_bits,
+       explanation="Explains the idea in one line.",
    )
    ```
 
    The functions get only the lowest byte of each sample. `bits_per_byte` must be 1, 2, 4, or 8.
 
-2. Import it in `src/audiosteg/algorithms/registry.py` and add one line to `ALGORITHMS` with the next number:
+2. Import it in `src/audiosteg/algorithms/registry.py` and add one line to `ALGORITHMS`, with the name for the command line:
 
    ```python
-   3: MY_NEW_ALGORITHM,
+   "my_new_algorithm": MY_NEW_ALGORITHM,
    ```
 
-The menu, detection, the capacity check, and the file handling need no changes.
+The commands, the guided mode, detection, the capacity check, and the file handling need no changes.
 
-Detection tries the algorithms in order and stops at the first message. If the input audio already holds a message from an algorithm earlier in the list, that old message can be found instead of the new one. To avoid this, pass the algorithm to `decode`.
+Detection tries the algorithms in order and stops at the first message. If the input audio already holds a message from an algorithm earlier in the list, that old message can be found instead of the new one. To avoid this, pass the algorithm to `decode`, or use `-a`.
 
 ## Moving from the old layout
 
@@ -323,7 +433,7 @@ Detection tries the algorithms in order and stops at the first message. If the i
 | `from audiosteg.algorithms.enhanced_lsb import ENHANCED_LSB` | `from audiosteg.algorithms.legacy import ENHANCED_LSB` (read only) |
 | `from audiosteg.algorithms.enhanced_lsb_flip import ENHANCED_LSB_FLIP` | `from audiosteg.algorithms.legacy import ENHANCED_LSB_FLIP` (read only) |
 | `from audiosteg.core.stego_file import decode` | `from audiosteg import decode` |
-| One default output file per algorithm | `message_encoded.wav` |
+| One default output file per algorithm | `INPUT.stego.wav` |
 | `input/original_sample.wav` | `src/audiosteg/data/sample.wav` |
 | Default files in `output/` | Default files in the current folder |
 
