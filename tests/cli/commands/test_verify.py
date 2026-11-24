@@ -94,13 +94,12 @@ def test_an_expected_message_may_be_as_long_as_an_old_message(
     run: Any, make_wav: Callable[..., Path], key: str, bits: int
 ) -> None:
     path = make_wav(frames=bytes(320))
-    limit = (320 * bits - 32) // 8
+    limit = 2 * ((320 * bits - 32) // 8)
     fits = run("verify", path, "--legacy", key, stdin=b"x" * limit)
     assert (fits.code, "Accuracy: 0.00%" in fits.output) == (1, True)
     assert run("verify", path, "--legacy", key, stdin=b"x" * (limit + 1)).output == ""
 
 
-@pytest.mark.xfail(strict=True, reason="the limit counts UTF-8 bytes, and this old message is Latin-1")
 def test_a_long_latin_1_message_of_an_old_file_matches(run: Any, make_wav: Callable[..., Path]) -> None:
     hidden = b"\xe9" * 100
     digits = f"{len(hidden) * 8:032b}" + "".join(f"{byte:08b}" for byte in hidden)
@@ -109,7 +108,6 @@ def test_a_long_latin_1_message_of_an_old_file_matches(run: Any, make_wav: Calla
     assert run("verify", path, "--legacy", "basic", stdin=("é" * 100).encode()).code == 0
 
 
-@pytest.mark.xfail(strict=True, reason="the advice for hide is shown")
 def test_a_too_long_expected_message_is_not_answered_with_advice_for_hide(
     run: Any, make_wav: Callable[..., Path], tmp_path: Path
 ) -> None:
@@ -120,7 +118,6 @@ def test_a_too_long_expected_message_is_not_answered_with_advice_for_hide(
     assert "longer audio file" not in result.errors
 
 
-@pytest.mark.xfail(strict=True, reason="the advice for hide is shown")
 def test_a_missing_expected_message_is_not_answered_with_advice_for_hide(
     run: Any, make_wav: Callable[..., Path]
 ) -> None:

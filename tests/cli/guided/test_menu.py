@@ -100,23 +100,24 @@ def test_hide_reveal_and_verify_the_sample(guide: Any, tmp_path: Path) -> None:
 def test_a_failure_returns_to_the_menu_and_a_later_success_does_not_hide_it(
     guide: Any, make_wav: Callable[..., Path], tmp_path: Path
 ) -> None:
-    make_wav(frames=bytes(800))
-    attempt = [HIDE, ("Which audio file?", DOWN + ENTER), ("Path of the WAV file:", f"input.wav{ENTER}")]
-    finish = [("Which algorithm?", ENTER), ("Output file", ENTER)]
+    make_wav(frames=b"\xff" * 800)
     result = guide(
-        *attempt,
-        ("Message to hide:", f"{'x' * 100}{ENTER}"),
-        *finish,
+        REVEAL,
+        ("hidden message:", f"input.wav{ENTER}"),
+        ("older version hide", ENTER),
         REVEAL,
         ("hidden message:", ESCAPE),
-        *attempt,
+        HIDE,
+        ("Which audio file?", DOWN + ENTER),
+        ("Path of the WAV file:", f"input.wav{ENTER}"),
         ("Message to hide:", f"fits{ENTER}"),
-        *finish,
+        ("Which algorithm?", ENTER),
+        ("Output file", ENTER),
         EXIT,
         leave=False,
     )
     assert result.code == 1
-    assert "can hold 86 bytes. Use the algorithm lsb_2" in result.text
+    assert "Error: No hidden message was found." in result.text
     assert decode(str(tmp_path / "input.stego.wav")) == "fits"
 
 

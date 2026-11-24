@@ -177,7 +177,6 @@ def test_the_hint_for_an_unknown_command_line_is_true(run: Any) -> None:
     assert run("hide", "--help").code == 0
 
 
-@pytest.mark.xfail(strict=True, reason="the hint sends the person to --legacy, not away from -a")
 def test_the_hint_for_a_wrong_algorithm_helps(run: Any, folder: Path) -> None:
     result = run("reveal", "plain.wav", "-a", "lsb_2")
     assert run("reveal", "plain.wav").code == 0

@@ -88,9 +88,9 @@ def test_back_from_every_question(guide: Any, make_wav: Callable[..., Path], tmp
         (OUTPUT, ENTER),
         (OVERWRITE, ESCAPE),
         (OUTPUT, ENTER),
-        (OVERWRITE, "n"),
+        (OVERWRITE, f"n{ENTER}"),
         (OUTPUT, ENTER),
-        (OVERWRITE, "y"),
+        (OVERWRITE, f"y{ENTER}"),
     )
     assert result.code == 0
     assert "match" not in result.text
@@ -304,7 +304,7 @@ def test_the_suggested_command_does_the_same(
         ("Which algorithm?", ENTER if key == "lsb" else DOWN + ENTER),
         *([PLAIN] if passphrase is None else [ENCRYPTED, *secret]),
         ("Output file", f"-new.wav{ENTER}"),
-        *([("Overwrite it?", "y")] if existing else []),
+        *([("Overwrite it?", f"y{ENTER}")] if existing else []),
         cwd=folders[0],
     )
     assert result.code == 0
@@ -361,7 +361,6 @@ def test_a_form_starts_with_the_safe_answers() -> None:
     assert (request.passphrase, request.overwrite) == (None, False)
 
 
-@pytest.mark.xfail(strict=True, reason="y and n answer at once, so Enter answers the next question")
 @pytest.mark.parametrize("answer", ["y", "n"])
 def test_enter_after_yes_or_no_does_not_answer_the_next_question(
     guide: Any, encryption: Callable[[bool], None], tmp_path: Path, answer: str
@@ -379,3 +378,72 @@ def test_enter_after_yes_or_no_does_not_answer_the_next_question(
         leave=answer == "y",
     )
     assert result.code == (0 if answer == "y" else 130)
+
+
+def test_ctrl_d_at_a_confirmation_ends_the_program(
+    guide: Any, encryption: Callable[[bool], None], tmp_path: Path
+) -> None:
+    encryption(False)
+    (tmp_path / "sample.stego.wav").write_bytes(b"keep me")
+    start = (START, SAMPLE)
+    overwrite = (message("x"), FIRST_ALGORITHM, ("Output file", ENTER), ("Overwrite it?", CTRL_D))
+    for prompts in (overwrite, (message(""), ("Hide an empty message?", CTRL_D))):
+        assert guide(*start, *prompts, leave=False).code == 1
+    assert (tmp_path / "sample.stego.wav").read_bytes() == b"keep me"
+
+
+def test_an_empty_message_must_be_confirmed(
+    guide: Any, encryption: Callable[[bool], None], tmp_path: Path
+) -> None:
+    encryption(False)
+    empty = "Hide an empty message?"
+    result = guide(
+        START,
+        SAMPLE,
+        message(""),
+        (empty, ENTER),
+        message(""),
+        (empty, ESCAPE),
+        message(""),
+        (empty, f"y{ENTER}"),
+        FIRST_ALGORITHM,
+        ("Output file", ENTER),
+    )
+    assert result.code == 0
+    assert decode(str(tmp_path / "sample.stego.wav")) == ""
+
+
+def test_a_message_that_is_too_large_is_refused_at_once(
+    guide: Any, encryption: Callable[[bool], None], make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    encryption(False)
+    make_wav(frames=bytes(800))
+    result = guide(
+        START,
+        OWN_FILE,
+        INPUT,
+        message("é" * 94),
+        message("é" * 93),
+        FIRST_ALGORITHM,
+        (OUTPUT, ENTER),
+    )
+    assert result.code == 0
+    assert "it needs 188 bytes and the audio file can hold 186 bytes" in result.text
+    assert "The message is too large for some algorithms. It fits: lsb_2." in result.text
+    assert "lsb: Hides" not in result.text
+    assert decode(str(tmp_path / "input.stego.wav"), LSB_2) == "é" * 93
+
+
+@pytest.mark.parametrize(("length", "advice"), [(86, "choose lsb_2"), (186, "type a shorter message")])
+def test_a_message_that_encryption_makes_too_large_is_refused_at_once(
+    guide: Any, encryption: Callable[[bool], None], make_wav: Callable[..., Path], length: int, advice: str
+) -> None:
+    encryption(True)
+    make_wav(frames=bytes(800))
+    result = guide(
+        START, OWN_FILE, INPUT, message("x" * length), FIRST_ALGORITHM, ENCRYPTED, PLAIN, (OUTPUT, ENTER)
+    )
+    assert result.code == 0
+    assert "Encryption makes the message too large for lsb" in result.text
+    assert advice in result.text
+    assert "Passphrase:" not in result.text

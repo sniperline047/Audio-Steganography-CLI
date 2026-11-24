@@ -595,3 +595,24 @@ def test_typed_bytes_that_are_not_text_are_refused_without_showing_them(
     assert result.code == 1
     assert "Error: The message contains characters that are not valid text." in result.errors
     assert "PRIVATE" not in result.errors and os.listdir(tmp_path) == ["input.wav"]
+
+
+@pytest.mark.needs_crypto
+def test_a_passphrase_file_with_a_byte_order_mark_is_refused(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    key_file, output = tmp_path / "key.txt", tmp_path / "out.wav"
+    key_file.write_bytes("\ufeffkey".encode())
+    result = run("hide", make_wav(), "-m", "x", "-o", output, "--passphrase_file", key_file)
+    assert result.code == 1
+    assert "byte order mark" in result.errors
+    assert not output.exists()
+
+
+def test_an_existing_output_is_named_relative_to_the_current_folder(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    make_wav()
+    (tmp_path / "out.wav").write_bytes(b"keep me")
+    result = run("hide", "input.wav", "-m", "x", "-o", "out.wav", cwd=tmp_path)
+    assert "already exists: out.wav\n" in result.errors

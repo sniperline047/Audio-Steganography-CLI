@@ -100,7 +100,7 @@ def test_an_unsafe_default_is_shown_escaped_but_used_as_it_is(
         (MENU, ENTER),
         ("Which audio file?", DOWN + ENTER),
         ("Path of the WAV file:", f"gpj\u202e.wav{ENTER}"),
-        ("Message to hide:", ENTER),
+        ("Message to hide:", f"x{ENTER}"),
         ("Which algorithm?", ENTER),
         ("Output file [gpj\\u202e.stego.wav]:", ENTER),
     )

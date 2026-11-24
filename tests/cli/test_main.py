@@ -188,3 +188,7 @@ def test_missing_streams_do_not_crash(
         sys.stderr.close()
     else:
         sys.stdin.close()
+
+
+def test_an_unknown_command_is_told_about_help(run: Any) -> None:
+    assert "add --help" in run("unknown").errors

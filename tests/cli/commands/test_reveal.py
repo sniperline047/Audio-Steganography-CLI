@@ -215,3 +215,21 @@ def test_a_reader_that_left_is_a_failure_without_a_traceback(run: Any, hide: Cal
     for options in ([], ["--json"]):
         result = run("reveal", path, *options, broken=("stdout",))
         assert (result.code, result.errors) == (1, "Error: The output was closed.\n")
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize("command", [["reveal"], ["verify", "-m", "x"]])
+def test_a_byte_order_mark_explains_a_wrong_passphrase(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, fast_scrypt: None, command: list[str]
+) -> None:
+    for name, passphrase in (("without.wav", "key"), ("with.wav", "\ufeffkey")):
+        encode(str(make_wav()), str(tmp_path / name), "x", LSB, passphrase=passphrase)
+    key_file = tmp_path / "key.txt"
+    key_file.write_bytes("\ufeffkey\n".encode())
+    words = [*command, "--passphrase_file", key_file]
+    assert run(*words, tmp_path / "with.wav").code == 0
+    wrong = run(*words, tmp_path / "without.wav")
+    assert wrong.code == 1
+    assert "byte order mark" in wrong.errors
+    key_file.write_bytes(b"other")
+    assert "byte order mark" not in run(*words, tmp_path / "without.wav").errors

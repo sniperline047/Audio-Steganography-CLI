@@ -130,3 +130,9 @@ def test_the_examples_in_the_help_work(
             terminals=ALL if asks else (),
         )
         assert result.code == 0, line
+
+
+@pytest.mark.parametrize("words", [[], ["hide"], ["reveal"], ["verify"], ["algorithms"]])
+def test_the_help_fits_in_80_columns(run: Any, words: list[str]) -> None:
+    lines = run(*words, "--help", COLUMNS="80").output.splitlines()
+    assert max(map(len, lines)) <= 80
