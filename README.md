@@ -63,7 +63,7 @@ audiosteg algorithms
 audiosteg --version
 ```
 
-Add `--help` to any command to see its options and examples.
+Add `--help` to any command to see its options and examples. Help is always text, even with `--json`.
 
 The word `sample` as the input of `hide` means the tune that is included in the package. To use a file named `sample`, write `./sample`.
 
@@ -88,9 +88,11 @@ printf "Hello" | audiosteg hide song.wav
 | `-o`, `--output` | The new file. The default is the name of the input with `.stego.wav`, in the current folder. |
 | `--force` | Replace an existing output file |
 
+An option with a value can also be written as one word, such as `--message=-text`. Do not join short options: `-p` must stand alone.
+
 Without `-m` and `--message_file`, the message is typed in a terminal, or read from a pipe. Files and pipes are hidden exactly as they are, including a newline at the end. `echo` adds such a newline; `printf` does not. Many terminals limit how long a typed line can be, so use a file for a long message.
 
-If the output file exists, a terminal asks before replacing it; anywhere else, `--force` is needed. The program refuses to write to the input file, the included sample, or a symbolic link. Only the audio is copied; tags and other metadata are not.
+If the output file exists, a terminal asks before replacing it; anywhere else, such as when stdin or stderr is not a terminal, `--force` is needed. The program refuses to write to the input file, the message or passphrase file, the included sample, or a symbolic link, even with `--force`. Only the audio is copied; tags and other metadata are not.
 
 ### reveal
 
@@ -112,7 +114,7 @@ audiosteg reveal old.wav --legacy basic
 
 Only the message goes to stdout. Everything else, such as whether the message was encrypted, goes to stderr. If you expect an encrypted message and the program says that it was not encrypted, do not trust the message. With a passphrase option, a message that is not encrypted is refused.
 
-In a file or a pipe, the message is written exactly, as UTF-8, with nothing added at the end. A terminal shows characters that could control it as escape codes such as `\x1b`, adds a newline, and shows the line about encryption last. Invisible joiners are also escaped, so some combined emoji appear as separate emoji and a code such as `\u200d`.
+In a file or a pipe, the message is written exactly, as UTF-8, with nothing added at the end. A terminal shows characters that could control it as escape codes such as `\x1b`, adds a newline, and shows the line about encryption last. If only stderr is a terminal, that line starts with an empty line, so that the two do not run together. Invisible joiners are also escaped, so some combined emoji appear as separate emoji and a code such as `\u200d`.
 
 ### verify
 
@@ -130,7 +132,7 @@ Lists the names that `-a` and `--legacy` accept.
 
 ### Passphrases
 
-A passphrase is never a value on the command line. `-p` asks for it in the terminal without showing it. A passphrase file must be a regular UTF-8 file. Exactly one newline at its end is removed. If other users can read the file, the program shows a warning (not on Windows).
+A passphrase is never a value on the command line. `-p` asks for it in the terminal without showing it. A passphrase file must be a regular UTF-8 file. Exactly one newline at its end is removed. `hide` refuses a passphrase that is empty or contains a line break or another control character, because it could not be typed later; `reveal` uses what the file holds. If other users can read the file, the program shows a warning (not on Windows).
 
 ### Output for programs
 
@@ -172,9 +174,9 @@ If the output is closed (for example, by a pipe such as `| head`), the code is 1
 - The arrow keys and Enter choose from a menu. Enter at a text question accepts the default in brackets.
 - Back, or the Esc key, returns to the question before.
 - Ctrl-C leaves.
-- After each action, it shows the command that does the same. The message and the passphrase are never part of it.
+- After each action, it shows the command that does the same. The message and the passphrase are never part of it. A command is not shown if a file name has characters that a shell could change.
 
-Spaces around a typed path are removed, and `~` means your home folder. The exit code is 1 if an action failed. The guided mode needs a terminal; without one, the program shows the help and exits with code 2.
+Spaces around a typed path are removed, and `~` means your home folder. The exit code is 1 if an action failed. The guided mode needs a terminal for stdin, stdout, and stderr; without one, the program shows the help and exits with code 2.
 
 ### Moving from the numbered menu
 
@@ -334,8 +336,8 @@ Audio-Steganography-CLI/
 │   ├── cli/
 │   │   ├── commands/       One file per command
 │   │   ├── accuracy.py     Message comparison
+│   │   ├── guided/         Guided mode: menu, forms, questions
 │   │   ├── errors.py       Plain explanations of errors
-│   │   ├── guided.py       Guided mode
 │   │   ├── logo.py         The logo
 │   │   ├── main.py         Program entry point
 │   │   ├── message_input.py Messages from options, files, and pipes
