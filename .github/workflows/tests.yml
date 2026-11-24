@@ -1,0 +1,68 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        include:
+          - os: macos-latest
+            python: "3.13"
+          - os: windows-latest
+            python: "3.13"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -r requirements_dev.txt
+      - run: python -m pytest --cov --cov-report=term-missing --cov-report=json
+      - name: Save coverage
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest' && matrix.python == '3.13' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage_report
+          path: coverage.json
+          if-no-files-found: ignore
+          retention-days: 5
+
+  checks:
+    name: Lint, types, and dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -r requirements_dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+      - run: pip-audit -r requirements_dev.txt
+      - name: Check that the sample audio is reproducible
+        run: |
+          python scripts/generate_sample_audio.py
+          git diff --exit-code -- input/original_sample.wav
