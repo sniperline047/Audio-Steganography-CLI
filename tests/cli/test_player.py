@@ -270,15 +270,17 @@ def handlers() -> list[Any]:
 
 def test_a_request_to_end_becomes_an_exit_code_and_later_requests_wait() -> None:
     before = handlers()
+    cleaned = []
     with pytest.raises(SystemExit) as left, player.clean_exit_on_signals():
         assert signal.getsignal(signal.SIGINT) is before[-1]
         try:
             signal.raise_signal(signal.SIGTERM)
         finally:
             signal.raise_signal(signal.SIGTERM)
-            if hasattr(signal, "SIGHUP"):
+            if hasattr(signal, "SIGHUP") and signal.getsignal(signal.SIGHUP) != signal.SIG_DFL:
                 signal.raise_signal(signal.SIGHUP)
-    assert left.value.code == 143
+            cleaned.append(True)
+    assert (left.value.code, cleaned) == (143, [True])
     assert handlers() == before
 
 
@@ -318,6 +320,8 @@ def test_another_thread_can_play(fake_player: Any, temporary: Path, tmp_path: Pa
 PLAYING = """
 import signal, sys
 signal.signal(signal.SIGINT, signal.default_int_handler)
+for name in ("SIGTERM", "SIGHUP"):
+    signal.signal(getattr(signal, name), signal.SIG_DFL)
 from audiosteg.cli import player
 from audiosteg.cli.main import main
 player.MAC_PLAYERS = (tuple(sys.argv[1].split("|")),)
@@ -335,6 +339,7 @@ def test_ending_the_program_ends_the_player_and_removes_the_file(
     process = subprocess.Popen(
         [sys.executable, "-c", PLAYING, "|".join(fake_player("hang")), *words],
         env=environment(TMPDIR=str(temporary)),
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         start_new_session=True,

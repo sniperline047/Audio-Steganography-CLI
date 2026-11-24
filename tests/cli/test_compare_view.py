@@ -99,6 +99,7 @@ def test_an_exact_percentage_is_not_rounded() -> None:
             "amplified 2,743.33 times (capped from 9,000 times to a safe level)",
         ),
         (Fraction(8230), Fraction(8230), "amplified 8,230 times"),
+        (Fraction(1), None, "amplified 1 times"),
         (Fraction(1, 2), None, "reduced to 50.00%"),
         (Fraction(1, 8), Fraction(1), "reduced to 12.50% (capped from 1 times to a safe level)"),
     ],
@@ -171,7 +172,8 @@ def test_the_largest_change_in_words(largest: int, shown: str) -> None:
         (SAME, "nowhere"),
         ({}, "from 0.000 s to 0.001 s"),
         ({"first_changed": 999, "last_changed": 999}, "from 0.125 s to 0.125 s"),
-        ({"first_changed": 8, "last_changed": 15}, "from 0.001 s to 0.002 s"),
+        ({"last_changed": 12}, "from 0.000 s to 0.002 s"),
+        ({"format": SampleFormat(1, 2, 1000), "first_changed": 5}, "from 0.005 s to 0.010 s"),
     ],
 )
 def test_where_the_changes_are(changes: dict[str, Any], shown: str) -> None:
@@ -271,7 +273,9 @@ def test_the_colour_of_the_word(changes: dict[str, Any], colour: str) -> None:
     output = io.StringIO()
     view = View(output, io.StringIO())
     view.out.coloured = True
-    view.out.console = Console(file=output, force_terminal=True, color_system="standard", width=40)
+    view.out.console = Console(
+        file=output, force_terminal=True, color_system="standard", width=40, legacy_windows=False
+    )
     show_comparison(view, CompareRequest("a", "b"), quality(**changes), None, None)
     lines = output.getvalue().splitlines()
     assert len(lines) == 3

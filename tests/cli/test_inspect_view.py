@@ -33,6 +33,11 @@ def test_every_line_about_a_file(run: Any, make_wav: Callable[..., Path]) -> Non
     ]
 
 
+def test_a_file_in_the_current_folder_is_shown_by_its_name(run: Any, make_wav: Callable[..., Path]) -> None:
+    path = os.path.realpath(make_wav())
+    assert "\nFile: input.wav\n" in run("inspect", path).output
+
+
 @pytest.mark.parametrize(("channels", "shown"), [(1, "1 (mono)"), (2, "2 (stereo)"), (3, "3"), (255, "255")])
 def test_the_channels(run: Any, make_wav: Callable[..., Path], channels: int, shown: str) -> None:
     make_wav(frames=bytes(channels), channels=channels)

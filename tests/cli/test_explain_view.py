@@ -140,6 +140,7 @@ def test_every_byte_of_a_long_character(run: Any) -> None:
     assert "\n12 samples of the included tune, from " in output
     hidden = re.findall(r"^ +(\d+)\. hide (\d\d): ", output, re.MULTILINE)
     assert "".join(bits for _, bits in hidden) == "111000101001100010010101"
+    assert "\n   9. hide" in output and "\n  10. hide" in output
     assert [int(number) for number, _ in hidden] == list(range(1, 13))
 
 
@@ -176,7 +177,26 @@ def test_a_silent_file(run: Any, make_samples: Callable[..., Path]) -> None:
         "value_after": 0,
         "change": 0,
     }
+    assert fields["samples"][1]["low_byte_before"] == "10000000"
     assert fields["samples"][1]["low_byte_after"] == "10000001"
+
+
+def test_the_largest_change_has_no_sign(run: Any, make_samples: Callable[..., Path]) -> None:
+    make_samples("a.wav", [99] * 8)
+    output = run("explain", "lsb", "--letter", "\0", "--file", "a.wav").output
+    assert "8 of 8 samples changed, by at most 1 here." in output
+
+
+def test_what_is_read_back_is_not_taken_for_granted(run: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    wrong = Algorithm(
+        "Wrong",
+        8,
+        lambda byte, bits: int("".join(map(str, bits)), 2) + 1,
+        lambda byte: tuple(int(bit) for bit in f"{byte:08b}"),
+    )
+    monkeypatch.setitem(ALGORITHMS, "wrong", wrong)
+    assert json.loads(run("explain", "wrong", "--json").output)["read_back"] == "i"
+    assert "Reading the same bits gives 'i'" in run("explain", "wrong").output
 
 
 def test_json_of_a_new_algorithm(run: Any, monkeypatch: pytest.MonkeyPatch) -> None:

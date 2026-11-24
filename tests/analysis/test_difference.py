@@ -69,6 +69,7 @@ def test_no_sample_ever_passes_the_safe_level(
     [
         (1, None, Fraction(8230)),
         (3, None, Fraction(2743)),
+        (5000, None, Fraction(1)),
         (8230, None, Fraction(1)),
         (8231, None, Fraction(8230, 8231)),
         (65535, None, Fraction(8230, 65535)),

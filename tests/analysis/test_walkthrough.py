@@ -140,6 +140,8 @@ def test_the_largest_change_is_computed_from_the_algorithm() -> None:
     assert largest_possible_change(flip) == 128
     down = Algorithm("", 1, lambda byte, bits: byte if bits[0] else max(byte - 5, 0), lambda byte: (0,))
     assert largest_possible_change(down) == 5
+    last = Algorithm("", 1, lambda byte, bits: 0 if byte == 255 else byte, lambda byte: (0,))
+    assert largest_possible_change(last) == 255
 
 
 def test_a_new_algorithm_is_explained_with_its_own_functions(make_samples: Callable[..., Path]) -> None:

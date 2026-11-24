@@ -71,6 +71,7 @@ def pytest_configure() -> None:
 @pytest.fixture(autouse=True)
 def no_real_player(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make every test run on a system without a player."""
+    monkeypatch.setattr(player, "sys", SimpleNamespace(platform="linux"))
     monkeypatch.setattr(player, "MAC_PLAYERS", ())
     monkeypatch.setattr(player, "LINUX_FOLDERS", ())
 

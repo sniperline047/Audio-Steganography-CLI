@@ -154,7 +154,7 @@ def test_the_numbers_that_options_accept() -> None:
         (["--to", "0.0125"], 0, 100),
         (["--from", "0.0125", "--to", "0.012625"], 100, 1),
         (["--from", "0.9999"], 7999, 1),
-        (["--from", "0.0001", "--to", "0.00025"], 0, 2),
+        (["--from", "0.0002", "--to", "0.00049"], 1, 2),
     ],
 )
 def test_a_part_by_its_times(
@@ -293,9 +293,10 @@ def test_an_input_is_never_replaced(run: Any, pair: tuple[str, str], tmp_path: P
     if os.path.exists(pair[0].replace("a.wav", "A.WAV")):
         names += ["A.WAV", "B.WAV"]
     for name in names:
-        result = run("compare", *pair, "--save_difference", name, "--force")
-        assert (result.code, result.output) == (1, "")
-        assert "The input and output must be different files." in result.errors
+        for force in ([], ["--force"]):
+            result = run("compare", *pair, "--save_difference", name, *force)
+            assert (result.code, result.output) == (1, "")
+            assert "The input and output must be different files." in result.errors
     assert [Path(path).read_bytes() for path in pair] == before
 
 
@@ -362,15 +363,17 @@ def test_an_output_that_turns_into_an_input_is_not_replaced(
 ) -> None:
     before = Path(pair[1]).read_bytes()
     real = difference.write_difference
+    (tmp_path / "d.wav").touch()
 
     def link_then_write(*args: Any) -> None:
+        (tmp_path / "d.wav").unlink()
         os.link(pair[1], tmp_path / "d.wav")
         real(*args)
 
     monkeypatch.setattr(difference, "write_difference", link_then_write)
-    result = run("compare", *pair, "--save_difference", "d.wav")
+    result = run("compare", *pair, "--save_difference", "d.wav", "--force")
     assert result.code == 1
-    assert Path(pair[1]).read_bytes() == before
+    assert Path(pair[1]).read_bytes() == before == (tmp_path / "d.wav").read_bytes()
     assert [name for name in os.listdir(tmp_path) if name.endswith(".tmp")] == []
 
 
@@ -532,3 +535,10 @@ def test_a_name_cannot_control_the_terminal(
         for unsafe in ("\x1b[2J", "\x1b]", "\x07", "‮"):
             assert unsafe not in result.seen
         assert run(*words, "--json").output.isascii()
+
+
+@pytest.mark.xfail(strict=True, reason="a duration is rounded up, so the time that is shown is refused")
+def test_the_duration_that_is_shown_is_accepted(run: Any, make_wav: Callable[..., Path]) -> None:
+    make_wav(frames=bytes(49_996), frame_rate=10_000)
+    shown = run("inspect", "input.wav").output.split("Duration: ")[1].split(" s ")[0]
+    assert run("compare", "input.wav", "input.wav", "--to", shown).code == 0
