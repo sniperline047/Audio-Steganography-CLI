@@ -1,6 +1,8 @@
 """Shared fixtures."""
 
 import hashlib
+import importlib.util
+import os
 import random
 import wave
 from collections.abc import Callable, Iterator
@@ -20,6 +22,15 @@ def repository_audio() -> dict[str, tuple[int, str]]:
         for folder in (PROJECT_ROOT, PROJECT_ROOT / "src" / "audiosteg" / "data", Path(SAMPLE_FILE).parent)
         for path in folder.glob("*.wav")
     }
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Skip tests marked needs_crypto without the library, unless AUDIOSTEG_REQUIRE_CRYPTO is set."""
+    if os.environ.get("AUDIOSTEG_REQUIRE_CRYPTO") or importlib.util.find_spec("cryptography"):
+        return
+    for item in items:
+        if item.get_closest_marker("needs_crypto"):
+            item.add_marker(pytest.mark.skip(reason="the crypto extra is not installed"))
 
 
 @pytest.fixture(scope="session", autouse=True)
