@@ -61,7 +61,7 @@ The program exits with code 0 when every operation succeeded, 1 when an operatio
 4. Choose the output audio file. The default is a file in the current folder, and its name depends on the algorithm (see below).
 5. If the output file exists, confirm that it may be overwritten. The default answer is no.
 
-The input file is never changed. The program refuses to write to the input file or to a symbolic link. Only the audio is copied; tags and other metadata are not.
+The input file is never changed. The program refuses to write to the input file, the included sample, or a symbolic link. Only the audio is copied; tags and other metadata are not.
 
 ### Decode a message
 
@@ -139,6 +139,7 @@ Audio-Steganography-CLI/
 │   └── generate_sample_audio.py
 ├── src/audiosteg/
 │   ├── algorithms/         The three algorithms, one per file
+│   │   └── registry.py     The numbered list of algorithms
 │   ├── cli/
 │   │   ├── accuracy.py     Message comparison
 │   │   ├── main.py         Program entry point
@@ -146,7 +147,6 @@ Audio-Steganography-CLI/
 │   ├── core/
 │   │   ├── algorithm.py    The Algorithm type
 │   │   ├── message_codec.py Message and bit conversion
-│   │   ├── registry.py     The numbered list of algorithms
 │   │   ├── stego_file.py   encode and decode
 │   │   └── wav_io.py       WAV reading and writing
 │   ├── data/
@@ -163,11 +163,17 @@ Audio-Steganography-CLI/
 └── requirements_dev.txt
 ```
 
-Imports point one way: `cli` uses `core` and `algorithms`, and these use `utils`. `core` never imports `cli`.
+Imports point one way: `cli` uses `algorithms`, `algorithms` uses `core`, and `core` uses `utils`. A folder may also use any folder further along that chain, but never one before it.
 
 `src/audiosteg/data/sample.wav` is an original tune. Run `python scripts/generate_sample_audio.py` to create it again.
 
 ## Add an algorithm
+
+A normal `pip install .` copies the code, so later edits have no effect. While you work on the code, install the project in editable mode, or run it with `uv run audiosteg`:
+
+```bash
+pip install -e .
+```
 
 1. Create `src/audiosteg/algorithms/my_new_algorithm.py`:
 
@@ -198,7 +204,7 @@ Imports point one way: `cli` uses `core` and `algorithms`, and these use `utils`
 
    `bits_per_byte` must be 1, 2, 4, or 8.
 
-2. Import it in `src/audiosteg/core/registry.py` and add one line to `ALGORITHMS` with the next number:
+2. Import it in `src/audiosteg/algorithms/registry.py` and add one line to `ALGORITHMS` with the next number:
 
    ```python
    4: MY_NEW_ALGORITHM,
@@ -213,18 +219,9 @@ The menu, the capacity check, and the file handling need no changes.
 | `python cli/main.py`, `python -m cli.main` | `audiosteg`, `python -m audiosteg` |
 | `basic_lsb_steganography.encode(source, output, message)` | `encode(source, output, message, BASIC_LSB)` |
 | `basic_lsb_steganography.decode(path)` | `decode(path, BASIC_LSB)` |
-| `encode(input_file_path=…, output_file_path=…, secret_message=…)` | `encode(input_path=…, output_path=…, message=…, algorithm=…)` |
-| `decode(input_file_path=…)` | `decode(path=…, algorithm=…)` |
-| `encode(source, output, message, True)` | `encode(source, output, message, algorithm, overwrite=True)` |
-| `algorithms.basic_lsb_steganography` | `audiosteg.algorithms.basic_lsb` (`BASIC_LSB`) |
-| `algorithms.enhanced_lsb_steganography_no_flip` | `audiosteg.algorithms.enhanced_lsb` (`ENHANCED_LSB`) |
-| `algorithms.enhanced_lsb_steganography_with_flip` | `audiosteg.algorithms.enhanced_lsb_flip` (`ENHANCED_LSB_FLIP`) |
-| `cli.config.ALGORITHMS` | `audiosteg.core.registry.ALGORITHMS` |
-| `cli.helpers` | `audiosteg.cli.prompts` |
-| `utils.errors` | `audiosteg` or `audiosteg.errors` |
-| `utils.message_codec`, `utils.wav_io` | `audiosteg.core.message_codec`, `audiosteg.core.wav_io` |
-| `utils.stego_file` (`write_message`, `read_message`) | `audiosteg.core.stego_file` (`encode`, `decode`) |
-| `utils.output_path`, `utils.safe_write`, `utils.text` | The same names in `audiosteg.utils` |
+| `from algorithms import basic_lsb_steganography` | `from audiosteg.algorithms.basic_lsb import BASIC_LSB` |
+| `from algorithms import enhanced_lsb_steganography_no_flip` | `from audiosteg.algorithms.enhanced_lsb import ENHANCED_LSB` |
+| `from algorithms import enhanced_lsb_steganography_with_flip` | `from audiosteg.algorithms.enhanced_lsb_flip import ENHANCED_LSB_FLIP` |
 | `input/original_sample.wav` | `src/audiosteg/data/sample.wav` |
 | Default files in `output/` | Default files in the current folder |
 
