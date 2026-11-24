@@ -33,6 +33,8 @@ EXIT_CHOICE = 4
 def handle_encode() -> None:
     """Ask for a message and hide it in a copy of an audio file."""
     algorithm = choose_algorithm()
+    if algorithm is None:
+        return
     secret_message = ask("Enter the secret message to encode: ")
     input_file = get_file_path("Input audio file", STANDARD_INPUT_FILE_PATH)
     chosen_path = get_file_path("Output audio file", algorithm["output_file"])
@@ -56,6 +58,8 @@ def handle_encode() -> None:
 def handle_decode() -> None:
     """Show the message hidden in an audio file."""
     algorithm = choose_algorithm()
+    if algorithm is None:
+        return
     encoded_file = get_file_path("Encoded audio file", algorithm["output_file"])
     decoded_message = algorithm["decode"](encoded_file)
     if decoded_message:
@@ -68,6 +72,8 @@ def handle_accuracy_check() -> None:
     """Compare the message hidden in an audio file with the expected one."""
     expected_message = ask("Enter the expected secret message: ")
     algorithm = choose_algorithm()
+    if algorithm is None:
+        return
     encoded_file = get_file_path("Encoded audio file", algorithm["output_file"])
     result = calculate_accuracy(expected_message, algorithm, encoded_file)
     print(f"Accuracy of decoded message: {result.percentage:.2f}%")

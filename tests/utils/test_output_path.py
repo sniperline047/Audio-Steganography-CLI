@@ -75,6 +75,12 @@ def test_a_path_that_ends_like_a_folder_is_refused(source: Path, ending: str) ->
         normalize_output_path(ending)
 
 
+@pytest.mark.parametrize("ending", ["/", "/."])
+def test_a_folder_path_that_does_not_exist_is_refused(tmp_path: Path, ending: str) -> None:
+    with pytest.raises(UnsafeOutputError):
+        normalize_output_path(f"{tmp_path}/new_folder{ending}")
+
+
 def test_a_relative_path_becomes_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     folder = os.path.realpath(tmp_path)

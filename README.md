@@ -47,7 +47,7 @@ The program exits with code 0 when every operation succeeded, 1 when an operatio
 
 ### Encode a message
 
-1. Choose **Encode a message**, then an algorithm. After an invalid choice, the program asks again.
+1. Choose **Encode a message**, then an algorithm. After an invalid choice, the program asks again. Choose **Back** to return to the main menu.
 2. Type the secret message.
 3. Choose the input audio file. The default is `input/original_sample.wav`.
 4. Choose the output audio file. The default depends on the algorithm (see below).

@@ -26,11 +26,13 @@ MAIN_SCRIPT = PROJECT_ROOT / "cli" / "main.py"
 TIMEOUT = 60
 StartProcess = Callable[[], subprocess.Popen[bytes]]
 EXIT = "4"
+BACK = "4"
 MAIN_MENU = "1) Encode a message\n2) Decode a message\n3) Calculate accuracy\n4) Exit\n"
 ALGORITHM_MENU = (
     "1) Basic LSB Steganography\n"
     "2) Enhanced LSB Steganography with Bit Flipping\n"
     "3) Enhanced LSB Steganography without Bit Flipping\n"
+    "4) Back\n"
 )
 DEFAULT_FILES = [
     (1, "basic_lsb_encoded.wav"),
@@ -204,7 +206,7 @@ def test_an_invalid_algorithm_is_asked_again_and_the_message_is_kept(
 ) -> None:
     output = tmp_path / "output.wav"
     basic_lsb_steganography.encode(str(make_wav()), str(output), "hidden")
-    result = run("3", "hidden", "4", "", "x", "1", str(output), EXIT)
+    result = run("3", "hidden", "5", "", "x", "1", str(output), EXIT)
     assert (result.code, result.errors) == (0, "")
     assert "Exact match: yes\n" in result.output
     assert result.output.count(ALGORITHM_MENU) == 4
@@ -539,3 +541,11 @@ def test_missing_streams_do_not_crash(
     else:
         assert main.main() == 1
         assert "needs an open input and output" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("operation", [("1", BACK), ("2", BACK), ("3", "expected", BACK)])
+def test_back_returns_to_the_main_menu(operation: tuple[str, ...]) -> None:
+    result = run(*operation, EXIT)
+    assert result.code == 0
+    assert result.errors == ""
+    assert result.output.count(MAIN_MENU) == 2

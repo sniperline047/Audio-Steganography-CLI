@@ -1,6 +1,7 @@
 """Tests for cli/helpers.py."""
 
 import io
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -58,7 +59,7 @@ def test_an_unclear_answer_is_asked_again(answer: Answer, capsys: pytest.Capture
 
 
 def test_an_invalid_algorithm_is_asked_again(answer: Answer, capsys: pytest.CaptureFixture[str]) -> None:
-    answer("0", "x", "4", "2")
+    answer("0", "x", "5", "2")
     assert choose_algorithm() is ALGORITHMS[2]
     assert capsys.readouterr().out.count("Select an algorithm:") == 4
 
@@ -106,3 +107,16 @@ def test_nothing_is_read_after_the_output_is_closed(answer: Answer, monkeypatch:
     with pytest.raises(OutputClosedError):
         ask("Prompt: ")
     assert remaining == ["unread"]
+
+
+def test_back_chooses_no_algorithm(answer: Answer, capsys: pytest.CaptureFixture[str]) -> None:
+    answer("4")
+    assert choose_algorithm() is None
+    assert "4) Back" in capsys.readouterr().out
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows guesses the folder of an unknown user")
+def test_an_unknown_home_folder_is_refused(answer: Answer) -> None:
+    answer("~no_such_user_here/a.wav")
+    with pytest.raises(FileNotFoundError, match="No home folder"):
+        get_file_path("Output audio file", "default.wav")

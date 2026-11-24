@@ -70,18 +70,24 @@ def get_file_path(description: str, default_path: str) -> str:
     :return: The chosen path
     """
     path = ask(f"\n{description} [{escape_text(default_path)}]: ").strip()
-    return os.path.expanduser(path) if path else default_path
+    if not path:
+        return default_path
+    expanded_path = os.path.expanduser(path)
+    if expanded_path.startswith("~"):
+        raise FileNotFoundError(f"No home folder was found for this path: {path}")
+    return expanded_path
 
 
 def display_algorithm_menu() -> None:
     """Display the algorithm selection menu."""
-    display_menu([algorithm["name"] for algorithm in ALGORITHMS.values()], "Select an algorithm")
+    names = [algorithm["name"] for algorithm in ALGORITHMS.values()]
+    display_menu([*names, "Back"], "Select an algorithm")
 
 
-def choose_algorithm() -> Algorithm:
-    """Ask for an algorithm until the choice is valid."""
+def choose_algorithm() -> Algorithm | None:
+    """Ask for an algorithm until the choice is valid. Return None for Back."""
     while True:
         display_algorithm_menu()
-        choice = get_user_choice(len(ALGORITHMS))
+        choice = get_user_choice(len(ALGORITHMS) + 1)
         if choice is not None:
-            return ALGORITHMS[choice]
+            return ALGORITHMS.get(choice)

@@ -61,7 +61,7 @@ def open_pcm_wav(path: str) -> Iterator[wave.Wave_read]:
                 check_pcm(audio)
                 check_header(source)
                 yield audio
-        except (wave.Error, EOFError, RuntimeError) as error:
+        except (wave.Error, EOFError, RuntimeError, struct.error) as error:
             detail = str(error) or "the file is damaged or ends too early"
             raise UnsupportedFormatError(f"The input is not a valid PCM WAV file: {detail}") from error
 
