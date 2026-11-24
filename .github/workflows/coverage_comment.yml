@@ -51,16 +51,16 @@ jobs:
           marker='<!-- coverage_comment -->'
           jq -ers --arg marker "$marker" '
             def percent:
-              if type == "number" and . >= 0 and . <= 100 then floor
+              if type == "string" and test("\\A([0-9]|[1-9][0-9]|100)\\z") then .
               else error("invalid coverage value") end;
             def file_name:
               if length <= 100 and test("\\A(algorithms|cli|scripts|utils)/([a-z0-9_]+/)*[a-z0-9_]+\\.py\\z") then .
               else error("invalid file name") end;
             (if length == 1 then .[0] else error("expected one JSON value") end)
             | if (.files | type) != "object" or (.files | length) > 50 then error("invalid file list") else . end
-            | (.totals.percent_covered | percent) as $total
+            | (.totals.percent_covered_display | percent) as $total
             | [.files | to_entries | sort_by(.key)[]
-                | "| `\(.key | file_name)` | \(.value.summary.percent_covered | percent)% |"] as $rows
+                | "| `\(.key | file_name)` | \(.value.summary.percent_covered_display | percent)% |"] as $rows
             | [$marker,
                "Test coverage reported by this pull request: **\($total)%** (required: 90%).",
                "", "| File | Coverage |", "| --- | --- |"] + $rows
