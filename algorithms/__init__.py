@@ -1,1 +1,0 @@
-"""Package for Different algorithms used for encoding and decoding messages in audio files."""

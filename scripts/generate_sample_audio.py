@@ -1,4 +1,4 @@
-"""Generate the short original tune in input/original_sample.wav.
+"""Generate the short original tune in src/audiosteg/data/sample.wav.
 
 Every calculation uses whole numbers, so the file is identical on every computer.
 """
@@ -9,7 +9,7 @@ import wave
 from array import array
 from pathlib import Path
 
-OUTPUT_PATH = Path(__file__).resolve().parent.parent / "input" / "original_sample.wav"
+OUTPUT_PATH = Path(__file__).resolve().parent.parent / "src" / "audiosteg" / "data" / "sample.wav"
 SAMPLE_RATE = 22050
 STEP_SAMPLES = 2950
 FADE_SAMPLES = 180

@@ -1,4 +1,4 @@
-"""Tests for cli/main.py."""
+"""Tests for audiosteg/cli/main.py."""
 
 import io
 import os
@@ -6,43 +6,47 @@ import shutil
 import signal
 import subprocess
 import sys
-from collections.abc import Callable
+import sysconfig
+import threading
+from collections.abc import Callable, Iterator
+from importlib.metadata import distribution
 from pathlib import Path
-from types import ModuleType
 from typing import IO
 
 import pytest
 
-from algorithms import (
-    basic_lsb_steganography,
-    enhanced_lsb_steganography_no_flip,
-    enhanced_lsb_steganography_with_flip,
-)
-from cli import main
-from cli.config import ALGORITHMS
+from audiosteg import Algorithm, decode, encode
+from audiosteg.algorithms.basic_lsb import BASIC_LSB
+from audiosteg.algorithms.enhanced_lsb import ENHANCED_LSB
+from audiosteg.algorithms.enhanced_lsb_flip import ENHANCED_LSB_FLIP
+from audiosteg.algorithms.registry import ALGORITHMS
+from audiosteg.cli import main
+from audiosteg.errors import UnsafeOutputError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-MAIN_SCRIPT = PROJECT_ROOT / "cli" / "main.py"
+PROGRAM = [sys.executable, "-m", "audiosteg"]
 TIMEOUT = 60
 StartProcess = Callable[[], subprocess.Popen[bytes]]
 EXIT = "4"
-BACK = "4"
+BACK = str(len(ALGORITHMS) + 1)
+INVALID_ALGORITHM = str(len(ALGORITHMS) + 2)
 MAIN_MENU = "1) Encode a message\n2) Decode a message\n3) Calculate accuracy\n4) Exit\n"
 ALGORITHM_MENU = (
     "1) Basic LSB Steganography\n"
     "2) Enhanced LSB Steganography with Bit Flipping\n"
     "3) Enhanced LSB Steganography without Bit Flipping\n"
-    "4) Back\n"
+    + "".join(f"{number}) {ALGORITHMS[number].name}\n" for number in sorted(ALGORITHMS) if number > 3)
+    + f"{BACK}) Back\n"
 )
 DEFAULT_FILES = [
     (1, "basic_lsb_encoded.wav"),
     (2, "enhanced_lsb_encoded_flip.wav"),
     (3, "enhanced_lsb_encoded_no_flip.wav"),
 ]
-ALGORITHM_MODULES = [
-    (1, basic_lsb_steganography),
-    (2, enhanced_lsb_steganography_with_flip),
-    (3, enhanced_lsb_steganography_no_flip),
+MENU_ALGORITHMS = [
+    (1, BASIC_LSB),
+    (2, ENHANCED_LSB_FLIP),
+    (3, ENHANCED_LSB),
 ]
 
 posix_shell = pytest.mark.skipif(os.name == "nt", reason="a POSIX shell is needed to close a stream")
@@ -69,7 +73,6 @@ def environment(encoding: str = "utf-8") -> dict[str, str]:
 
 def run(
     *lines: str | bytes,
-    script: Path = MAIN_SCRIPT,
     command: list[str] | None = None,
     cwd: Path | None = None,
     encoding: str = "utf-8",
@@ -77,7 +80,7 @@ def run(
     """Run the CLI in a real process and type the lines."""
     typed = b"".join((line if isinstance(line, bytes) else line.encode()) + b"\n" for line in lines)
     finished = subprocess.run(
-        command or [sys.executable, str(script)],
+        command or PROGRAM,
         input=typed,
         capture_output=True,
         cwd=cwd,
@@ -100,29 +103,26 @@ def accuracy_lines(path: Path, expected: str, algorithm: int = 1) -> list[str]:
 
 
 @pytest.fixture
-def project(tmp_path: Path) -> Path:
-    """Copy the program so that default paths do not touch the repository."""
-    copy = tmp_path / "project"
-    for folder in ("algorithms", "cli", "utils", "input"):
-        shutil.copytree(PROJECT_ROOT / folder, copy / folder, ignore=shutil.ignore_patterns("__pycache__"))
-    return copy
-
-
-@pytest.fixture
-def start(tmp_path: Path) -> StartProcess:
-    """Return a function that starts the CLI for a test that must interact with it."""
+def start(tmp_path: Path) -> Iterator[StartProcess]:
+    """Return a function that starts the CLI for an interactive test, and stop it if it hangs."""
+    timers: list[threading.Timer] = []
 
     def start_process() -> subprocess.Popen[bytes]:
-        return subprocess.Popen(
-            [sys.executable, str(MAIN_SCRIPT)],
+        process = subprocess.Popen(
+            PROGRAM,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=tmp_path,
             env=environment(),
         )
+        timers.append(threading.Timer(TIMEOUT, process.kill))
+        timers[-1].start()
+        return process
 
-    return start_process
+    yield start_process
+    for timer in timers:
+        timer.cancel()
 
 
 def read_until(stream: IO[bytes], ending: bytes) -> None:
@@ -135,57 +135,65 @@ def read_until(stream: IO[bytes], ending: bytes) -> None:
 
 
 @pytest.mark.parametrize(("number", "file_name"), DEFAULT_FILES)
-def test_default_paths_work_from_another_folder(
-    project: Path, tmp_path: Path, number: int, file_name: str
+def test_default_paths_use_the_included_sample_and_the_current_folder(
+    tmp_path: Path, number: int, file_name: str
 ) -> None:
-    sample = (project / "input" / "original_sample.wav").read_bytes()
+    sample = Path(main.SAMPLE_FILE).read_bytes()
     result = run(
         "1", str(number), "Hello 🎵", "", "",
         "2", str(number), "",
         "3", "Hello 🎵", str(number), "",
         EXIT,
-        script=project / "cli" / "main.py",
         cwd=tmp_path,
     )  # fmt: skip
     assert (result.code, result.errors) == (0, "")
+    assert "Input audio file [included sample]: " in result.output
+    assert f"Output audio file [{file_name}]: " in result.output
+    assert result.output.count(f"Encoded audio file [{file_name}]: ") == 2
     assert "Decoded message: Hello 🎵\n" in result.output
     assert "Accuracy of decoded message: 100.00%\nExact match: yes\n" in result.output
-    assert os.listdir(project / "output") == [file_name]
-    assert (project / "input" / "original_sample.wav").read_bytes() == sample
+    assert os.listdir(tmp_path) == [file_name]
+    assert Path(main.SAMPLE_FILE).read_bytes() == sample
 
 
-@pytest.mark.parametrize(("number", "module"), ALGORITHM_MODULES)
+@pytest.mark.parametrize(("number", "algorithm"), MENU_ALGORITHMS)
 def test_each_menu_number_uses_its_own_algorithm(
-    make_wav: Callable[..., Path], tmp_path: Path, number: int, module: ModuleType
+    make_wav: Callable[..., Path], tmp_path: Path, number: int, algorithm: Algorithm
 ) -> None:
     source = make_wav()
     expected = tmp_path / "expected.wav"
     output = tmp_path / "output.wav"
-    module.encode(str(source), str(expected), "hidden")
+    encode(str(source), str(expected), "hidden", algorithm)
     result = run(*encode_lines(source, output, algorithm=number), *decode_lines(output, number), EXIT)
     assert result.code == 0
     assert output.read_bytes() == expected.read_bytes()
     assert "Decoded message: hidden\n" in result.output
 
 
-def test_the_module_entry_point_from_the_project_folder(
-    make_wav: Callable[..., Path], tmp_path: Path
-) -> None:
+def test_the_console_command_from_the_project_folder(make_wav: Callable[..., Path], tmp_path: Path) -> None:
+    command = shutil.which("audiosteg", path=sysconfig.get_path("scripts"))
+    assert command is not None, "the audiosteg command is not installed"
     output = tmp_path / "output.wav"
     result = run(
         *encode_lines(make_wav(), output), *decode_lines(output), EXIT,
-        command=[sys.executable, "-m", "cli.main"],
+        command=[command],
         cwd=PROJECT_ROOT,
     )  # fmt: skip
     assert result.code == 0
     assert "Decoded message: hidden\n" in result.output
+    assert run("2", "1", command=[command]).code == 1
+
+
+def test_the_console_command_starts_the_whole_program() -> None:
+    entry_points = distribution("audiosteg").entry_points
+    assert entry_points.select(name="audiosteg")["audiosteg"].load() is main.main
 
 
 def test_relative_paths_belong_to_the_current_folder(make_wav: Callable[..., Path], tmp_path: Path) -> None:
     make_wav()
     result = run("1", "1", "hidden", "input.wav", "a folder/out.wav", EXIT, cwd=tmp_path)
     assert result.code == 0
-    assert basic_lsb_steganography.decode(str(tmp_path / "a folder" / "out.wav")) == "hidden"
+    assert decode(str(tmp_path / "a folder" / "out.wav"), BASIC_LSB) == "hidden"
 
 
 def test_menus_are_in_the_documented_order() -> None:
@@ -205,8 +213,8 @@ def test_an_invalid_algorithm_is_asked_again_and_the_message_is_kept(
     make_wav: Callable[..., Path], tmp_path: Path
 ) -> None:
     output = tmp_path / "output.wav"
-    basic_lsb_steganography.encode(str(make_wav()), str(output), "hidden")
-    result = run("3", "hidden", "5", "", "x", "1", str(output), EXIT)
+    encode(str(make_wav()), str(output), "hidden", BASIC_LSB)
+    result = run("3", "hidden", INVALID_ALGORITHM, "", "x", "1", str(output), EXIT)
     assert (result.code, result.errors) == (0, "")
     assert "Exact match: yes\n" in result.output
     assert result.output.count(ALGORITHM_MENU) == 4
@@ -219,10 +227,10 @@ def test_an_invalid_algorithm_is_asked_again_and_the_message_is_kept(
 def test_overwrite_prompt(make_wav: Callable[..., Path], tmp_path: Path, answer: str, replaced: bool) -> None:
     source = make_wav()
     output = tmp_path / "output.wav"
-    basic_lsb_steganography.encode(str(source), str(output), "old")
+    encode(str(source), str(output), "old", BASIC_LSB)
     result = run(*encode_lines(source, output, "new"), answer, EXIT)
     assert (result.code, result.errors) == (0, "")
-    assert basic_lsb_steganography.decode(str(output)) == ("new" if replaced else "old")
+    assert decode(str(output), BASIC_LSB) == ("new" if replaced else "old")
     assert ("Nothing was written." in result.output) is not replaced
 
 
@@ -233,12 +241,14 @@ def test_a_file_that_appears_after_the_prompts_is_not_replaced(
     output = tmp_path / "output.wav"
     answers = encode_lines(source, output)[1:]
 
-    def encode_late(input_path: str, output_path: str, message: str, overwrite: bool) -> None:
+    def encode_late(
+        input_path: str, output_path: str, message: str, algorithm: Algorithm, *, overwrite: bool
+    ) -> None:
         output.write_bytes(b"theirs")
-        basic_lsb_steganography.encode(input_path, output_path, message, overwrite)
+        encode(input_path, output_path, message, algorithm, overwrite=overwrite)
 
     monkeypatch.setattr("builtins.input", lambda prompt="": answers.pop(0))
-    monkeypatch.setitem(ALGORITHMS[1], "encode", encode_late)
+    monkeypatch.setattr(main, "encode", encode_late)
     assert main.run_operation(main.handle_encode) is False
     assert output.read_bytes() == b"theirs"
 
@@ -253,6 +263,37 @@ def test_the_input_file_cannot_be_the_output_and_is_refused_before_any_overwrite
     assert "must be different files" in result.errors
     assert "Overwrite" not in result.output
     assert source.read_bytes() == original
+
+
+@pytest.mark.parametrize("kind", ["path", "linked_folder", "hard_link", "symbolic_link", "other_case"])
+def test_the_included_sample_cannot_be_the_output(
+    make_wav: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    folder = tmp_path / "data"
+    folder.mkdir()
+    sample = folder / "sample.wav"
+    sample.write_bytes(b"sample")
+    output = {"path": sample, "other_case": folder / "SAMPLE.WAV"}.get(kind, tmp_path / "link.wav")
+    try:
+        if kind == "linked_folder":
+            (tmp_path / "linked").symlink_to(folder, target_is_directory=True)
+            output = tmp_path / "linked" / "sample.wav"
+        elif kind == "hard_link":
+            os.link(sample, output)
+        elif kind == "symbolic_link":
+            output.symlink_to(sample)
+    except OSError:
+        pytest.skip("this system does not allow this kind of link")
+    if not output.exists():
+        pytest.skip("this file system tells letter cases apart")
+    answers = [*encode_lines(make_wav(), output)[1:], "y"]
+    monkeypatch.setattr(main, "SAMPLE_FILE", str(sample))
+    monkeypatch.setattr("builtins.input", lambda prompt="": answers.pop(0))
+    reason = "symbolic link" if kind == "symbolic_link" else "included sample"
+    with pytest.raises(UnsafeOutputError, match=reason):
+        main.handle_encode()
+    assert answers == ["y"]
+    assert sample.read_bytes() == b"sample"
 
 
 def test_an_output_folder_is_refused_before_any_overwrite_prompt(
@@ -298,19 +339,19 @@ def test_a_later_success_does_not_hide_an_earlier_failure(
 def test_a_failure_for_lack_of_memory_is_reported(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def run_out_of_memory(path: str) -> str:
+    def run_out_of_memory(path: str, algorithm: Algorithm) -> str:
         raise MemoryError
 
     answers = ["1", ""]
     monkeypatch.setattr("builtins.input", lambda prompt="": answers.pop(0))
-    monkeypatch.setitem(ALGORITHMS[1], "decode", run_out_of_memory)
+    monkeypatch.setattr(main, "decode", run_out_of_memory)
     assert main.run_operation(main.handle_decode) is False
     assert "memory" in capsys.readouterr().err
 
 
 def test_accuracy_reports_the_difference(make_wav: Callable[..., Path], tmp_path: Path) -> None:
     output = tmp_path / "output.wav"
-    basic_lsb_steganography.encode(str(make_wav()), str(output), "hidden")
+    encode(str(make_wav()), str(output), "hidden", BASIC_LSB)
     result = run(*accuracy_lines(output, "hidXen??"), EXIT)
     assert result.code == 0
     assert "Accuracy of decoded message: 62.50%\nExact match: no\n" in result.output
@@ -328,9 +369,7 @@ def test_an_empty_message_is_hidden_and_reported_as_empty(
 
 def test_a_decoded_message_cannot_control_the_terminal(make_wav: Callable[..., Path], tmp_path: Path) -> None:
     output = tmp_path / "output.wav"
-    basic_lsb_steganography.encode(
-        str(make_wav()), str(output), "\x1b]0;title\x07\x9b2J\u202egpj\nAccuracy: 100%"
-    )
+    encode(str(make_wav()), str(output), "\x1b]0;title\x07\x9b2J\u202egpj\nAccuracy: 100%", BASIC_LSB)
     result = run(*decode_lines(output), EXIT)
     assert result.code == 0
     expected = "Decoded message: \\x1b]0;title\\x07\\x9b2J\\u202egpj\\nAccuracy: 100%\n"
@@ -385,7 +424,7 @@ def test_a_terminal_without_unicode_still_shows_a_message(
     make_wav: Callable[..., Path], tmp_path: Path
 ) -> None:
     output = tmp_path / "out.wav"
-    basic_lsb_steganography.encode(str(make_wav()), str(output), "café 🎵")
+    encode(str(make_wav()), str(output), "café 🎵", BASIC_LSB)
     result = run(*decode_lines(output), EXIT, encoding="ascii")
     assert result.code == 0
     assert "Decoded message: caf\\xe9 \\U0001f3b5\n" in result.output
@@ -501,14 +540,14 @@ def test_the_program_stops_without_waiting_when_the_reader_leaves(start: StartPr
 @posix_shell
 @pytest.mark.parametrize("stream", ["<&-", ">&-"])
 def test_a_closed_input_or_output_is_a_failure(stream: str) -> None:
-    result = run(command=["sh", "-c", f'"$0" "$1" {stream}', sys.executable, str(MAIN_SCRIPT)])
+    result = run(command=["sh", "-c", f'"$0" "$@" {stream}', *PROGRAM])
     assert result.code == 1
     assert "needs an open input and output" in result.errors
 
 
 @posix_shell
 def test_a_closed_error_stream_does_not_change_the_result(make_wav: Callable[..., Path]) -> None:
-    command = ["sh", "-c", '"$0" "$1" 2>&-', sys.executable, str(MAIN_SCRIPT)]
+    command = ["sh", "-c", '"$0" "$@" 2>&-', *PROGRAM]
     assert run(EXIT, command=command).code == 0
     failed = run(*decode_lines(make_wav(frames=b"\xff" * 400)), EXIT, command=command)
     assert failed.code == 1
@@ -517,7 +556,7 @@ def test_a_closed_error_stream_does_not_change_the_result(make_wav: Callable[...
 
 @posix_shell
 def test_an_input_that_cannot_be_read_is_a_failure(tmp_path: Path) -> None:
-    command = ["sh", "-c", f'"$0" "$1" 0>"{tmp_path / "write_only"}"', sys.executable, str(MAIN_SCRIPT)]
+    command = ["sh", "-c", f'"$0" "$@" 0>"{tmp_path / "write_only"}"', *PROGRAM]
     result = run(command=command)
     assert result.code == 1
     assert "cannot read its input" in result.errors
@@ -525,7 +564,7 @@ def test_an_input_that_cannot_be_read_is_a_failure(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(not os.path.exists("/dev/full"), reason="this system has no /dev/full")
 def test_an_output_that_cannot_be_written_is_a_failure() -> None:
-    command = ["sh", "-c", '"$0" "$1" >/dev/full', sys.executable, str(MAIN_SCRIPT)]
+    command = ["sh", "-c", '"$0" "$@" >/dev/full', *PROGRAM]
     assert run(EXIT, command=command).code == 1
 
 
@@ -549,3 +588,10 @@ def test_back_returns_to_the_main_menu(operation: tuple[str, ...]) -> None:
     assert result.code == 0
     assert result.errors == ""
     assert result.output.count(MAIN_MENU) == 2
+
+
+def test_a_missing_sample_does_not_block_other_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    output = tmp_path / "output.wav"
+    output.write_bytes(b"old")
+    monkeypatch.setattr(main, "SAMPLE_FILE", str(tmp_path / "missing.wav"))
+    main.check_not_sample(str(output))

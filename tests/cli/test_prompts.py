@@ -1,4 +1,4 @@
-"""Tests for cli/helpers.py."""
+"""Tests for audiosteg/cli/prompts.py."""
 
 import io
 import os
@@ -7,8 +7,15 @@ from pathlib import Path
 
 import pytest
 
-from cli.config import ALGORITHMS
-from cli.helpers import OutputClosedError, ask, ask_yes_no, choose_algorithm, get_file_path, get_user_choice
+from audiosteg.algorithms.registry import ALGORITHMS
+from audiosteg.cli.prompts import (
+    OutputClosedError,
+    ask,
+    ask_yes_no,
+    choose_algorithm,
+    get_file_path,
+    get_user_choice,
+)
 
 Answer = Callable[..., list[str]]
 
@@ -59,7 +66,7 @@ def test_an_unclear_answer_is_asked_again(answer: Answer, capsys: pytest.Capture
 
 
 def test_an_invalid_algorithm_is_asked_again(answer: Answer, capsys: pytest.CaptureFixture[str]) -> None:
-    answer("0", "x", "5", "2")
+    answer("0", "x", str(len(ALGORITHMS) + 2), "2")
     assert choose_algorithm() is ALGORITHMS[2]
     assert capsys.readouterr().out.count("Select an algorithm:") == 4
 
@@ -110,9 +117,10 @@ def test_nothing_is_read_after_the_output_is_closed(answer: Answer, monkeypatch:
 
 
 def test_back_chooses_no_algorithm(answer: Answer, capsys: pytest.CaptureFixture[str]) -> None:
-    answer("4")
+    back = len(ALGORITHMS) + 1
+    answer(str(back))
     assert choose_algorithm() is None
-    assert "4) Back" in capsys.readouterr().out
+    assert f"{back}) Back" in capsys.readouterr().out
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows guesses the folder of an unknown user")

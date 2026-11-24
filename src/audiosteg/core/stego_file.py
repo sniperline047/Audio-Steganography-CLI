@@ -1,10 +1,10 @@
 """Hide a message in a WAV file and read it back, one sample byte at a time."""
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from itertools import islice
 
-from utils.errors import CapacityError, NoMessageError
-from utils.message_codec import (
+from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.message_codec import (
     HEADER_BITS,
     MAX_MESSAGE_BITS,
     add_length_header,
@@ -14,17 +14,15 @@ from utils.message_codec import (
     message_to_bytes,
     read_length_header,
 )
-from utils.output_path import check_output_path, normalize_output_path
-from utils.wav_io import (
+from audiosteg.core.wav_io import (
     count_sample_bytes,
     open_pcm_wav,
     read_audio,
     read_first_bytes,
     write_audio,
 )
-
-EmbedBits = Callable[[int, tuple[int, ...]], int]
-ExtractBits = Callable[[int], tuple[int, ...]]
+from audiosteg.errors import CapacityError, NoMessageError
+from audiosteg.utils.output_path import check_output_path, normalize_output_path
 
 
 def check_capacity(message_length: int, sample_bytes: int, bits_per_byte: int) -> None:
@@ -38,13 +36,8 @@ def check_capacity(message_length: int, sample_bytes: int, bits_per_byte: int) -
         )
 
 
-def write_message(
-    input_path: str,
-    output_path: str,
-    message: str,
-    bits_per_byte: int,
-    embed_bits: EmbedBits,
-    overwrite: bool,
+def encode(
+    input_path: str, output_path: str, message: str, algorithm: Algorithm, *, overwrite: bool = False
 ) -> None:
     """
     Hide a message in a copy of a WAV file.
@@ -52,48 +45,46 @@ def write_message(
     :param input_path: Path to the original audio file
     :param output_path: Path to the new audio file
     :param message: The message to hide
-    :param bits_per_byte: How many bits each sample byte carries
-    :param embed_bits: Function that puts a group of bits into a sample byte
+    :param algorithm: The algorithm that hides the bits
     :param overwrite: Whether an existing output file may be replaced
     """
     message_bytes = message_to_bytes(message)
     output_path = normalize_output_path(output_path)
     check_output_path(input_path, output_path, overwrite)
     audio = read_audio(input_path)
-    check_capacity(len(message_bytes), len(audio.frames), bits_per_byte)
+    check_capacity(len(message_bytes), len(audio.frames), algorithm.bits_per_byte)
 
     bits = bytes_to_bits(add_length_header(message_bytes))
     position = 0
-    while group := tuple(islice(bits, bits_per_byte)):
-        audio.frames[position] = embed_bits(audio.frames[position], group)
+    while group := tuple(islice(bits, algorithm.bits_per_byte)):
+        audio.frames[position] = algorithm.embed_bits(audio.frames[position], group)
         position += 1
 
     write_audio(input_path, output_path, audio, overwrite)
 
 
-def extract_all(sample_bytes: bytes, extract_bits: ExtractBits) -> Iterator[int]:
+def extract_all(sample_bytes: bytes, algorithm: Algorithm) -> Iterator[int]:
     """Yield the hidden bits of every sample byte."""
     for byte in sample_bytes:
-        yield from extract_bits(byte)
+        yield from algorithm.extract_bits(byte)
 
 
-def read_message(path: str, bits_per_byte: int, extract_bits: ExtractBits) -> str:
+def decode(path: str, algorithm: Algorithm) -> str:
     """
     Read a hidden message from a WAV file.
 
     :param path: Path to the encoded audio file
-    :param bits_per_byte: How many bits each sample byte carries
-    :param extract_bits: Function that gets the hidden bits from a sample byte
+    :param algorithm: The algorithm that was used to hide the message
     :return: The hidden message
     """
-    header_size = HEADER_BITS // bits_per_byte
+    header_size = HEADER_BITS // algorithm.bits_per_byte
     with open_pcm_wav(path) as audio:
         header = read_first_bytes(audio, header_size)
-        available = count_sample_bytes(audio, path) * bits_per_byte - HEADER_BITS
-        length = read_length_header(list(extract_all(header, extract_bits)), available)
-        sample_bytes = read_first_bytes(audio, header_size + length // bits_per_byte)
+        available = count_sample_bytes(audio, path) * algorithm.bits_per_byte - HEADER_BITS
+        length = read_length_header(list(extract_all(header, algorithm)), available)
+        sample_bytes = read_first_bytes(audio, header_size + length // algorithm.bits_per_byte)
 
-    message_bits = extract_all(sample_bytes[header_size:], extract_bits)
+    message_bits = extract_all(sample_bytes[header_size:], algorithm)
     message_bytes = bits_to_bytes(message_bits)
     if len(message_bytes) * 8 != length:
         raise NoMessageError("The audio file ends before the hidden message does.")

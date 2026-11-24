@@ -1,20 +1,18 @@
-"""Tests for algorithms/basic_lsb_steganography.py."""
+"""Tests for audiosteg/algorithms/basic_lsb.py."""
 
 import random
 import wave
 from collections.abc import Callable
 from itertools import product
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 
-from algorithms import (
-    basic_lsb_steganography,
-    enhanced_lsb_steganography_no_flip,
-    enhanced_lsb_steganography_with_flip,
-)
-from utils.errors import CapacityError, NoMessageError
+from audiosteg import Algorithm, decode, encode
+from audiosteg.algorithms.basic_lsb import BASIC_LSB
+from audiosteg.algorithms.enhanced_lsb import ENHANCED_LSB
+from audiosteg.algorithms.enhanced_lsb_flip import ENHANCED_LSB_FLIP
+from audiosteg.errors import CapacityError, NoMessageError
 
 BITS_PER_BYTE = 1
 COVER = bytes((index * 37 + 11) % 256 for index in range(80))
@@ -36,7 +34,7 @@ def test_known_answer_bytes_for_encode(
     make_wav: Callable[..., Path], read_frames: Callable[[Path], bytes], tmp_path: Path
 ) -> None:
     output = tmp_path / "output.wav"
-    basic_lsb_steganography.encode(str(make_wav(frames=COVER)), str(output), "Hé")
+    encode(str(make_wav(frames=COVER)), str(output), "Hé", BASIC_LSB)
     assert read_frames(output) == UTF8_CARRIER
 
 
@@ -46,7 +44,7 @@ def test_known_answer_bytes_for_encode(
     ids=["utf_8", "old_ascii", "old_latin_1"],
 )
 def test_known_answer_bytes_for_decode(make_wav: Callable[..., Path], carrier: bytes, message: str) -> None:
-    assert basic_lsb_steganography.decode(str(make_wav(frames=carrier))) == message
+    assert decode(str(make_wav(frames=carrier)), BASIC_LSB) == message
 
 
 def test_round_trip_at_every_length_from_0_to_400(make_wav: Callable[..., Path], tmp_path: Path) -> None:
@@ -55,8 +53,8 @@ def test_round_trip_at_every_length_from_0_to_400(make_wav: Callable[..., Path],
     letters = random.Random(11)
     for length in range(401):
         message = "".join(chr(letters.randrange(32, 127)) for _ in range(length))
-        basic_lsb_steganography.encode(str(source), str(output), message, overwrite=True)
-        assert basic_lsb_steganography.decode(str(output)) == message
+        encode(str(source), str(output), message, BASIC_LSB, overwrite=True)
+        assert decode(str(output), BASIC_LSB) == message
 
 
 @pytest.mark.parametrize("sample_bytes", [32, 33, 39, 40, 41, 200])
@@ -67,19 +65,19 @@ def test_exact_capacity_fits_and_one_byte_more_does_not(
     output = tmp_path / "output.wav"
     capacity = (sample_bytes * BITS_PER_BYTE - 32) // 8
     with pytest.raises(CapacityError, match=f"can hold {capacity} bytes"):
-        basic_lsb_steganography.encode(str(source), str(output), "x" * (capacity + 1))
+        encode(str(source), str(output), "x" * (capacity + 1), BASIC_LSB)
     assert not output.exists()
-    basic_lsb_steganography.encode(str(source), str(output), "x" * capacity)
-    assert basic_lsb_steganography.decode(str(output)) == "x" * capacity
+    encode(str(source), str(output), "x" * capacity, BASIC_LSB)
+    assert decode(str(output), BASIC_LSB) == "x" * capacity
 
 
 def test_capacity_counts_utf_8_bytes_not_characters(make_wav: Callable[..., Path], tmp_path: Path) -> None:
     source = make_wav(frames=bytes(64 // BITS_PER_BYTE))
     output = tmp_path / "output.wav"
     with pytest.raises(CapacityError):
-        basic_lsb_steganography.encode(str(source), str(output), "🎵é")
-    basic_lsb_steganography.encode(str(source), str(output), "🎵")
-    assert basic_lsb_steganography.decode(str(output)) == "🎵"
+        encode(str(source), str(output), "🎵é", BASIC_LSB)
+    encode(str(source), str(output), "🎵", BASIC_LSB)
+    assert decode(str(output), BASIC_LSB) == "🎵"
 
 
 @pytest.mark.parametrize(
@@ -91,8 +89,8 @@ def test_special_text_round_trips_unchanged(
     make_wav: Callable[..., Path], tmp_path: Path, message: str
 ) -> None:
     output = tmp_path / "output.wav"
-    basic_lsb_steganography.encode(str(make_wav()), str(output), message)
-    assert basic_lsb_steganography.decode(str(output)) == message
+    encode(str(make_wav()), str(output), message, BASIC_LSB)
+    assert decode(str(output), BASIC_LSB) == message
 
 
 @pytest.mark.parametrize("sample_width", [1, 2, 3, 4])
@@ -104,8 +102,8 @@ def test_every_audio_shape_keeps_its_properties_and_message(
     source = make_wav(frames=frames, channels=channels, sample_width=sample_width, frame_rate=44100)
     original = source.read_bytes()
     output = tmp_path / "output.wav"
-    basic_lsb_steganography.encode(str(source), str(output), "shape")
-    assert basic_lsb_steganography.decode(str(output)) == "shape"
+    encode(str(source), str(output), "shape", BASIC_LSB)
+    assert decode(str(output), BASIC_LSB) == "shape"
     assert source.read_bytes() == original
     with wave.open(str(output), "rb") as audio:
         assert audio.getparams()[:4] == (channels, sample_width, 44100, 180)
@@ -115,26 +113,26 @@ def test_every_audio_shape_keeps_its_properties_and_message(
     assert changed[used:] == frames[used:]
 
 
-@pytest.mark.parametrize("other", [enhanced_lsb_steganography_no_flip, enhanced_lsb_steganography_with_flip])
+@pytest.mark.parametrize("other", [ENHANCED_LSB, ENHANCED_LSB_FLIP])
 def test_decoding_with_another_kind_of_algorithm_does_not_reveal_the_message(
-    make_wav: Callable[..., Path], tmp_path: Path, other: ModuleType
+    make_wav: Callable[..., Path], tmp_path: Path, other: Algorithm
 ) -> None:
     output = tmp_path / "output.wav"
-    basic_lsb_steganography.encode(str(make_wav()), str(output), "secret")
+    encode(str(make_wav()), str(output), "secret", BASIC_LSB)
     with pytest.raises(NoMessageError):
-        other.decode(str(output))
+        decode(str(output), other)
 
 
 def test_audio_too_short_for_a_header_holds_no_message(make_wav: Callable[..., Path], tmp_path: Path) -> None:
     source = make_wav(frames=bytes(32 // BITS_PER_BYTE - 1))
     output = tmp_path / "output.wav"
     with pytest.raises(NoMessageError):
-        basic_lsb_steganography.decode(str(source))
+        decode(str(source), BASIC_LSB)
     with pytest.raises(CapacityError):
-        basic_lsb_steganography.encode(str(source), str(output), "")
+        encode(str(source), str(output), "", BASIC_LSB)
     assert not output.exists()
 
 
 def test_only_the_lowest_bit_of_a_byte_changes() -> None:
     for byte, bit in product(range(256), range(2)):
-        assert basic_lsb_steganography.embed_bits(byte, (bit,)) == byte // 2 * 2 + bit
+        assert BASIC_LSB.embed_bits(byte, (bit,)) == byte // 2 * 2 + bit

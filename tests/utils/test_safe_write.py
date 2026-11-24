@@ -1,4 +1,4 @@
-"""Tests for utils/safe_write.py."""
+"""Tests for audiosteg/utils/safe_write.py."""
 
 import errno
 import os
@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
-from utils.errors import UnsafeOutputError
-from utils.safe_write import safe_output
+from audiosteg.errors import UnsafeOutputError
+from audiosteg.utils.safe_write import safe_output
 
 posix_only = pytest.mark.skipif(os.name == "nt", reason="Windows has no POSIX permissions or umask")
 hard_links_used = pytest.mark.skipif(os.name == "nt", reason="Windows renames instead of linking")

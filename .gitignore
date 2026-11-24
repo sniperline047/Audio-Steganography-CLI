@@ -136,8 +136,12 @@ cython_debug/
 .vscode/
 
 # Encoded audio
+/*_encoded*.wav
 output/*.wav
 .stego_*.tmp
 
 # Ruff
 .ruff_cache/
+
+# uv
+uv.lock

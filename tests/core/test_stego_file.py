@@ -1,4 +1,4 @@
-"""Tests for utils/stego_file.py."""
+"""Tests for audiosteg/core/stego_file.py."""
 
 import errno
 import os
@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from utils.errors import (
+from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.stego_file import check_capacity, decode, encode
+from audiosteg.errors import (
     CapacityError,
     InvalidMessageError,
     NoMessageError,
@@ -15,7 +17,6 @@ from utils.errors import (
     UnsafeOutputError,
     UnsupportedFormatError,
 )
-from utils.stego_file import check_capacity, read_message, write_message
 
 
 def embed_bit(byte: int, bits: tuple[int, ...]) -> int:
@@ -26,12 +27,15 @@ def extract_bit(byte: int) -> tuple[int, ...]:
     return (byte & 1,)
 
 
+LOWEST_BIT = Algorithm("Lowest bit", 1, embed_bit, extract_bit, "lowest_bit.wav")
+
+
 def hide(source: Path | str, output: Path | str, message: str = "hidden", overwrite: bool = False) -> None:
-    write_message(str(source), str(output), message, 1, embed_bit, overwrite)
+    encode(str(source), str(output), message, LOWEST_BIT, overwrite=overwrite)
 
 
 def reveal(path: Path | str) -> str:
-    return read_message(str(path), 1, extract_bit)
+    return decode(str(path), LOWEST_BIT)
 
 
 def carrier(header: int, message: bytes = b"") -> bytes:
@@ -61,6 +65,28 @@ def test_a_message_can_be_hidden_in_a_file_that_already_holds_one(
     hide(make_wav(), tmp_path / "first.wav", "a much longer first message")
     hide(tmp_path / "first.wav", tmp_path / "second.wav", "second")
     assert reveal(tmp_path / "second.wav") == "second"
+
+
+@pytest.mark.parametrize("bits_per_byte", [1, 2, 4, 8])
+def test_every_number_of_bits_fills_the_file_exactly(
+    make_wav: Callable[..., Path], read_frames: Callable[[Path], bytes], tmp_path: Path, bits_per_byte: int
+) -> None:
+    def embed(byte: int, bits: tuple[int, ...]) -> int:
+        return (byte >> bits_per_byte << bits_per_byte) | int("".join(map(str, bits)), 2)
+
+    def extract(byte: int) -> tuple[int, ...]:
+        return tuple((byte >> shift) & 1 for shift in range(bits_per_byte - 1, -1, -1))
+
+    algorithm = Algorithm("Test", bits_per_byte, embed, extract, "test.wav")
+    used = 32 // bits_per_byte + 3 * 8 // bits_per_byte
+    source = make_wav(frames=b"\xaa" * used)
+    output = tmp_path / "output.wav"
+    with pytest.raises(CapacityError, match="hold 3 bytes"):
+        encode(str(source), str(output), "Hi!!", algorithm)
+    encode(str(source), str(output), "Hi!", algorithm)
+    assert decode(str(output), algorithm) == "Hi!"
+    hidden = "".join(str(bit) for byte in read_frames(output) for bit in extract(byte))
+    assert int(hidden, 2).to_bytes(7, "big") == b"\0\0\0\x18Hi!"
 
 
 @pytest.mark.parametrize("overwrite", [False, True])
@@ -118,6 +144,21 @@ def test_an_existing_output_is_refused_before_anything_is_written(
     (tmp_path / "existing.wav").write_bytes(b"keep me")
     with pytest.raises(FileExistsError):
         hide(source, tmp_path / "existing.wav")
+
+
+def test_a_file_that_appears_while_the_message_is_hidden_is_kept(
+    make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    output = tmp_path / "output.wav"
+
+    def embed_while_a_file_appears(byte: int, bits: tuple[int, ...]) -> int:
+        output.write_bytes(b"theirs")
+        return embed_bit(byte, bits)
+
+    algorithm = Algorithm("Test", 1, embed_while_a_file_appears, extract_bit, "test.wav")
+    with pytest.raises(FileExistsError):
+        encode(str(make_wav()), str(output), "hidden", algorithm)
+    assert output.read_bytes() == b"theirs"
 
 
 @pytest.mark.parametrize(

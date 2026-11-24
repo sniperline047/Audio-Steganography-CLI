@@ -8,8 +8,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import BinaryIO, NamedTuple
 
-from utils.errors import UnsupportedFormatError
-from utils.safe_write import safe_output
+from audiosteg.errors import UnsupportedFormatError
+from audiosteg.utils.safe_write import safe_output
 
 WAVE_FORMAT_IEEE_FLOAT = 3
 MAX_BYTES_PER_SECOND = 2**32 - 1

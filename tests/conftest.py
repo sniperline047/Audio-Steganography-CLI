@@ -8,22 +8,23 @@ from pathlib import Path
 
 import pytest
 
+from audiosteg.cli.main import SAMPLE_FILE
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def repository_audio() -> dict[str, tuple[int, str]]:
-    """Describe every file in the repository's input and output folders."""
+    """Describe the sample audio and any audio in the project folder."""
     return {
         str(path): (path.stat().st_mtime_ns, hashlib.sha256(path.read_bytes()).hexdigest())
-        for folder in ("input", "output")
-        for path in (PROJECT_ROOT / folder).rglob("*")
-        if path.is_file()
+        for folder in (PROJECT_ROOT, PROJECT_ROOT / "src" / "audiosteg" / "data", Path(SAMPLE_FILE).parent)
+        for path in folder.glob("*.wav")
     }
 
 
 @pytest.fixture(scope="session", autouse=True)
 def repository_audio_is_untouched() -> Iterator[None]:
-    """Fail the run if a test writes to the repository's input or output folder."""
+    """Fail the run if a test changes the sample audio or writes audio to the project folder."""
     before = repository_audio()
     yield
     assert repository_audio() == before
