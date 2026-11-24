@@ -1,48 +1,60 @@
-from utils.logging_util import setup_logger
-from cli.config import ALGORITHMS, STANDARD_INPUT_FILE_PATH
+"""Menus and prompts."""
 
-logger = setup_logger(__name__)
+from collections.abc import Sequence
 
-def display_menu(options, header):
-    """Displays a menu with a header and a list of options."""
-    logger.info(f"Displaying {header} menu to the user.")
+from cli.config import ALGORITHMS
+from utils.text import escape_text
+
+
+def display_menu(options: Sequence[str], header: str) -> None:
+    """Display a menu with a header and a list of options."""
     print(f"\n{header}:")
     for idx, option in enumerate(options, 1):
         print(f"{idx}) {option}")
 
-def get_user_choice(num_options):
-    """Gets a validated user choice for a menu."""
+
+def get_user_choice(num_options: int) -> int | None:
+    """Get a menu choice, or None if it is not valid."""
     try:
         choice = int(input("\nChoice: "))
-        if 1 <= choice <= num_options:
-            return choice
-        else:
-            logger.warning("Choice out of range.")
-            print("\nInvalid choice, please select a valid option.")
     except ValueError:
-        logger.error("Invalid input; not a number.")
         print("\nPlease enter a valid number!")
+        return None
+    if 1 <= choice <= num_options:
+        return choice
+    print("\nInvalid choice, please select a valid option.")
     return None
 
-def get_file_path(algo_choice, is_input=True):
-    """Gets the file path from the user or uses the standard path."""
-    if is_input:
-        prompt = "input audio file: "
-        standard_path = STANDARD_INPUT_FILE_PATH
-    else:
-        prompt = "output audio file: "
-        standard_path = ALGORITHMS[algo_choice]["output_file"]
 
-    use_standard = input(f"\nUse standard file path ({standard_path}) for the {prompt} file? (y/n): ")
-    if use_standard.lower() == "y":
-        logger.info(f"Using standard file path: {standard_path}")
-        return standard_path
+def ask_yes_no(question: str, default: bool) -> bool:
+    """Ask a yes or no question. Enter selects the default."""
+    hint = "Y/n" if default else "y/N"
+    while True:
+        answer = input(f"{question} ({hint}): ").strip().lower()
+        if not answer:
+            return default
+        if answer in ("y", "yes"):
+            return True
+        if answer in ("n", "no"):
+            return False
+        print("Please answer y or n.")
 
-    file_path = input(f"Enter the path to the custom {prompt}")
-    logger.info(f"User entered file path: {file_path}")
-    return file_path
 
-def display_algorithm_menu():
-    """Displays the algorithm selection menu based on the ALGORITHMS dictionary."""
-    options = [algo["name"] for algo in ALGORITHMS.values()]
-    display_menu(options, "Select an algorithm")
+def get_file_path(description: str, default_path: str) -> str:
+    """
+    Get a file path from the user.
+
+    :param description: What the file is, for example "input audio file"
+    :param default_path: The path used when the user presses Enter
+    :return: The chosen path
+    """
+    shown_path = escape_text(default_path)
+    if ask_yes_no(f"\nUse the default {description} ({shown_path})?", default=True):
+        return default_path
+    path = input(f"Enter the path to the {description} (press Enter for the default): ")
+    return path if path.strip() else default_path
+
+
+def display_algorithm_menu() -> None:
+    """Display the algorithm selection menu."""
+    display_menu([algorithm["name"] for algorithm in ALGORITHMS.values()], "Select an algorithm")

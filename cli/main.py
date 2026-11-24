@@ -1,103 +1,124 @@
+"""Interactive menu for hiding messages in audio files."""
+
+import io
 import os
 import sys
-from tqdm import tqdm
+from collections.abc import Callable
 
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.append(project_root)
-from utils.logging_util import setup_logger
-from cli.helpers import display_menu, get_user_choice, get_file_path, display_algorithm_menu
-from cli.config import ALGORITHMS
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from cli.accuracy import calculate_accuracy
+from cli.config import ALGORITHMS, STANDARD_INPUT_FILE_PATH, Algorithm
+from cli.helpers import (
+    ask_yes_no,
+    display_algorithm_menu,
+    display_menu,
+    get_file_path,
+    get_user_choice,
+)
+from utils.errors import StegoError
+from utils.text import escape_text
+from utils.wav_io import check_output_path, check_regular_file
 
-logger = setup_logger(__name__)
+EXIT_CHOICE = 4
 
-def handle_algorithm_choice(encode=True):
-    """Handles the user's choice of algorithm for encoding or decoding."""
+
+def choose_algorithm() -> Algorithm | None:
+    """Ask the user for an algorithm."""
     display_algorithm_menu()
-    
-    algo_choice = get_user_choice(len(ALGORITHMS))
-    if algo_choice is None or algo_choice not in ALGORITHMS:
-        logger.warning("Invalid algorithm choice.")
-        print("\nInvalid algorithm choice!")
+    choice = get_user_choice(len(ALGORITHMS))
+    return None if choice is None else ALGORITHMS[choice]
+
+
+def handle_encode() -> None:
+    """Ask for a message and hide it in a copy of an audio file."""
+    algorithm = choose_algorithm()
+    if algorithm is None:
         return
+    secret_message = input("Enter the secret message to encode: ")
+    input_file = get_file_path("input audio file", STANDARD_INPUT_FILE_PATH)
+    output_file = get_file_path("output audio file", algorithm["output_file"])
 
-    if encode:
-        secret_message = input("Enter the secret message to encode: ")
-        logger.info(f"Secret message to encode: {secret_message}")
-        input_file = get_file_path(algo_choice, is_input=True)
-        output_file = get_file_path(algo_choice, is_input=False)
-        handle_encode(algo_choice, input_file, output_file, secret_message)
-    else:
-        output_file = get_file_path(algo_choice, is_input=False)
-        handle_decode(algo_choice, output_file)
+    check_regular_file(input_file)
+    check_output_path(input_file, output_file, overwrite=True)
+    overwrite = False
+    if os.path.exists(output_file):
+        overwrite = ask_yes_no(f"{escape_text(output_file)} already exists. Overwrite it?", default=False)
+        if not overwrite:
+            print("Nothing was written.")
+            return
 
-def handle_encode(algo_choice, input_file, output_file, secret_message):
-    """Encodes a message using the chosen algorithm."""
-    algorithm = ALGORITHMS[algo_choice]
-    logger.info(f"Encoding using {algorithm['name']}. Output file will be: {output_file}")
-    
-    # Example of using tqdm for encoding progress
-    for _ in tqdm(range(1), desc="Encoding Progress"):
-        algorithm['encode'](input_file, output_file, secret_message)
+    algorithm["encode"](input_file, output_file, secret_message, overwrite)
+    print(f"Message encoded into {escape_text(output_file)}")
 
-def handle_decode(algo_choice, output_file):
-    """Decodes a message using the chosen algorithm."""
-    algorithm = ALGORITHMS[algo_choice]
-    logger.info(f"Decoding using {algorithm['name']} and output file: {output_file}")
-    
-    # Example of using tqdm for decoding progress
-    for _ in tqdm(range(1), desc="Decoding Progress"):
-        decoded_message = algorithm['decode'](output_file)
-    
+
+def handle_decode() -> None:
+    """Show the message hidden in an audio file."""
+    algorithm = choose_algorithm()
+    if algorithm is None:
+        return
+    encoded_file = get_file_path("encoded audio file", algorithm["output_file"])
+    decoded_message = algorithm["decode"](encoded_file)
     if decoded_message:
-        print(f"Decoded message: {decoded_message}")
+        print(f"Decoded message: {escape_text(decoded_message)}")
     else:
-        print("Failed to decode the message.")
+        print("The decoded message is empty.")
 
-def handle_accuracy_check():
-    """Calculates and displays the accuracy of the decoded message."""
-    original_message = input("Enter the original secret message for accuracy calculation: ")
 
-    display_algorithm_menu()
-    algo_choice = get_user_choice(len(ALGORITHMS))
-
-    if algo_choice is None or algo_choice not in ALGORITHMS:
-        logger.warning("Invalid algorithm choice.")
-        print("\nInvalid algorithm choice!")
+def handle_accuracy_check() -> None:
+    """Compare the message hidden in an audio file with the expected one."""
+    expected_message = input("Enter the expected secret message: ")
+    algorithm = choose_algorithm()
+    if algorithm is None:
         return
+    encoded_file = get_file_path("encoded audio file", algorithm["output_file"])
+    result = calculate_accuracy(expected_message, algorithm, encoded_file)
+    print(f"Accuracy of decoded message: {result.percentage:.2f}%")
+    print(f"Exact match: {'yes' if result.exact_match else 'no'}")
+    print(f"Expected length: {result.expected_length}, decoded length: {result.decoded_length}")
 
-    input_file = get_file_path(algo_choice, is_input=True)
-    output_file = get_file_path(algo_choice, is_input=False)
 
-    algorithm = ALGORITHMS[algo_choice]
-    
-    # Example of using tqdm for accuracy calculation
-    for _ in tqdm(range(1), desc="Accuracy Calculation Progress"):
-        calculate_accuracy(original_message, algorithm, input_file_path=input_file, output_file_path=output_file)
+def run_operation(operation: Callable[[], None]) -> bool:
+    """Run one menu operation and report any error. Return whether it succeeded."""
+    try:
+        operation()
+    except (StegoError, OSError, ValueError) as error:
+        print(f"Error: {escape_text(str(error))}", file=sys.stderr)
+        return False
+    return True
 
-def handle_main_choice(choice):
-    """Handles the user's main menu choice."""
-    logger.info(f"User selected main menu choice: {choice}")
-    if choice == 1:
-        handle_algorithm_choice(encode=True)
-    elif choice == 2:
-        handle_algorithm_choice(encode=False)
-    elif choice == 3:
-        handle_accuracy_check()
-    elif choice == 4:
-        logger.info("Exiting the program.")
-        sys.exit(0)
-    else:
-        logger.warning("Invalid choice entered by user.")
-        print("\nEnter a valid choice!")
 
-def main():
-    """Main function to run the CLI program."""
-    while True:
-        display_menu(["Encode a message", "Decode a message", "Calculate accuracy", "Exit"], "Select an option")
-        choice = get_user_choice(4)
-        if choice is not None:
-            handle_main_choice(choice)
+def run_menu() -> int:
+    """Show the menu until the user leaves. Return the exit code."""
+    operations = {1: handle_encode, 2: handle_decode, 3: handle_accuracy_check}
+    failed = False
+    try:
+        while True:
+            display_menu(
+                ["Encode a message", "Decode a message", "Calculate accuracy", "Exit"],
+                "Select an option",
+            )
+            choice = get_user_choice(EXIT_CHOICE)
+            if choice == EXIT_CHOICE:
+                break
+            if choice is not None and not run_operation(operations[choice]):
+                failed = True
+    except (EOFError, KeyboardInterrupt):
+        print()
+    return 1 if failed else 0
+
+
+def main() -> int:
+    """Run the CLI program."""
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(errors="backslashreplace")
+    if isinstance(sys.stdin, io.TextIOWrapper):
+        sys.stdin.reconfigure(errors="surrogateescape")
+    return run_menu()
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

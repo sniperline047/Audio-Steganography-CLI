@@ -1,44 +1,47 @@
-from utils.logging_util import setup_logger
+"""Compare a hidden message with the message that was expected."""
 
-logger = setup_logger(__name__)
+from typing import NamedTuple
 
-def calculate_accuracy(original_message, algorithm, input_file_path, output_file_path):
+from cli.config import Algorithm
+
+
+class AccuracyResult(NamedTuple):
+    """The result of comparing two messages."""
+
+    percentage: float
+    exact_match: bool
+    expected_length: int
+    decoded_length: int
+
+
+def compare_messages(expected_message: str, decoded_message: str) -> AccuracyResult:
     """
-    Calculates the accuracy of the decoded message compared to the original message.
+    Compare two messages character by character.
 
-    :param original_message: The original secret message that was encoded
-    :param algorithm: The algorithm object containing encode and decode methods
-    :param input_file_path: Path to the input audio file used for encoding
-    :param output_file_path: Path to the output audio file used for decoding
-    :return: The accuracy of the decoded message as a percentage
+    The score is the number of matching positions divided by the longer length,
+    so missing and extra characters both lower it.
+
+    :param expected_message: The message that should be hidden
+    :param decoded_message: The message that was found
+    :return: The comparison result
     """
-    try:
-        # Validate inputs
-        if not all([original_message, algorithm, input_file_path, output_file_path]):
-            raise ValueError("One or more input parameters are missing.")
+    longest = max(len(expected_message), len(decoded_message))
+    matches = sum(a == b for a, b in zip(expected_message, decoded_message, strict=False))
+    return AccuracyResult(
+        percentage=100.0 if longest == 0 else matches / longest * 100,
+        exact_match=expected_message == decoded_message,
+        expected_length=len(expected_message),
+        decoded_length=len(decoded_message),
+    )
 
-        # Encode the message into the audio file
-        algorithm['encode'](input_file_path, output_file_path, original_message)
 
-        # Decode the message from the output audio file
-        decoded_message = algorithm['decode'](output_file_path)
+def calculate_accuracy(expected_message: str, algorithm: Algorithm, stego_file_path: str) -> AccuracyResult:
+    """
+    Check an existing encoded file against the expected message. No file is changed.
 
-        if decoded_message is None:
-            logger.error("Decoded message is None.")
-            return 0.0
-
-        if not decoded_message:
-            logger.error("Decoded message is empty.")
-            return 0.0
-
-        # Calculate the accuracy of the decoded message
-        matches = sum(a == b for a, b in zip(original_message, decoded_message))
-        accuracy = (matches / len(original_message)) * 100
-
-        logger.info(f"Accuracy of decoded message: {accuracy:.2f}%")
-        print(f"Accuracy of decoded message: {accuracy:.2f}%")
-        return accuracy
-
-    except Exception as e:
-        logger.error(f"Error during accuracy calculation: {e}")
-        return 0.0
+    :param expected_message: The message that should be hidden in the file
+    :param algorithm: The algorithm that was used to hide it
+    :param stego_file_path: Path to the encoded audio file
+    :return: The comparison result
+    """
+    return compare_messages(expected_message, algorithm["decode"](stego_file_path))
