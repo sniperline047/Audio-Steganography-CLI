@@ -30,7 +30,9 @@ EXIT_CHOICE = 4
 
 def check_not_sample(output_file: str) -> None:
     """Refuse to replace the sample that is included in the package."""
-    if os.path.exists(output_file) and os.path.samefile(output_file, SAMPLE_FILE):
+    if not os.path.exists(output_file) or not os.path.exists(SAMPLE_FILE):
+        return
+    if os.path.samefile(output_file, SAMPLE_FILE):
         raise UnsafeOutputError("The output path is the included sample, which cannot be replaced.")
 
 

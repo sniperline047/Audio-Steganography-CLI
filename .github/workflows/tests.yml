@@ -93,6 +93,10 @@ jobs:
           unzip -Z1 "$RUNNER_TEMP"/dist/*.whl | tee "$RUNNER_TEMP/wheel_files.txt"
           data=$(grep '^audiosteg/data/.' "$RUNNER_TEMP/wheel_files.txt")
           test "$data" = audiosteg/data/sample.wav
+          if grep -vE '^audiosteg/([a-z_]+/)*[a-z_]+\.py$|^audiosteg/py\.typed$|^audiosteg/data/sample\.wav$|^audiosteg-[^/]+\.dist-info/' "$RUNNER_TEMP/wheel_files.txt"; then
+            echo "The wheel contains unexpected files."
+            exit 1
+          fi
           grep -qxF audiosteg/py.typed "$RUNNER_TEMP/wheel_files.txt"
           grep -qx 'audiosteg-[^/]*\.dist-info/licenses/LICENSE' "$RUNNER_TEMP/wheel_files.txt"
       - name: Install the wheel in a clean environment

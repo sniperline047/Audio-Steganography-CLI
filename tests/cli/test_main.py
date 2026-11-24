@@ -588,3 +588,10 @@ def test_back_returns_to_the_main_menu(operation: tuple[str, ...]) -> None:
     assert result.code == 0
     assert result.errors == ""
     assert result.output.count(MAIN_MENU) == 2
+
+
+def test_a_missing_sample_does_not_block_other_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    output = tmp_path / "output.wav"
+    output.write_bytes(b"old")
+    monkeypatch.setattr(main, "SAMPLE_FILE", str(tmp_path / "missing.wav"))
+    main.check_not_sample(str(output))
