@@ -29,6 +29,15 @@ LSB = Algorithm(
     embed_bits=embed_one_bit,
     extract_bits=extract_one_bit,
     explanation="Hides 1 bit in each sample. Best sound quality.",
+    strengths=(
+        "The change is the smallest that a sample can have.",
+        "The idea is easy to understand and fast.",
+    ),
+    weaknesses=(
+        "It holds less than LSB_2.",
+        "Editing, compressing, or converting the audio destroys the message.",
+        "Anyone who looks at the lowest bits can find the message.",
+    ),
 )
 
 LSB_2 = Algorithm(
@@ -37,4 +46,13 @@ LSB_2 = Algorithm(
     embed_bits=embed_two_bits,
     extract_bits=extract_two_bits,
     explanation="Hides 2 bits in each sample. Double the capacity, a little more noise.",
+    strengths=(
+        "It uses half as many samples as LSB for the same message.",
+        "The change is still small in 16-bit audio.",
+    ),
+    weaknesses=(
+        "A sample can change more than with LSB, so it adds more noise.",
+        "Editing, compressing, or converting the audio destroys the message.",
+        "Anyone who looks at the lowest bits can find the message.",
+    ),
 )

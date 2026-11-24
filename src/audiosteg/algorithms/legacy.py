@@ -8,6 +8,13 @@ from audiosteg.core.wav_io import count_sample_bytes, open_pcm_wav, read_first_b
 from audiosteg.errors import NoMessageError
 
 HEADER_BITS = 32
+EVERY_BYTE = (
+    "It used every byte of a sample. The highest byte decides how loud a sample is, "
+    "so the start of the file could have audible noise."
+)
+NO_MARKER = "It had no marker and no checksum, so a message could not be detected and damage went unnoticed."
+NO_ENCRYPTION = "It could not encrypt messages."
+MIDDLE_BITS = "It changed middle bits, which adds more noise than changing the lowest bits."
 
 
 def extract_lowest_bit(byte: int) -> tuple[int, ...]:
@@ -25,6 +32,7 @@ BASIC_LSB = LegacyAlgorithm(
     bits_per_byte=1,
     extract_bits=extract_lowest_bit,
     explanation="Reads 1 bit from every byte.",
+    replaced_because=(EVERY_BYTE, NO_MARKER, NO_ENCRYPTION),
 )
 
 ENHANCED_LSB_FLIP = LegacyAlgorithm(
@@ -32,6 +40,7 @@ ENHANCED_LSB_FLIP = LegacyAlgorithm(
     bits_per_byte=2,
     extract_bits=extract_middle_bits,
     explanation="Reads 2 middle bits from every byte (with bit flipping).",
+    replaced_because=(EVERY_BYTE, MIDDLE_BITS, NO_MARKER, NO_ENCRYPTION),
 )
 
 ENHANCED_LSB = LegacyAlgorithm(
@@ -39,6 +48,7 @@ ENHANCED_LSB = LegacyAlgorithm(
     bits_per_byte=2,
     extract_bits=extract_middle_bits,
     explanation="Reads 2 middle bits from every byte.",
+    replaced_because=(EVERY_BYTE, MIDDLE_BITS, NO_MARKER, NO_ENCRYPTION),
 )
 
 
