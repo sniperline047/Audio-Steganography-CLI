@@ -14,7 +14,7 @@ class NoMessageError(StegoError):
 
 
 class UnsupportedFormatError(StegoError):
-    """The input is not an uncompressed PCM WAV file."""
+    """The WAV file or the hidden message has a format that cannot be read."""
 
 
 class InvalidMessageError(StegoError):
@@ -23,3 +23,27 @@ class InvalidMessageError(StegoError):
 
 class UnsafeOutputError(StegoError):
     """The output path could damage another file."""
+
+
+class UnsupportedAlgorithmError(StegoError):
+    """The algorithm cannot hide new messages."""
+
+
+class DamagedMessageError(StegoError):
+    """A hidden message was found, but it was changed or cut off."""
+
+
+class PassphraseRequiredError(StegoError):
+    """The message is encrypted and no passphrase was given."""
+
+
+class NotEncryptedError(StegoError):
+    """A passphrase was given for a message that is not encrypted."""
+
+
+class WrongPassphraseError(StegoError):
+    """The passphrase is wrong, or the encrypted message was changed."""
+
+
+class MissingLibraryError(StegoError):
+    """Encryption is not available, for example because its library is not installed."""

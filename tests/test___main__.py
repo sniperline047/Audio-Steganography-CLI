@@ -8,7 +8,7 @@ PROGRAM = [sys.executable, "-m", "audiosteg"]
 
 
 def test_the_exit_code_is_passed_on(tmp_path: Path) -> None:
-    failed = subprocess.run(PROGRAM, input=b"2\n1\n", capture_output=True, cwd=tmp_path, timeout=60)
+    failed = subprocess.run(PROGRAM, input=b"1\n1\n", capture_output=True, cwd=tmp_path, timeout=60)
     assert failed.returncode == 1
     assert b"Error: The input ended" in failed.stderr
     finished = subprocess.run(PROGRAM, input=b"4\n", capture_output=True, cwd=tmp_path, timeout=60)

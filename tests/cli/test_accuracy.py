@@ -50,7 +50,7 @@ def test_checking_a_file_changes_nothing(
     modified = output.stat().st_mtime_ns
     monkeypatch.chdir(tmp_path)
     try:
-        assert calculate_accuracy("hiddenX", algorithm, str(output)).decoded_length == 6
+        assert calculate_accuracy("hiddenX", str(output), algorithm).decoded_length == 6
     finally:
         output.chmod(0o644)
     assert output.read_bytes() == content
@@ -60,4 +60,4 @@ def test_checking_a_file_changes_nothing(
 
 def test_a_file_without_a_message_is_an_error_not_a_score(make_wav: Callable[..., Path]) -> None:
     with pytest.raises(NoMessageError):
-        calculate_accuracy("", ALGORITHMS[1], str(make_wav(frames=b"\xff" * 200)))
+        calculate_accuracy("", str(make_wav(frames=b"\xff" * 200)), ALGORITHMS[1])

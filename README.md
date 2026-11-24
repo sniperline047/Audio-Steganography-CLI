@@ -2,9 +2,9 @@
 
 [![Test coverage](https://github.com/sniperline047/Audio-Steganography-CLI/raw/coverage_badge/coverage.svg)](https://github.com/sniperline047/Audio-Steganography-CLI/actions/workflows/tests.yml)
 
-A learning project that hides a text message inside a WAV file and reads it back. It offers three least significant bit (LSB) algorithms through an interactive menu and a small Python API, and needs only the Python standard library.
+A learning project that hides a text message inside a WAV file and reads it back. It offers two least significant bit (LSB) algorithms through an interactive menu and a small Python API. It needs only the Python standard library. Optional encryption needs one extra library.
 
-> **Messages are not encrypted or authenticated.** Anyone who knows the algorithm can read a hidden message, change it, or replace it. Do not use this project to protect real secrets.
+> **Without a passphrase, anyone can read, change, or replace a hidden message.** Read [Security](#security) before you hide anything private.
 
 ## Requirements
 
@@ -25,6 +25,14 @@ pip install .
 
 On Windows, activate the environment with `.venv\Scripts\activate`.
 
+To encrypt messages, install the `crypto` extra, which adds the [cryptography](https://cryptography.io/) library:
+
+```bash
+pip install ".[crypto]"
+```
+
+That library has ready-made packages for most systems. On others, such as Macs with Intel processors, pip has to build it and needs extra tools.
+
 ## Run
 
 After installing, run one of these from any folder:
@@ -38,9 +46,10 @@ With [uv](https://docs.astral.sh/uv/), there is nothing to install first. From t
 
 ```bash
 uv run audiosteg
+uv run --extra crypto audiosteg
 ```
 
-From another folder, use `uv run --project path/to/Audio-Steganography-CLI audiosteg`.
+The second command adds encryption. From another folder, use `uv run --project path/to/Audio-Steganography-CLI audiosteg`.
 
 The menu has four options:
 
@@ -57,24 +66,27 @@ The program exits with code 0 when every operation succeeded, 1 when an operatio
 
 1. Choose **Encode a message**, then an algorithm. After an invalid choice, the program asks again. Choose **Back** to return to the main menu.
 2. Type the secret message.
-3. Choose the input audio file. The default is the sample tune that is included in the package.
-4. Choose the output audio file. The default is a file in the current folder, and its name depends on the algorithm (see below).
-5. If the output file exists, confirm that it may be overwritten. The default answer is no.
+3. Type a passphrase twice to encrypt the message, or press Enter for no encryption. A terminal does not show the passphrase. Without the `crypto` extra, the program skips this step and says so, so a script that types answers should install the extra.
+4. Choose the input audio file. The default is the sample tune that is included in the package.
+5. Choose the output audio file. The default is `message_encoded.wav` in the current folder.
+6. If the output file exists, confirm that it may be overwritten. The default answer is no.
 
 The input file is never changed. The program refuses to write to the input file, the included sample, or a symbolic link. Only the audio is copied; tags and other metadata are not.
 
 ### Decode a message
 
-1. Choose **Decode a message**, then the algorithm that was used to encode.
-2. Choose the encoded audio file. The default is that algorithm's output file in the current folder.
+1. Choose **Decode a message**, then the encoded audio file. The default is `message_encoded.wav` in the current folder.
+2. The program detects the algorithm. If the message is encrypted, type its passphrase. The program says whether the message was encrypted.
+3. If nothing is detected, the program offers the algorithms of older versions. Choose the one that was used to encode, or **Back**.
+
+If you expect an encrypted message and the program says that it was not encrypted, do not trust the message.
 
 Characters that could control the terminal are shown as escape codes such as `\x1b`. This only changes the display; the hidden message stays the same. Invisible joiners are also escaped, so some combined emoji appear as separate emoji and a code such as `\u200d`.
 
 ### Calculate accuracy
 
-1. Choose **Calculate accuracy**.
-2. Type the expected message, then choose the algorithm.
-3. Choose the encoded audio file.
+1. Choose **Calculate accuracy**, then the encoded audio file. Detection, the passphrase, and older files work as they do for decoding.
+2. Type the expected message.
 
 This reads an existing file and changes nothing. The score is the number of matching character positions divided by the longer message length, so missing and extra characters lower it. The program also says whether the messages match exactly.
 
@@ -82,53 +94,130 @@ This reads an existing file and changes nothing. The score is the number of matc
 
 ```python
 from audiosteg import NoMessageError, decode, encode
-from audiosteg.algorithms.basic_lsb import BASIC_LSB
+from audiosteg.algorithms.lsb import LSB
 
-encode("input.wav", "output.wav", "Hello", BASIC_LSB)
+encode("input.wav", "output.wav", "Hello", LSB)
 try:
-    print(decode("output.wav", BASIC_LSB))
+    print(decode("output.wav"))
 except NoMessageError:
     print("No hidden message was found.")
+
+encode("input.wav", "private.wav", "Hello", LSB, passphrase="correct horse battery staple")
+print(decode("private.wav", passphrase="correct horse battery staple"))
 ```
 
-`encode` refuses to replace an existing output file unless you pass `overwrite=True`. Every error the package raises on purpose is a `StegoError`: `CapacityError`, `InvalidMessageError`, `NoMessageError`, `UnsafeOutputError`, or `UnsupportedFormatError`. File problems raise the usual `OSError` types, such as `FileNotFoundError`. A null character in an input path raises `ValueError`.
+`decode` detects the algorithm unless you pass one. `encode` refuses to replace an existing output file unless you pass `overwrite=True`.
+
+Every error the package raises on purpose is a `StegoError`, except `ValueError` for a passphrase that is empty, contains a null character, or is not valid text, and `TypeError` for something that is not an algorithm:
+
+| Error | Meaning |
+| --- | --- |
+| `CapacityError` | The message does not fit |
+| `DamagedMessageError` | A message was found, but it was changed or cut off |
+| `InvalidMessageError` | The message is not valid text |
+| `MissingLibraryError` | Encryption is not available; it usually needs `pip install ".[crypto]"` |
+| `NoMessageError` | No message was found |
+| `NotEncryptedError` | A passphrase was given, but the message is not encrypted |
+| `PassphraseRequiredError` | The message is encrypted and no passphrase was given |
+| `UnsafeOutputError` | The output path could damage another file |
+| `UnsupportedAlgorithmError` | The algorithm cannot hide new messages |
+| `UnsupportedFormatError` | The WAV file or the message format cannot be read |
+| `WrongPassphraseError` | Wrong passphrase, or the message was changed |
+
+File problems raise the usual `OSError` types, such as `FileNotFoundError`. A null character in an input path raises `ValueError`.
+
+### Read files from older versions
+
+Files made by older versions are not detected. Choose how they were encoded:
+
+```python
+from audiosteg import decode
+from audiosteg.algorithms.legacy import BASIC_LSB
+
+print(decode("old.wav", BASIC_LSB))
+```
+
+The other choices are `ENHANCED_LSB_FLIP` and `ENHANCED_LSB`, which read each other's files. These algorithms cannot hide new messages.
+
+The oldest of these files stored one byte per character. If a message is not valid UTF-8, it is read as Latin-1, so most old messages still decode. A few old messages with accented letters also happen to be valid UTF-8 and show different characters. The earliest files, which have no length header and are padded with `#`, are not supported.
 
 ## Algorithms
 
-Each algorithm first stores the message length in bits as a 32-bit number, then the message as UTF-8 text.
+| Menu | Algorithm | Bits per sample | Largest change to a sample |
+| --- | --- | --- | --- |
+| 1 | `LSB` | 1 (lowest bit) | 1 |
+| 2 | `LSB_2` | 2 (two lowest bits) | 3 |
 
-Older versions stored one byte per character. If a message is not valid UTF-8, it is read as Latin-1, so most old messages still decode. A few old messages with accented letters also happen to be valid UTF-8 and show different characters. The earliest files, which have no length header and are padded with `#`, are not supported.
-
-| Menu | Algorithm | Bits per sample byte | Code | Default output |
-| --- | --- | --- | --- | --- |
-| 1 | Basic LSB Steganography | 1 (lowest bit) | `algorithms/basic_lsb.py` | `basic_lsb_encoded.wav` |
-| 2 | Enhanced LSB Steganography with Bit Flipping | 2 (third and fourth lowest bits) | `algorithms/enhanced_lsb_flip.py` | `enhanced_lsb_encoded_flip.wav` |
-| 3 | Enhanced LSB Steganography without Bit Flipping | 2 (third and fourth lowest bits) | `algorithms/enhanced_lsb.py` | `enhanced_lsb_encoded_no_flip.wav` |
-
-Algorithms 2 and 3 can read each other's files because they store the message in the same two bits. They differ only in the two lowest bits, which decoding ignores.
-
-The with-flip version also inverts the two lowest bits of every byte whose hidden bits change.
+Both are in `algorithms/lsb.py`. They change only the lowest byte of each sample. The samples of all channels are used in the order in which they are stored.
 
 ### Capacity
 
-For an audio file with `n` sample bytes, the largest message is:
+For an audio file with `n` samples (counting every channel), the largest message is:
 
-- Basic: `(n - 32) / 8` bytes
-- Enhanced: `(2n - 32) / 8` bytes
+| Algorithm | Plain | Encrypted |
+| --- | --- | --- |
+| `LSB` | `n / 8 - 14` bytes | `n / 8 - 54` bytes |
+| `LSB_2` | `2n / 8 - 14` bytes | `2n / 8 - 54` bytes |
 
-Both are rounded down. One character can take up to four UTF-8 bytes.
+The division is rounded down. One character can take up to four UTF-8 bytes.
 
 ### Audio quality
 
-"Enhanced" means twice the capacity, not better quality. A 1 KB message gave these signal-to-noise ratios (higher is better). Results change slightly with the message.
+These are signal-to-noise ratios for the included sample (higher is better). Results change slightly with the message.
 
-| Algorithm | Previous sample | Current sample |
+| Algorithm | 43 B | 1 KB | 10 KB |
+| --- | --- | --- | --- |
+| `LSB`, plain | 101.4 dB | 89.0 dB | 79.0 dB |
+| `LSB`, encrypted | 99.1 dB | 88.8 dB | 79.0 dB |
+| `LSB_2`, plain | 97.3 dB | 85.1 dB | 75.2 dB |
+| `LSB_2`, encrypted | 95.4 dB | 85.0 dB | 75.0 dB |
+| Old Basic | 57.9 dB | 43.9 dB | 33.9 dB |
+| Old Enhanced without flipping | 40.0 dB | 28.1 dB | 17.9 dB |
+| Old Enhanced with flipping | 40.5 dB | 27.8 dB | 17.6 dB |
+
+The old algorithms also changed the high byte of 16-bit samples, so the start of the file could have audible noise. Neither new algorithm is designed to resist detection.
+
+### Container layout
+
+The hidden bytes are written from the first sample on. Each byte starts with its most significant bit. `LSB_2` puts two bits into each sample: the first in the second lowest bit, the second in the lowest bit.
+
+Every container starts with a 10-byte header:
+
+| Offset | Size | Content |
 | --- | --- | --- |
-| Basic | 50.0 dB | 44.0 dB |
-| Enhanced without flipping | 32.3 dB | 27.9 dB |
-| Enhanced with flipping | 30.0 dB | 27.6 dB |
+| 0 | 4 | Marker: `ASTG` (`41 53 54 47`) |
+| 4 | 1 | Version: 1 |
+| 5 | 1 | Flags: bit 0 (value 1) means encrypted; all other bits are 0 |
+| 6 | 4 | Message length `m` in bytes, before encryption, big-endian |
 
-The message is written into sample bytes in order, including the high byte of 16-bit samples, so the start of the file can have audible noise. None of them is designed to resist detection.
+A plain container continues with:
+
+| Offset | Size | Content |
+| --- | --- | --- |
+| 10 | `m` | Message as UTF-8 |
+| 10 + `m` | 4 | CRC-32 (as in zlib) of the header and the message, big-endian |
+
+An encrypted container continues with:
+
+| Offset | Size | Content |
+| --- | --- | --- |
+| 10 | 16 | Salt |
+| 26 | 12 | Nonce |
+| 38 | `m` | Message as UTF-8, encrypted with AES-256-GCM |
+| 38 + `m` | 16 | AES-GCM tag, which also covers the header (as associated data) |
+
+The key is 32 bytes from scrypt with `n` = 131072, `r` = 8, and `p` = 1. Its input is the salt and the passphrase, normalized to Unicode NFC and stored as UTF-8. These values belong to version 1 and are never read from a file. The salt and nonce are random for every message. Making the key needs about 128 MiB of memory.
+
+## Security
+
+- Encryption hides what the message says, not that it exists. The marker makes a hidden message easy to find. The message length is not encrypted.
+- Anyone can find, read, change, or replace a message that has no passphrase. The CRC only detects accidents. It is not protection against tampering.
+- An encrypted message cannot be changed without an error. It can still be removed, or replaced by a plain message. With a passphrase, `decode` refuses a plain message.
+- A short or common passphrase can be guessed. Use a long one that you use nowhere else.
+- A lost passphrase cannot be recovered.
+- Editing, compressing, or converting the audio destroys the message.
+
+This is a learning project and has not been audited.
 
 ## Project layout
 
@@ -138,16 +227,21 @@ Audio-Steganography-CLI/
 ├── scripts/
 │   └── generate_sample_audio.py
 ├── src/audiosteg/
-│   ├── algorithms/         The three algorithms, one per file
-│   │   └── registry.py     The numbered list of algorithms
+│   ├── algorithms/
+│   │   ├── detection.py    Detection and decode
+│   │   ├── legacy.py       Reading files from older versions
+│   │   ├── lsb.py          The two algorithms
+│   │   └── registry.py     The numbered lists of algorithms
 │   ├── cli/
 │   │   ├── accuracy.py     Message comparison
 │   │   ├── main.py         Program entry point
 │   │   └── prompts.py      Menus and prompts
 │   ├── core/
 │   │   ├── algorithm.py    The Algorithm type
+│   │   ├── crypto.py       Optional encryption
+│   │   ├── header.py       The container around a message
 │   │   ├── message_codec.py Message and bit conversion
-│   │   ├── stego_file.py   encode and decode
+│   │   ├── stego_file.py   Hiding and reading with one algorithm
 │   │   └── wav_io.py       WAV reading and writing
 │   ├── data/
 │   │   └── sample.wav
@@ -178,18 +272,18 @@ pip install -e .
 1. Create `src/audiosteg/algorithms/my_new_algorithm.py`:
 
    ```python
-   """Hide one bit in the second lowest bit of each sample byte."""
+   """Hide one bit in the second lowest bit of each sample."""
 
    from audiosteg.core.algorithm import Algorithm
 
 
    def embed_bits(byte: int, bits: tuple[int, ...]) -> int:
-       """Replace the second lowest bit of a sample byte."""
+       """Replace the second lowest bit of a byte."""
        return (byte & 253) | (bits[0] << 1)
 
 
    def extract_bits(byte: int) -> tuple[int, ...]:
-       """Read the second lowest bit of a sample byte."""
+       """Read the second lowest bit of a byte."""
        return ((byte >> 1) & 1,)
 
 
@@ -198,30 +292,38 @@ pip install -e .
        bits_per_byte=1,
        embed_bits=embed_bits,
        extract_bits=extract_bits,
-       output_file_name="my_new_algorithm_encoded.wav",
    )
    ```
 
-   `bits_per_byte` must be 1, 2, 4, or 8.
+   The functions get only the lowest byte of each sample. `bits_per_byte` must be 1, 2, 4, or 8.
 
 2. Import it in `src/audiosteg/algorithms/registry.py` and add one line to `ALGORITHMS` with the next number:
 
    ```python
-   4: MY_NEW_ALGORITHM,
+   3: MY_NEW_ALGORITHM,
    ```
 
-The menu, the capacity check, and the file handling need no changes.
+The menu, detection, the capacity check, and the file handling need no changes.
+
+Detection tries the algorithms in order and stops at the first message. If the input audio already holds a message from an algorithm earlier in the list, that old message can be found instead of the new one. To avoid this, pass the algorithm to `decode`.
 
 ## Moving from the old layout
 
 | Old | New |
 | --- | --- |
 | `python cli/main.py`, `python -m cli.main` | `audiosteg`, `python -m audiosteg` |
-| `basic_lsb_steganography.encode(source, output, message)` | `encode(source, output, message, BASIC_LSB)` |
-| `basic_lsb_steganography.decode(path)` | `decode(path, BASIC_LSB)` |
-| `from algorithms import basic_lsb_steganography` | `from audiosteg.algorithms.basic_lsb import BASIC_LSB` |
-| `from algorithms import enhanced_lsb_steganography_no_flip` | `from audiosteg.algorithms.enhanced_lsb import ENHANCED_LSB` |
-| `from algorithms import enhanced_lsb_steganography_with_flip` | `from audiosteg.algorithms.enhanced_lsb_flip import ENHANCED_LSB_FLIP` |
+| `basic_lsb_steganography.encode(source, output, message)` | `encode(source, output, message, LSB)` |
+| `basic_lsb_steganography.decode(path)` | `decode(path)` for new files, `decode(path, BASIC_LSB)` for old files |
+| `from algorithms import basic_lsb_steganography` | `from audiosteg.algorithms.legacy import BASIC_LSB` (read only) |
+| `from algorithms import enhanced_lsb_steganography_no_flip` | `from audiosteg.algorithms.legacy import ENHANCED_LSB` (read only) |
+| `from algorithms import enhanced_lsb_steganography_with_flip` | `from audiosteg.algorithms.legacy import ENHANCED_LSB_FLIP` (read only) |
+| `encode(source, output, message, BASIC_LSB)` | `encode(source, output, message, LSB)` |
+| `encode(source, output, message, ENHANCED_LSB)`, `encode(source, output, message, ENHANCED_LSB_FLIP)` | `encode(source, output, message, LSB_2)` |
+| `from audiosteg.algorithms.basic_lsb import BASIC_LSB` | `from audiosteg.algorithms.legacy import BASIC_LSB` (read only) |
+| `from audiosteg.algorithms.enhanced_lsb import ENHANCED_LSB` | `from audiosteg.algorithms.legacy import ENHANCED_LSB` (read only) |
+| `from audiosteg.algorithms.enhanced_lsb_flip import ENHANCED_LSB_FLIP` | `from audiosteg.algorithms.legacy import ENHANCED_LSB_FLIP` (read only) |
+| `from audiosteg.core.stego_file import decode` | `from audiosteg import decode` |
+| One default output file per algorithm | `message_encoded.wav` |
 | `input/original_sample.wav` | `src/audiosteg/data/sample.wav` |
 | Default files in `output/` | Default files in the current folder |
 
@@ -230,16 +332,18 @@ The menu, the capacity check, and the file handling need no changes.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements_dev.txt -e .
+pip install -r requirements_dev.txt -e ".[crypto]"
 ruff check .
 ruff format --check .
 mypy
-pip-audit -r requirements_dev.txt
+pip-audit --skip-editable
 pytest --cov
 python -m build
 ```
 
 On Windows, activate the environment with `.venv\Scripts\activate`.
+
+Mark a test that needs the `crypto` extra with `@pytest.mark.needs_crypto`. It is skipped when the library is missing, unless the environment variable `AUDIOSTEG_REQUIRE_CRYPTO` is set. The automated checks run the tests with and without the extra, and set that variable when the extra is installed.
 
 ## Contributing
 

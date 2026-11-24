@@ -1,16 +1,55 @@
 """Shared fixtures."""
 
 import hashlib
+import importlib.util
+import os
 import random
+import sys
 import wave
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import SimpleNamespace
+from typing import NamedTuple
 
 import pytest
 
 from audiosteg.cli.main import SAMPLE_FILE
+from audiosteg.core import crypto
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+class KnownAnswer(NamedTuple):
+    """An encrypted container made by another program from the README."""
+
+    passphrase: str
+    message: str
+    header: bytes
+    salt: bytes
+    nonce: bytes
+    ciphertext: bytes
+    tag: bytes
+    key: bytes
+
+    @property
+    def body(self) -> bytes:
+        return self.salt + self.nonce + self.ciphertext + self.tag
+
+    @property
+    def container(self) -> bytes:
+        return self.header + self.body
+
+
+KNOWN_ANSWER = KnownAnswer(
+    passphrase="Café ☕",
+    message="Hé 🎵",
+    header=bytes.fromhex("41535447010100000008"),
+    salt=bytes.fromhex("101112131415161718191a1b1c1d1e1f"),
+    nonce=bytes.fromhex("a0a1a2a3a4a5a6a7a8a9aaab"),
+    ciphertext=bytes.fromhex("94b4be463bf41f25"),
+    tag=bytes.fromhex("15834794acd9447aabba741f215de768"),
+    key=bytes.fromhex("496133bd0cbf70968e537d34b1d85e6cf64644bbd2f936dd50b0142abc812304"),
+)
 
 
 def repository_audio() -> dict[str, tuple[int, str]]:
@@ -20,6 +59,15 @@ def repository_audio() -> dict[str, tuple[int, str]]:
         for folder in (PROJECT_ROOT, PROJECT_ROOT / "src" / "audiosteg" / "data", Path(SAMPLE_FILE).parent)
         for path in folder.glob("*.wav")
     }
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Skip tests marked needs_crypto without the library, unless AUDIOSTEG_REQUIRE_CRYPTO is set."""
+    if os.environ.get("AUDIOSTEG_REQUIRE_CRYPTO") or importlib.util.find_spec("cryptography"):
+        return
+    for item in items:
+        if item.get_closest_marker("needs_crypto"):
+            item.add_marker(pytest.mark.skip(reason="the crypto extra is not installed"))
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -63,3 +111,47 @@ def read_frames() -> Callable[[Path], bytes]:
             return audio.readframes(audio.getnframes())
 
     return read
+
+
+@pytest.fixture
+def known_answer() -> KnownAnswer:
+    """Return the known encrypted container."""
+    return KNOWN_ANSWER
+
+
+@pytest.fixture
+def known_randomness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make encryption use the salt and the nonce of the known answer."""
+    values = {16: KNOWN_ANSWER.salt, 12: KNOWN_ANSWER.nonce}
+    monkeypatch.setattr(crypto, "secrets", SimpleNamespace(token_bytes=values.__getitem__))
+
+
+@pytest.fixture
+def fast_scrypt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make keys cheap. The known answers check the real cost."""
+    monkeypatch.setattr(crypto, "SCRYPT_N", 2)
+
+
+@pytest.fixture
+def no_library(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make importing the encryption library fail, whether or not it is installed."""
+    for name in ("cryptography", "cryptography.exceptions", "cryptography.hazmat.primitives.ciphers.aead"):
+        monkeypatch.setitem(sys.modules, name, None)
+
+
+@pytest.fixture
+def embed() -> Callable[..., bytes]:
+    """Return a function that hides bytes in samples as the README says, without the package."""
+
+    def hide(hidden: bytes, size: int, sample_width: int = 1, cover: bytes | None = None) -> bytes:
+        digits = "".join(f"{byte:08b}" for byte in hidden)
+        if cover is None:
+            cover = bytes((index * 37 + 11) % 256 for index in range(len(digits) // size * sample_width + 48))
+        frames = bytearray(cover)
+        for sample in range(len(digits) // size):
+            position = sample * sample_width
+            group = int(digits[sample * size : (sample + 1) * size], 2)
+            frames[position] = frames[position] >> size << size | group
+        return bytes(frames)
+
+    return hide

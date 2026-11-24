@@ -12,12 +12,16 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = []
 
+[project.optional-dependencies]
+crypto = ["cryptography>=50.0.0"]
+
 [project.scripts]
 audiosteg = "audiosteg.cli.main:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = ["needs_crypto: needs the optional encryption library"]
 
 [tool.coverage.run]
 branch = true

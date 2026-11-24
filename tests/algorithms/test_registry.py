@@ -1,6 +1,5 @@
 """Tests for audiosteg/algorithms/registry.py."""
 
-import os
 from collections.abc import Callable
 from itertools import product
 from pathlib import Path
@@ -8,11 +7,9 @@ from pathlib import Path
 import pytest
 
 from audiosteg import Algorithm, decode, encode
-from audiosteg.algorithms.basic_lsb import BASIC_LSB
-from audiosteg.algorithms.enhanced_lsb import ENHANCED_LSB
-from audiosteg.algorithms.enhanced_lsb_flip import ENHANCED_LSB_FLIP
-from audiosteg.algorithms.registry import ALGORITHMS
-from audiosteg.utils.output_path import check_windows_path
+from audiosteg.algorithms.legacy import BASIC_LSB, ENHANCED_LSB, ENHANCED_LSB_FLIP
+from audiosteg.algorithms.lsb import LSB, LSB_2
+from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
 
 every_algorithm = pytest.mark.parametrize(
     "algorithm", ALGORITHMS.values(), ids=lambda algorithm: algorithm.name
@@ -24,20 +21,14 @@ def test_numbers_follow_the_order_of_the_menu() -> None:
 
 
 def test_the_documented_numbers_do_not_change() -> None:
-    assert (ALGORITHMS[1], ALGORITHMS[2], ALGORITHMS[3]) == (BASIC_LSB, ENHANCED_LSB_FLIP, ENHANCED_LSB)
+    assert (ALGORITHMS[1], ALGORITHMS[2]) == (LSB, LSB_2)
+    assert LEGACY_ALGORITHMS == {1: BASIC_LSB, 2: ENHANCED_LSB_FLIP, 3: ENHANCED_LSB}
 
 
-@pytest.mark.parametrize("field", ["name", "output_file_name"])
-def test_no_two_algorithms_look_the_same(field: str) -> None:
-    values = [getattr(algorithm, field).casefold() for algorithm in ALGORITHMS.values()]
-    assert len(set(values)) == len(values)
-
-
-@every_algorithm
-def test_default_names_are_plain_wav_files_on_every_system(algorithm: Algorithm) -> None:
-    name = algorithm.output_file_name
-    check_windows_path(name)
-    assert name.endswith(".wav") and name == os.path.basename(name) and "\\" not in name
+def test_no_two_algorithms_look_the_same() -> None:
+    algorithms = [*ALGORITHMS.values(), *LEGACY_ALGORITHMS.values()]
+    names = [algorithm.name.casefold() for algorithm in algorithms]
+    assert len(set(names)) == len(names)
 
 
 @every_algorithm
@@ -52,6 +43,7 @@ def test_every_byte_carries_every_group_of_bits(algorithm: Algorithm) -> None:
 def test_every_algorithm_hides_and_reveals_a_message(
     make_wav: Callable[..., Path], tmp_path: Path, algorithm: Algorithm
 ) -> None:
-    output = tmp_path / algorithm.output_file_name
+    output = tmp_path / "output.wav"
     encode(str(make_wav()), str(output), "Hello 🎵", algorithm)
     assert decode(str(output), algorithm) == "Hello 🎵"
+    assert decode(str(output)) == "Hello 🎵"

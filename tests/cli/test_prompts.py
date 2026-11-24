@@ -2,17 +2,23 @@
 
 import io
 import os
+import warnings
 from collections.abc import Callable
+from getpass import GetPassWarning
 from pathlib import Path
 
 import pytest
 
-from audiosteg.algorithms.registry import ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.cli import prompts
 from audiosteg.cli.prompts import (
     OutputClosedError,
     ask,
+    ask_hidden,
+    ask_new_passphrase,
     ask_yes_no,
     choose_algorithm,
+    choose_legacy_algorithm,
     get_file_path,
     get_user_choice,
 )
@@ -104,7 +110,10 @@ def test_an_unsafe_default_path_is_shown_escaped_but_used_as_it_is(
     assert capsys.readouterr().out == "\nInput audio file [a\\x1b[2J\\u202e.wav]: "
 
 
-def test_nothing_is_read_after_the_output_is_closed(answer: Answer, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("question", [ask, ask_hidden])
+def test_nothing_is_read_after_the_output_is_closed(
+    answer: Answer, monkeypatch: pytest.MonkeyPatch, question: Callable[[str], str]
+) -> None:
     class ClosedOutput(io.StringIO):
         def flush(self) -> None:
             raise BrokenPipeError
@@ -112,7 +121,7 @@ def test_nothing_is_read_after_the_output_is_closed(answer: Answer, monkeypatch:
     remaining = answer("unread")
     monkeypatch.setattr("sys.stdout", ClosedOutput())
     with pytest.raises(OutputClosedError):
-        ask("Prompt: ")
+        question("Prompt: ")
     assert remaining == ["unread"]
 
 
@@ -128,3 +137,97 @@ def test_an_unknown_home_folder_is_refused(answer: Answer) -> None:
     answer("~no_such_user_here/a.wav")
     with pytest.raises(FileNotFoundError, match="No home folder"):
         get_file_path("Output audio file", "default.wav")
+
+
+@pytest.fixture
+def terminal(monkeypatch: pytest.MonkeyPatch) -> Callable[[Callable[[str], str]], None]:
+    """Return a function that pretends that the input is a terminal with this getpass."""
+
+    class Terminal(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    def refuse(prompt: str = "") -> str:
+        raise AssertionError("the passphrase would be shown")
+
+    def set_getpass(getpass: Callable[[str], str]) -> None:
+        monkeypatch.setattr("sys.stdin", Terminal())
+        monkeypatch.setattr("builtins.input", refuse)
+        monkeypatch.setattr(prompts, "getpass", getpass)
+
+    return set_getpass
+
+
+def test_a_terminal_hides_the_answer(
+    terminal: Callable[[Callable[[str], str]], None], capsys: pytest.CaptureFixture[str]
+) -> None:
+    terminal(lambda prompt: " key ")
+    assert ask_hidden("Passphrase: ") == " key "
+    assert capsys.readouterr().out == "Passphrase: "
+
+
+def test_a_terminal_that_cannot_hide_the_answer_is_refused(
+    terminal: Callable[[Callable[[str], str]], None],
+) -> None:
+    def show(prompt: str) -> str:
+        warnings.warn("Can not control echo on the terminal.", GetPassWarning, stacklevel=2)
+        return "key"
+
+    terminal(show)
+    with pytest.raises(OSError, match="cannot hide the passphrase"):
+        ask_hidden("Passphrase: ")
+
+
+def test_hidden_bytes_that_are_not_text_are_refused_without_showing_them(
+    terminal: Callable[[Callable[[str], str]], None],
+) -> None:
+    terminal(lambda prompt: b"secret \xff".decode("utf-8"))
+    with pytest.raises(ValueError, match="not valid text") as caught:
+        ask_hidden("Passphrase: ")
+    assert type(caught.value) is ValueError
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+
+
+@pytest.mark.parametrize("error", [EOFError, KeyboardInterrupt])
+def test_leaving_a_hidden_prompt_is_not_an_empty_answer(
+    terminal: Callable[[Callable[[str], str]], None], error: type[BaseException]
+) -> None:
+    def leave(prompt: str) -> str:
+        raise error
+
+    terminal(leave)
+    with pytest.raises(error):
+        ask_new_passphrase()
+
+
+def test_input_that_is_not_a_terminal_is_read_as_it_is(answer: Answer) -> None:
+    answer(" key ")
+    assert ask_hidden("Passphrase: ") == " key "
+
+
+def test_a_new_passphrase_must_be_repeated(answer: Answer, capsys: pytest.CaptureFixture[str]) -> None:
+    remaining = answer("key", "Key", "key", "", "key ", "key", "key", "key")
+    assert ask_new_passphrase() == "key"
+    assert remaining == []
+    question = "Passphrase, not shown while you type [none]: Repeat the passphrase: "
+    mismatch = "The passphrases do not match. Please try again.\n"
+    assert capsys.readouterr().out == (question + mismatch) * 3 + question
+
+
+def test_an_empty_passphrase_means_none_and_is_not_repeated(answer: Answer) -> None:
+    remaining = answer("", "next question")
+    assert ask_new_passphrase() is None
+    assert remaining == ["next question"]
+
+
+@pytest.mark.parametrize("number", sorted(LEGACY_ALGORITHMS))
+def test_an_old_algorithm_is_chosen_by_its_number(answer: Answer, number: int) -> None:
+    answer("0", "5", str(number))
+    assert choose_legacy_algorithm() is LEGACY_ALGORITHMS[number]
+
+
+def test_back_chooses_no_old_algorithm(answer: Answer, capsys: pytest.CaptureFixture[str]) -> None:
+    answer("4")
+    assert choose_legacy_algorithm() is None
+    assert "Select an old algorithm:" in capsys.readouterr().out

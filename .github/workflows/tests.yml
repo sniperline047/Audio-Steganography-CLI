@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   tests:
-    name: Python ${{ matrix.python }} on ${{ matrix.os }}
+    name: Python ${{ matrix.python }} on ${{ matrix.os }}${{ !matrix.crypto && ' without crypto' || '' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -23,11 +23,12 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        crypto: [true, false]
         include:
-          - os: macos-latest
-            python: "3.15"
-          - os: windows-latest
-            python: "3.15"
+          - {os: macos-latest, python: "3.15", crypto: true}
+          - {os: macos-latest, python: "3.15", crypto: false}
+          - {os: windows-latest, python: "3.15", crypto: true}
+          - {os: windows-latest, python: "3.15", crypto: false}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,17 +36,27 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install -r requirements_dev.txt .
+      - run: python -m pip install -r requirements_dev.txt "${{ matrix.crypto && '.[crypto]' || '.' }}"
       - name: Check that the installed package is tested
         run: python -c "import audiosteg; assert 'site-packages' in audiosteg.__file__, audiosteg.__file__"
-      - run: python -m pytest --cov --cov-report=term-missing --cov-report=json
+      - name: Check that the crypto extra is missing
+        if: ${{ !matrix.crypto }}
+        run: python -c "import importlib.util; assert importlib.util.find_spec('cryptography') is None"
+      - name: Test without the crypto extra
+        if: ${{ !matrix.crypto }}
+        run: python -m pytest
+      - name: Test with the crypto extra
+        if: ${{ matrix.crypto }}
+        env:
+          AUDIOSTEG_REQUIRE_CRYPTO: "1"
+        run: python -m pytest --cov --cov-report=term-missing --cov-report=json
       - name: Add coverage to the job summary
-        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' && matrix.python == '3.15' && hashFiles('.coverage') != '' }}
+        if: ${{ !cancelled() && matrix.crypto && matrix.os == 'ubuntu-latest' && matrix.python == '3.15' && hashFiles('.coverage') != '' }}
         run: |
           echo "## Test coverage" >> "$GITHUB_STEP_SUMMARY"
           python -m coverage report --format=markdown --fail-under=0 >> "$GITHUB_STEP_SUMMARY"
       - name: Save coverage
-        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' && matrix.python == '3.15' }}
+        if: ${{ !cancelled() && matrix.crypto && matrix.os == 'ubuntu-latest' && matrix.python == '3.15' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage_report
@@ -64,11 +75,16 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.15"
-      - run: python -m pip install -r requirements_dev.txt
+      - run: python -m pip install -r requirements_dev.txt ".[crypto]"
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy
-      - run: pip-audit -r requirements_dev.txt
+      - name: Audit the development tools and the crypto extra
+        run: |
+          set -euo pipefail
+          python -c "import tomllib; print(*tomllib.load(open('pyproject.toml', 'rb'))['project']['optional-dependencies']['crypto'], sep='\n')" > "$RUNNER_TEMP/crypto.txt"
+          test -s "$RUNNER_TEMP/crypto.txt"
+          pip-audit -r requirements_dev.txt -r "$RUNNER_TEMP/crypto.txt"
       - name: Check that the sample audio is reproducible
         run: |
           python scripts/generate_sample_audio.py
@@ -99,20 +115,32 @@ jobs:
           fi
           grep -qxF audiosteg/py.typed "$RUNNER_TEMP/wheel_files.txt"
           grep -qx 'audiosteg-[^/]*\.dist-info/licenses/LICENSE' "$RUNNER_TEMP/wheel_files.txt"
-      - name: Install the wheel in a clean environment
+      - name: Install the wheel in clean environments
         run: |
+          set -euo pipefail
+          wheel=$(ls "$RUNNER_TEMP"/dist/*.whl)
           python -m venv "$RUNNER_TEMP/clean"
-          "$RUNNER_TEMP/clean/bin/python" -m pip install "$RUNNER_TEMP"/dist/*.whl
+          python -m venv "$RUNNER_TEMP/clean_crypto"
+          "$RUNNER_TEMP/clean/bin/python" -m pip install "$wheel"
+          "$RUNNER_TEMP/clean_crypto/bin/python" -m pip install "${wheel}[crypto]"
           "$RUNNER_TEMP/clean/bin/python" -m pip check
+          "$RUNNER_TEMP/clean_crypto/bin/python" -m pip check
+          "$RUNNER_TEMP/clean/bin/python" -c "import importlib.util; assert importlib.util.find_spec('cryptography') is None"
+          "$RUNNER_TEMP/clean_crypto/bin/python" -c "import cryptography"
       - name: Hide and read a message from an empty folder
         run: |
           set -euo pipefail
           mkdir "$RUNNER_TEMP/empty"
           cd "$RUNNER_TEMP/empty"
-          for number in 1 2 3; do
+          for number in 1 2; do
             printf '%s\n' 1 "$number" "Hello $number" "" "" 4 | "$RUNNER_TEMP/clean/bin/audiosteg"
-            printf '%s\n' 2 "$number" "" 4 | "$RUNNER_TEMP/clean/bin/python" -m audiosteg |
+            printf '%s\n' 2 "" 4 | "$RUNNER_TEMP/clean/bin/python" -m audiosteg |
               grep -F "Decoded message: Hello $number"
+            rm message_encoded.wav
+            printf '%s\n' 1 "$number" "Secret $number" key key "" "" 4 | "$RUNNER_TEMP/clean_crypto/bin/audiosteg"
+            printf '%s\n' 2 "" key 4 | "$RUNNER_TEMP/clean_crypto/bin/python" -m audiosteg |
+              grep -F "Decoded message: Secret $number"
+            rm message_encoded.wav
           done
 
   badge:

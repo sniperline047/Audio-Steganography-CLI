@@ -5,27 +5,44 @@ import io
 import os
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from importlib.resources import files
 
+from audiosteg.algorithms.detection import decode, detect
 from audiosteg.cli.accuracy import calculate_accuracy
 from audiosteg.cli.prompts import (
     OutputClosedError,
     ask,
+    ask_hidden,
+    ask_new_passphrase,
     ask_yes_no,
     choose_algorithm,
+    choose_legacy_algorithm,
     display_menu,
     get_file_path,
     get_user_choice,
     require_output,
 )
-from audiosteg.core.stego_file import decode, encode
+from audiosteg.core import crypto
+from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
+from audiosteg.core.stego_file import encode
 from audiosteg.core.wav_io import check_regular_file
-from audiosteg.errors import StegoError, UnsafeOutputError
+from audiosteg.errors import MissingLibraryError, StegoError, UnsafeOutputError
 from audiosteg.utils.output_path import check_output_path, normalize_output_path
 from audiosteg.utils.text import escape_text
 
 SAMPLE_FILE = str(files("audiosteg") / "data" / "sample.wav")
+DEFAULT_OUTPUT = "message_encoded.wav"
 EXIT_CHOICE = 4
+
+
+@dataclass(frozen=True)
+class EncodedFile:
+    """An encoded file and everything that is needed to read it."""
+
+    path: str
+    algorithm: Algorithm | LegacyAlgorithm
+    passphrase: str | None = field(repr=False)
 
 
 def check_not_sample(output_file: str) -> None:
@@ -36,14 +53,25 @@ def check_not_sample(output_file: str) -> None:
         raise UnsafeOutputError("The output path is the included sample, which cannot be replaced.")
 
 
+def choose_passphrase() -> str | None:
+    """Ask for a new passphrase if the encryption library is installed."""
+    try:
+        crypto.check_available()
+    except MissingLibraryError as error:
+        print(f"The message will not be encrypted. {escape_text(str(error))}")
+        return None
+    return ask_new_passphrase()
+
+
 def handle_encode() -> None:
     """Ask for a message and hide it in a copy of an audio file."""
     algorithm = choose_algorithm()
     if algorithm is None:
         return
     secret_message = ask("Enter the secret message to encode: ")
+    passphrase = choose_passphrase()
     input_file = get_file_path("Input audio file", SAMPLE_FILE, "included sample")
-    chosen_path = get_file_path("Output audio file", algorithm.output_file_name)
+    chosen_path = get_file_path("Output audio file", DEFAULT_OUTPUT)
 
     check_regular_file(input_file)
     output_file = normalize_output_path(chosen_path)
@@ -58,31 +86,58 @@ def handle_encode() -> None:
 
     print("Encoding...")
     require_output()
-    encode(input_file, output_file, secret_message, algorithm, overwrite=overwrite)
-    print(f"Message encoded into {escape_text(output_file)}")
+    encode(input_file, output_file, secret_message, algorithm, passphrase=passphrase, overwrite=overwrite)
+    result = "Message encoded, not encrypted," if passphrase is None else "Message encrypted and encoded"
+    print(f"{result} into {escape_text(output_file)}")
+
+
+def choose_encoded_file() -> EncodedFile | None:
+    """Ask for an encoded file and how to read it. Return None for Back."""
+    path = get_file_path("Encoded audio file", DEFAULT_OUTPUT)
+    detected = detect(path)
+    if detected is None:
+        print("No message was detected. If an older version made this file, select how it was encoded.")
+        legacy_algorithm = choose_legacy_algorithm()
+        return None if legacy_algorithm is None else EncodedFile(path, legacy_algorithm, None)
+    algorithm, header = detected
+    passphrase = None
+    if header.encrypted:
+        crypto.check_available()
+        passphrase = ask_hidden("Passphrase, not shown while you type: ") or None
+    return EncodedFile(path, algorithm, passphrase)
+
+
+def show_protection(encoded_file: EncodedFile) -> None:
+    """Say whether a message that was read had been encrypted."""
+    if encoded_file.passphrase is None:
+        print("This message was not encrypted, so anyone could have written it.")
+    else:
+        print("This message was encrypted.")
 
 
 def handle_decode() -> None:
     """Show the message hidden in an audio file."""
-    algorithm = choose_algorithm()
-    if algorithm is None:
+    encoded_file = choose_encoded_file()
+    if encoded_file is None:
         return
-    encoded_file = get_file_path("Encoded audio file", algorithm.output_file_name)
-    decoded_message = decode(encoded_file, algorithm)
+    decoded_message = decode(encoded_file.path, encoded_file.algorithm, passphrase=encoded_file.passphrase)
     if decoded_message:
         print(f"Decoded message: {escape_text(decoded_message)}")
     else:
         print("The decoded message is empty.")
+    show_protection(encoded_file)
 
 
 def handle_accuracy_check() -> None:
     """Compare the message hidden in an audio file with the expected one."""
-    expected_message = ask("Enter the expected secret message: ")
-    algorithm = choose_algorithm()
-    if algorithm is None:
+    encoded_file = choose_encoded_file()
+    if encoded_file is None:
         return
-    encoded_file = get_file_path("Encoded audio file", algorithm.output_file_name)
-    result = calculate_accuracy(expected_message, algorithm, encoded_file)
+    expected_message = ask("Enter the expected secret message: ")
+    result = calculate_accuracy(
+        expected_message, encoded_file.path, encoded_file.algorithm, encoded_file.passphrase
+    )
+    show_protection(encoded_file)
     print(f"Accuracy of decoded message: {result.percentage:.2f}%")
     print(f"Exact match: {'yes' if result.exact_match else 'no'}")
     print(f"Expected length: {result.expected_length}, decoded length: {result.decoded_length}")
@@ -102,7 +157,7 @@ def run_operation(operation: Callable[[], None]) -> bool:
         show_error(str(error))
         return False
     except MemoryError:
-        show_error("The file is too large for the available memory.")
+        show_error("There is not enough memory for this operation.")
         return False
     return True
 
