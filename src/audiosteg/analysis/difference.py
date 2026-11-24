@@ -6,6 +6,7 @@ from operator import sub
 from typing import BinaryIO
 
 from audiosteg.analysis.samples import Pair, Part, read_blocks, read_pairs, to_bytes, to_values, write_wav
+from audiosteg.errors import UnsupportedFormatError
 
 SAFE_LEVEL_DBFS = -12
 
@@ -30,17 +31,21 @@ def choose_gain(largest_change: int, full_scale: int, wanted: Fraction | None = 
 
 
 def amplified_blocks(pair: Pair, part: Part, gain: Fraction) -> Iterator[bytes]:
-    """Yield the amplified difference, rounded to whole numbers."""
+    """Yield the amplified difference, rounded to whole numbers, and never let it pass the safe level."""
     width = pair.format.sample_width
     up, down = 2 * gain.numerator, 2 * gain.denominator
     half = gain.denominator
+    limit = safe_peak(pair.format.full_scale)
     silence = to_bytes([0], width)
     for original, encoded in read_pairs(pair, part):
         if original == encoded:
             yield silence * (len(original) // width)
         else:
             changes = map(sub, to_values(encoded, width), to_values(original, width))
-            yield to_bytes([(change * up + half) // down for change in changes], width)
+            values = [(change * up + half) // down for change in changes]
+            if max(values) > limit or min(values) < -limit:
+                raise UnsupportedFormatError("A file changed while it was being read.")
+            yield to_bytes(values, width)
 
 
 def write_difference(destination: BinaryIO, pair: Pair, part: Part, gain: Fraction) -> None:

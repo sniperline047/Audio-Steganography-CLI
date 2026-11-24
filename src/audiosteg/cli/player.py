@@ -1,11 +1,15 @@
 """Play a WAV file with a player that the system already has."""
 
 import os
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from types import FrameType
 from typing import BinaryIO
 
 from audiosteg.cli.errors import PlayerError
@@ -18,6 +22,8 @@ LINUX_PLAYERS = (
     ("paplay",),
     ("ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "-f", "wav"),
 )
+ENDING_SIGNALS = ("SIGTERM", "SIGHUP")
+SIGNAL_EXIT_CODE = 128
 NO_PLAYER = (
     "No known audio player was found. Save the difference with --save_difference FILE and open it yourself."
 )
@@ -88,6 +94,30 @@ def play(path: str, seconds: float) -> None:
         raise PlayerError(FAILED)
 
 
+@contextmanager
+def clean_exit_on_signals() -> Iterator[None]:
+    """Let a request to end the program first run the code that cleans up. Later requests wait for it."""
+    numbers = [getattr(signal, name) for name in ENDING_SIGNALS if hasattr(signal, name)]
+    previous = {number: signal.getsignal(number) for number in numbers}
+
+    def leave(number: int, frame: FrameType | None) -> None:
+        for known in changed:
+            signal.signal(known, signal.SIG_IGN)
+        raise SystemExit(SIGNAL_EXIT_CODE + number)
+
+    changed: list[int] = []
+    try:
+        if threading.current_thread() is threading.main_thread():
+            for number, handler in previous.items():
+                if handler not in (None, signal.SIG_IGN):
+                    changed.append(number)
+                    signal.signal(number, leave)
+        yield
+    finally:
+        for number in changed:
+            signal.signal(number, previous[number])
+
+
 def play_private(write: Callable[[BinaryIO], None], seconds: float) -> None:
     """
     Play sound from a private file that is always removed.
@@ -95,7 +125,7 @@ def play_private(write: Callable[[BinaryIO], None], seconds: float) -> None:
     :param write: Function that writes the WAV file
     :param seconds: How long the sound is
     """
-    with tempfile.TemporaryDirectory(prefix="audiosteg_") as folder:
+    with clean_exit_on_signals(), tempfile.TemporaryDirectory(prefix="audiosteg_") as folder:
         path = os.path.join(os.path.realpath(folder), "sound.wav")
         with open(path, "xb", opener=private_opener) as destination:
             write(destination)
