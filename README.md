@@ -9,7 +9,7 @@ A learning project that hides a text message inside a WAV file and reads it back
 ## Requirements
 
 - Python 3.11 or newer
-- An uncompressed integer PCM WAV file (8, 16, 24, or 32-bit). The limit for encoding is 1 GiB. Streamed files with no stated audio size and files with padded samples are not supported.
+- An uncompressed integer PCM WAV file (8, 16, 24, or 32-bit). The limit for encoding is 1 GiB. Streamed files with no stated audio size and files with padded samples are not supported. A truncated file (shorter than its header says) cannot be used for encoding; it can still be decoded if the whole message is there.
 
 Some PCM files use the "extensible" WAV header. Python 3.11 cannot read that header; Python 3.12 and newer can.
 
@@ -41,13 +41,13 @@ The menu has four options:
 3. **Calculate accuracy**
 4. **Exit**
 
-At a path prompt, press Enter (or answer `y` or `yes`) to use the default file. Answer `n` or `no` to type another path.
+At a path prompt, press Enter to use the default file shown in brackets, or type another path. Spaces around a typed path are removed, so a path cannot start or end with spaces. `~` means your home folder. To use a file whose name starts with `~`, type `./` before it.
 
-The program exits with code 0 when every operation succeeded, 1 when an operation failed or the input ended in the middle of one, and 130 after Ctrl-C.
+The program exits with code 0 when every operation succeeded, 1 when an operation failed or the input ended in the middle of one, and 130 after Ctrl-C. If the output is closed (for example, by a pipe such as `| head`), it stops with code 1 without starting another operation.
 
 ### Encode a message
 
-1. Choose **Encode a message**, then an algorithm.
+1. Choose **Encode a message**, then an algorithm. After an invalid choice, the program asks again.
 2. Type the secret message.
 3. Choose the input audio file. The default is `input/original_sample.wav`.
 4. Choose the output audio file. The default depends on the algorithm (see below).
@@ -81,6 +81,8 @@ Older versions stored one byte per character. If a message is not valid UTF-8, i
 | 1 | Basic LSB Steganography | 1 (lowest bit) | `algorithms/basic_lsb_steganography.py` | `output/basic_lsb_encoded.wav` |
 | 2 | Enhanced LSB Steganography with Bit Flipping | 2 (third and fourth lowest bits) | `algorithms/enhanced_lsb_steganography_with_flip.py` | `output/enhanced_lsb_encoded_flip.wav` |
 | 3 | Enhanced LSB Steganography without Bit Flipping | 2 (third and fourth lowest bits) | `algorithms/enhanced_lsb_steganography_no_flip.py` | `output/enhanced_lsb_encoded_no_flip.wav` |
+
+Algorithms 2 and 3 can read each other's files because they store the message in the same two bits. They differ only in the two lowest bits, which decoding ignores.
 
 The with-flip version also inverts the two lowest bits of every byte whose hidden bits change.
 
