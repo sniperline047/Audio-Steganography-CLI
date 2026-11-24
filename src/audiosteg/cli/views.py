@@ -14,7 +14,7 @@ from rich.text import Text
 
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
 from audiosteg.cli.accuracy import AccuracyResult
-from audiosteg.cli.errors import OutputClosedError, error_type, explain, next_step
+from audiosteg.cli.errors import OutputClosedError, UsageError, error_type, explain, next_step
 from audiosteg.cli.logo import MINIMUM_WIDTH, draw_logo, plain_title
 from audiosteg.cli.results import HideResult, RevealResult, VerifyResult
 from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
@@ -62,12 +62,12 @@ def yes_no(value: bool) -> str:
 
 def display_path(path: str) -> str:
     """Return an absolute path relative to the current folder if it is inside that folder."""
-    folder = os.path.realpath(os.curdir)
     try:
+        folder = os.path.realpath(os.curdir)
         inside = os.path.commonpath([folder, path]) == folder
-    except ValueError:
-        inside = False
-    return os.path.relpath(path, folder) if inside else path
+        return os.path.relpath(path, folder) if inside else path
+    except (OSError, ValueError):
+        return path
 
 
 def format_percentage(accuracy: AccuracyResult) -> str:
@@ -162,7 +162,8 @@ class View:
 
     def show_error(self, error: BaseException, command: str | None, exit_code: int) -> None:
         """Explain an error and say what to do next."""
-        hint = next_step(error) if command is not None or self.as_json else None
+        for_command = command is not None or self.as_json or isinstance(error, UsageError)
+        hint = next_step(error) if for_command else None
         if self.as_json and not isinstance(error, OutputClosedError):
             details = {
                 "type": error_type(error),

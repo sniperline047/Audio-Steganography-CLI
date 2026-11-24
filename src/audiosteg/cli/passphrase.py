@@ -13,6 +13,7 @@ from getpass import GetPassWarning, getpass
 from audiosteg.core.crypto import passphrase_to_bytes
 
 MAX_FILE_SIZE = 65536
+BYTE_ORDER_MARK = "\ufeff"
 PROMPT = "Passphrase, not shown while you type: "
 REPEAT_PROMPT = "Repeat the passphrase: "
 
@@ -124,6 +125,10 @@ class PassphraseSource:
         """Get a passphrase for a new message, or None if it should not be encrypted."""
         if self.file is not None:
             passphrase = read_passphrase_file(self.file, show)
+            if passphrase.startswith(BYTE_ORDER_MARK):
+                raise ValueError(
+                    "The passphrase file starts with a byte order mark (BOM). Save it as UTF-8 without BOM."
+                )
             check_new_passphrase(passphrase)
             return passphrase
         if not self.prompt:

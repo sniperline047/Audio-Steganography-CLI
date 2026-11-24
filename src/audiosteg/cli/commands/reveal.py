@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from audiosteg.algorithms.detection import decode, detect
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
 from audiosteg.cli.options import add_reading_options, file_path, passphrase_source
-from audiosteg.cli.passphrase import PassphraseSource
+from audiosteg.cli.passphrase import BYTE_ORDER_MARK, PassphraseSource
 from audiosteg.cli.results import RevealResult
 from audiosteg.cli.views import View
 from audiosteg.core import crypto
 from audiosteg.core.stego_file import read_header
-from audiosteg.errors import NoMessageError, NotEncryptedError
+from audiosteg.errors import NoMessageError, NotEncryptedError, WrongPassphraseError
 
 HELP = "read a hidden message"
 EXAMPLES = """examples:
@@ -46,7 +46,11 @@ def find_message(file: str, algorithm: str | None = None, legacy: str | None = N
     if algorithm is not None:
         header = read_header(file, ALGORITHMS[algorithm])
         if header is None:
-            raise NoMessageError(f"No message hidden with {algorithm} was found.")
+            error = NoMessageError(f"No message hidden with {algorithm} was found.")
+            error.add_note(
+                "To detect the algorithm, leave out -a. For a file of an older version, use --legacy."
+            )
+            raise error
         return HiddenMessage(file, algorithm, legacy=False, encrypted=header.encrypted)
     detected = detect(file)
     if detected is None:
@@ -78,7 +82,16 @@ def get_passphrase(hidden: HiddenMessage, passphrases: PassphraseSource, view: V
 def reveal(args: argparse.Namespace, view: View) -> RevealResult:
     """Read the message that the command line describes."""
     hidden = find_message(args.file, args.algorithm, args.legacy)
-    return read_message(hidden, get_passphrase(hidden, passphrase_source(args), view))
+    passphrase = get_passphrase(hidden, passphrase_source(args), view)
+    try:
+        return read_message(hidden, passphrase)
+    except WrongPassphraseError as error:
+        if passphrase is not None and passphrase.startswith(BYTE_ORDER_MARK):
+            error.add_note(
+                "The passphrase file starts with a byte order mark (BOM), which counts as part of the "
+                "passphrase. Try the file saved as UTF-8 without BOM."
+            )
+        raise
 
 
 def run(args: argparse.Namespace, view: View) -> int:

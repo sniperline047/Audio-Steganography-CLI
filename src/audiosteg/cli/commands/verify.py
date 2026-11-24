@@ -17,6 +17,7 @@ EXAMPLES = """examples:
   audiosteg verify song.stego.wav -m "Hello"
   audiosteg verify song.stego.wav --message_file letter.txt
 """
+UTF_8_BYTES_PER_LATIN_1_BYTE = 2
 
 
 def verify(revealed: RevealResult, expected: str) -> VerifyResult:
@@ -25,12 +26,13 @@ def verify(revealed: RevealResult, expected: str) -> VerifyResult:
 
 
 def largest_message(file: str, legacy: str | None) -> int:
-    """Return the size of the largest message that a WAV file can hold."""
+    """Return the most UTF-8 bytes that the message in a WAV file can have."""
     with open_pcm_wav(file) as audio:
         sample_bytes = count_sample_bytes(audio, file)
         samples = sample_bytes // audio.getsampwidth()
     if legacy is not None:
-        return max(sample_bytes * LEGACY_ALGORITHMS[legacy].bits_per_byte - HEADER_BITS, 0) // 8
+        stored = max(sample_bytes * LEGACY_ALGORITHMS[legacy].bits_per_byte - HEADER_BITS, 0) // 8
+        return stored * UTF_8_BYTES_PER_LATIN_1_BYTE
     return max(count_message_bytes(samples, known.bits_per_byte, False) for known in ALGORITHMS.values())
 
 

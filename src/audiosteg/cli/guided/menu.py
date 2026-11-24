@@ -6,7 +6,6 @@ from questionary import Choice
 
 from audiosteg.cli.commands.hide import hide
 from audiosteg.cli.commands.verify import verify
-from audiosteg.cli.errors import OutputClosedError
 from audiosteg.cli.guided.hide_form import HideForm
 from audiosteg.cli.guided.prompter import EXPECTED_ERRORS, GoBack, Prompter
 from audiosteg.cli.guided.reveal_form import RevealForm
@@ -92,8 +91,6 @@ class Guide:
         while action := self.choose_action():
             try:
                 action()
-            except OutputClosedError:
-                raise
             except EXPECTED_ERRORS as error:
                 self.failed = True
                 self.view.show_error(error, None, 1)

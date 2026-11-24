@@ -13,7 +13,7 @@ COMMANDS = {"hide": hide, "reveal": reveal, "verify": verify, "algorithms": algo
 SAFE_MESSAGES = ("the following arguments are required", "not allowed with argument")
 EXAMPLES = """examples:
   audiosteg                                  start the guided mode
-  audiosteg hide sample -m "Hello"           hide a message in the included sample
+  audiosteg hide sample -m "Hello"           hide it in the included sample
   audiosteg reveal sample.stego.wav          read it
   audiosteg verify sample.stego.wav -m "Hello"
 
@@ -51,7 +51,7 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
     """Build the parser of the program and the parsers of its commands."""
     parser = Parser(
         prog="audiosteg",
-        description="Hide text messages in WAV files and read them back. "
+        description="Hide text messages in WAV files and read them back.\n"
         "Without a command, a guided mode starts.",
         epilog=EXAMPLES,
     )

@@ -112,7 +112,8 @@ class Prompter:
 
     def confirm(self, question: str) -> bool:
         """Ask a yes or no question. Enter means no."""
-        return bool(self.ask(questionary.confirm(question, default=False, **self.look)))
+        confirmation = questionary.confirm(question, default=False, auto_enter=False, **self.look)
+        return bool(self.ask(confirmation, end_with_ctrl_d=True))
 
     def run(self, steps: list[Step]) -> bool:
         """

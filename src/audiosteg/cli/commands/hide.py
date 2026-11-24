@@ -18,7 +18,7 @@ from audiosteg.cli.options import (
 )
 from audiosteg.cli.questions import ask_yes_no
 from audiosteg.cli.results import HideResult
-from audiosteg.cli.views import View
+from audiosteg.cli.views import View, display_path
 from audiosteg.core import crypto
 from audiosteg.core.message_codec import message_to_bytes
 from audiosteg.core.stego_file import count_message_bytes, encode, message_fits
@@ -30,12 +30,13 @@ from audiosteg.utils.text import escape_text
 HELP = "hide a message in a copy of a WAV file"
 EXAMPLES = """examples:
   audiosteg hide sample -m "Hello"            use the included sample
-  audiosteg hide song.wav -p                  ask for the message and a passphrase
+  audiosteg hide song.wav -p                  ask for message and passphrase
   audiosteg hide song.wav -o secret.wav -a lsb_2 --message_file letter.txt
   printf "Hello" | audiosteg hide song.wav    take the message from a pipe
 """
 SAMPLE_FILE = str(files("audiosteg") / "data" / "sample.wav")
 SAMPLE_WORD = "sample"
+SIZE_ADVICE = "Use a longer audio file or a shorter message."
 DEFAULT_ALGORITHM = next(iter(ALGORITHMS))
 
 
@@ -91,14 +92,23 @@ def largest_message(samples: int, encrypted: bool) -> int:
     return max(count_message_bytes(samples, known.bits_per_byte, encrypted) for known in ALGORITHMS.values())
 
 
+def fitting_algorithms(message: str, samples: int, encrypted: bool) -> list[str]:
+    """Return the names of the algorithms that can hold a message."""
+    length = len(message_to_bytes(message))
+    return [
+        key
+        for key, algorithm in ALGORITHMS.items()
+        if message_fits(length, samples, algorithm.bits_per_byte, encrypted)
+    ]
+
+
 def advise(request: HideRequest) -> str:
     """Say how a message that is too large could fit."""
     samples = count_input_samples(request.input_file)
-    length = len(message_to_bytes(request.message))
-    for key, algorithm in ALGORITHMS.items():
-        if message_fits(length, samples, algorithm.bits_per_byte, request.passphrase is not None):
-            return f"Use the algorithm {key}, which can hold it, or a longer audio file."
-    return "Use a longer audio file or a shorter message."
+    keys = fitting_algorithms(request.message, samples, request.passphrase is not None)
+    if keys:
+        return f"Use the algorithm {keys[0]}, which can hold it, or a longer audio file."
+    return SIZE_ADVICE
 
 
 def hide(request: HideRequest) -> HideResult:
@@ -124,8 +134,8 @@ def may_replace(output_file: str, force: bool) -> bool:
     if force:
         return True
     if not sys.stdin.isatty() or not sys.stderr.isatty():
-        raise FileExistsError(f"The output file already exists: {output_file}")
-    if not ask_yes_no(f"{escape_text(output_file)} already exists. Overwrite it?"):
+        raise FileExistsError(f"The output file already exists: {display_path(output_file)}")
+    if not ask_yes_no(f"{escape_text(display_path(output_file))} already exists. Overwrite it?"):
         raise CancelledError("Nothing was written.")
     return True
 
@@ -142,7 +152,7 @@ def run(args: argparse.Namespace, view: View) -> int:
     if passphrases.wanted:
         crypto.check_available()
     limit = largest_message(samples, passphrases.wanted)
-    message = message_source(args).read("Message to hide: ", limit)
+    message = message_source(args).read("Message to hide: ", limit, SIZE_ADVICE)
     passphrase = passphrases.read_new(view.note)
     view.progress("Hiding the message...")
     view.show_hide(hide(HideRequest(input_file, output_file, message, args.algorithm, passphrase, overwrite)))

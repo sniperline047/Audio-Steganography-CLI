@@ -47,9 +47,7 @@ def draw_cell(top: str, bottom: str) -> tuple[str, str]:
         return "▀", f"{COLOURS[top]} on {COLOURS[bottom]}"
     if top in COLOURS:
         return "▀", COLOURS[top]
-    if bottom in COLOURS:
-        return "▄", COLOURS[bottom]
-    return " ", ""
+    return "▄", COLOURS[bottom]
 
 
 def draw_logo() -> Text:

@@ -67,7 +67,10 @@ def explain(error: BaseException) -> str:
 
 
 def next_step(error: BaseException) -> str | None:
-    """Say what to do about an error of a command, if the error does not say so itself."""
+    """Say what to do about an error of a command, if the error does not say so itself. Notes come first."""
+    notes = getattr(error, "__notes__", None)
+    if notes:
+        return " ".join(notes)
     if isinstance(error, UsageError):
         return "To see how a command is used, add --help."
     if isinstance(error, FileExistsError):
