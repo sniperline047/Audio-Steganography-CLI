@@ -316,6 +316,8 @@ def test_a_signal_while_the_player_starts_still_ends_it(
 ) -> None:
     if not hasattr(signal, name):
         pytest.skip("this system has no such signal")
+    if signal.getsignal(getattr(signal, name)) == signal.SIG_IGN:
+        pytest.skip("this signal is ignored here")
     fake_player("hang")
     started: list[subprocess.Popen[bytes]] = []
     start = subprocess.Popen
