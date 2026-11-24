@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from audiosteg import encode
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.accuracy import AccuracyResult, calculate_accuracy, compare_messages
-from audiosteg.core.registry import ALGORITHMS
 from audiosteg.errors import NoMessageError
 
 

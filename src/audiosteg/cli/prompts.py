@@ -4,8 +4,8 @@ import os
 import sys
 from collections.abc import Sequence
 
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.core.algorithm import Algorithm
-from audiosteg.core.registry import ALGORITHMS
 from audiosteg.utils.text import escape_text
 
 
