@@ -12,7 +12,6 @@ from utils.errors import UnsupportedFormatError
 from utils.safe_write import safe_output
 
 WAVE_FORMAT_IEEE_FLOAT = 3
-MAX_FRAME_SIZE = 2**16 - 1
 MAX_BYTES_PER_SECOND = 2**32 - 1
 UNKNOWN_DATA_SIZE = 2**32 - 1
 MAX_INPUT_SIZE = 2**30
@@ -34,29 +33,22 @@ def check_regular_file(path: str) -> None:
 
 
 def check_header(source: BinaryIO) -> None:
-    """Check header fields that the wave module does not check."""
-    source.seek(0)
-    if len(source.read(12)) < 12:
-        raise EOFError
+    """Check fields that the wave module ignores. Stop at the start of the audio, as that module does."""
     expected_size = 0
     stored_size = 0
-    while len(header := source.read(8)) == 8:
-        name, size = struct.unpack("<4sI", header)
-        if name == b"data":
-            if size == UNKNOWN_DATA_SIZE:
-                raise UnsupportedFormatError("The WAV file does not state its audio size (a streamed file).")
-            break
+    source.seek(12)
+    name, size = struct.unpack("<4sI", source.read(8))
+    while name != b"data":
         chunk_start = source.tell()
         if name == b"fmt ":
-            fields = source.read(16)
-            if len(fields) < 16:
-                raise EOFError
-            channels, stored_size, bits = struct.unpack("<2xH8xHH", fields)
+            channels, stored_size, bits = struct.unpack("<2xH8xHH", source.read(16))
             expected_size = channels * ((bits + 7) // 8)
         source.seek(chunk_start + size + size % 2)
+        name, size = struct.unpack("<4sI", source.read(8))
+    if size == UNKNOWN_DATA_SIZE:
+        raise UnsupportedFormatError("The WAV file does not state its audio size (a streamed file).")
     if stored_size != expected_size:
         raise UnsupportedFormatError("WAV files with padded samples are not supported.")
-    source.seek(0)
 
 
 @contextmanager
@@ -65,9 +57,9 @@ def open_pcm_wav(path: str) -> Iterator[wave.Wave_read]:
     check_regular_file(path)
     with open(path, "rb") as source:
         try:
-            check_header(source)
             with wave.open(source, "rb") as audio:
                 check_pcm(audio)
+                check_header(source)
                 yield audio
         except (wave.Error, EOFError, RuntimeError) as error:
             detail = str(error) or "the file is damaged or ends too early"
@@ -84,8 +76,8 @@ def check_pcm(audio: wave.Wave_read) -> None:
     if audio.getframerate() < 1:
         raise UnsupportedFormatError("The WAV file has an invalid sample rate.")
     frame_size = audio.getnchannels() * audio.getsampwidth()
-    if frame_size > MAX_FRAME_SIZE or frame_size * audio.getframerate() > MAX_BYTES_PER_SECOND:
-        raise UnsupportedFormatError("The WAV file has too many channels or too high a sample rate.")
+    if frame_size * audio.getframerate() > MAX_BYTES_PER_SECOND:
+        raise UnsupportedFormatError("The WAV file has too high a sample rate.")
 
 
 def count_frames(audio: wave.Wave_read, file_size: int) -> int:

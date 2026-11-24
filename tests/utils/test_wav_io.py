@@ -20,7 +20,7 @@ from utils.wav_io import (
     write_audio,
 )
 
-PCM, FLOAT, MU_LAW, EXTENSIBLE = 1, 3, 7, 0xFFFE
+PCM, ADPCM, FLOAT, MU_LAW, EXTENSIBLE = 1, 2, 3, 7, 0xFFFE
 PCM_SUBTYPE = bytes.fromhex("0100000000001000800000aa00389b71")
 FLOAT_SUBTYPE = bytes.fromhex("0300000000001000800000aa00389b71")
 
@@ -105,20 +105,24 @@ def test_audio_shorter_than_its_header_says_is_refused(save: Callable[[bytes], s
         (build_wav(data_size=2**32 - 1), "streamed"),
         (build_wav(channels=0, block_align=0), "channels"),
         (build_wav(block_align=0, bits=0), "sample width"),
+        (build_wav(channels=0, block_align=2), "channels"),
+        (build_wav(block_align=2, bits=0), "sample width"),
+        (build_wav(audio_format=ADPCM, block_align=256, bits=4), "unknown format: 2"),
         (build_wav(block_align=8, bits=64), "8, 16, 24, and 32-bit"),
         (build_wav(block_align=5, bits=40), "8, 16, 24, and 32-bit"),
         (build_wav(frame_rate=0), "sample rate"),
         (build_wav(channels=40000, block_align=80000 % 2**16), "padded"),
         (build_wav(frame_rate=2**31), "too high a sample rate"),
         (chunk(b"RIFF", b"WAVE" + chunk(b"data", bytes(8))), "not a valid PCM WAV"),
-        (chunk(b"RIFF", b"WAVE" + chunk(b"fmt ", bytes(4)) + chunk(b"data", b"")), "not a valid PCM WAV"),
+        (chunk(b"RIFF", b"WAVE" + chunk(b"fmt ", bytes(4)) + chunk(b"data", b"")), "ends too early"),
         (build_wav()[:30], "ends too early"),
         (build_wav()[:40], "not a valid PCM WAV"),
     ],
     ids=[
         "empty", "four_bytes", "text", "other_riff", "float_32", "float_64", "mu_law", "padded_24_in_32",
         "padded_8_in_16", "padded_after_odd_chunk", "chunk_too_long", "block_too_small", "streamed",
-        "no_channels", "no_bits", "64_bit", "40_bit", "no_rate", "too_many_channels", "rate_too_high",
+        "no_channels", "no_bits", "no_channels_padded", "no_bits_padded", "adpcm",
+        "64_bit", "40_bit", "no_rate", "too_many_channels", "rate_too_high",
         "no_format", "short_format", "cut_in_format", "no_data",
     ],
 )  # fmt: skip

@@ -16,7 +16,6 @@ from utils.message_codec import (
 )
 from utils.output_path import check_output_path, normalize_output_path
 from utils.wav_io import (
-    check_regular_file,
     count_sample_bytes,
     open_pcm_wav,
     read_audio,
@@ -58,7 +57,6 @@ def write_message(
     :param overwrite: Whether an existing output file may be replaced
     """
     message_bytes = message_to_bytes(message)
-    check_regular_file(input_path)
     output_path = normalize_output_path(output_path)
     check_output_path(input_path, output_path, overwrite)
     audio = read_audio(input_path)

@@ -30,8 +30,6 @@ def normalize_output_path(path: str) -> str:
     Links in the parent folders are followed. The file name itself is kept, so
     a symbolic link there can still be refused.
     """
-    if not path:
-        raise UnsafeOutputError("The output path is empty.")
     if "\0" in path:
         raise UnsafeOutputError("The output path contains a null character.")
     if os.name == "nt":
