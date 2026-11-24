@@ -67,6 +67,28 @@ def test_a_message_can_be_hidden_in_a_file_that_already_holds_one(
     assert reveal(tmp_path / "second.wav") == "second"
 
 
+@pytest.mark.parametrize("bits_per_byte", [1, 2, 4, 8])
+def test_every_number_of_bits_fills_the_file_exactly(
+    make_wav: Callable[..., Path], read_frames: Callable[[Path], bytes], tmp_path: Path, bits_per_byte: int
+) -> None:
+    def embed(byte: int, bits: tuple[int, ...]) -> int:
+        return (byte >> bits_per_byte << bits_per_byte) | int("".join(map(str, bits)), 2)
+
+    def extract(byte: int) -> tuple[int, ...]:
+        return tuple((byte >> shift) & 1 for shift in range(bits_per_byte - 1, -1, -1))
+
+    algorithm = Algorithm("Test", bits_per_byte, embed, extract, "test.wav")
+    used = 32 // bits_per_byte + 3 * 8 // bits_per_byte
+    source = make_wav(frames=b"\xaa" * used)
+    output = tmp_path / "output.wav"
+    with pytest.raises(CapacityError, match="hold 3 bytes"):
+        encode(str(source), str(output), "Hi!!", algorithm)
+    encode(str(source), str(output), "Hi!", algorithm)
+    assert decode(str(output), algorithm) == "Hi!"
+    hidden = "".join(str(bit) for byte in read_frames(output) for bit in extract(byte))
+    assert int(hidden, 2).to_bytes(7, "big") == b"\0\0\0\x18Hi!"
+
+
 @pytest.mark.parametrize("overwrite", [False, True])
 @pytest.mark.parametrize("name", ["input.wav", "input.wav/", "input.wav/.", "./input.wav", "", "."])
 def test_the_input_is_never_replaced(
@@ -122,6 +144,21 @@ def test_an_existing_output_is_refused_before_anything_is_written(
     (tmp_path / "existing.wav").write_bytes(b"keep me")
     with pytest.raises(FileExistsError):
         hide(source, tmp_path / "existing.wav")
+
+
+def test_a_file_that_appears_while_the_message_is_hidden_is_kept(
+    make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    output = tmp_path / "output.wav"
+
+    def embed_while_a_file_appears(byte: int, bits: tuple[int, ...]) -> int:
+        output.write_bytes(b"theirs")
+        return embed_bit(byte, bits)
+
+    algorithm = Algorithm("Test", 1, embed_while_a_file_appears, extract_bit, "test.wav")
+    with pytest.raises(FileExistsError):
+        encode(str(make_wav()), str(output), "hidden", algorithm)
+    assert output.read_bytes() == b"theirs"
 
 
 @pytest.mark.parametrize(

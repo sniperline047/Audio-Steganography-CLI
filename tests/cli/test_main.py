@@ -7,7 +7,9 @@ import signal
 import subprocess
 import sys
 import sysconfig
-from collections.abc import Callable
+import threading
+from collections.abc import Callable, Iterator
+from importlib.metadata import distribution
 from pathlib import Path
 from typing import IO
 
@@ -101,11 +103,12 @@ def accuracy_lines(path: Path, expected: str, algorithm: int = 1) -> list[str]:
 
 
 @pytest.fixture
-def start(tmp_path: Path) -> StartProcess:
-    """Return a function that starts the CLI for a test that must interact with it."""
+def start(tmp_path: Path) -> Iterator[StartProcess]:
+    """Return a function that starts the CLI for an interactive test, and stop it if it hangs."""
+    timers: list[threading.Timer] = []
 
     def start_process() -> subprocess.Popen[bytes]:
-        return subprocess.Popen(
+        process = subprocess.Popen(
             PROGRAM,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -113,8 +116,13 @@ def start(tmp_path: Path) -> StartProcess:
             cwd=tmp_path,
             env=environment(),
         )
+        timers.append(threading.Timer(TIMEOUT, process.kill))
+        timers[-1].start()
+        return process
 
-    return start_process
+    yield start_process
+    for timer in timers:
+        timer.cancel()
 
 
 def read_until(stream: IO[bytes], ending: bytes) -> None:
@@ -139,6 +147,9 @@ def test_default_paths_use_the_included_sample_and_the_current_folder(
         cwd=tmp_path,
     )  # fmt: skip
     assert (result.code, result.errors) == (0, "")
+    assert "Input audio file [included sample]: " in result.output
+    assert f"Output audio file [{file_name}]: " in result.output
+    assert result.output.count(f"Encoded audio file [{file_name}]: ") == 2
     assert "Decoded message: Hello 🎵\n" in result.output
     assert "Accuracy of decoded message: 100.00%\nExact match: yes\n" in result.output
     assert os.listdir(tmp_path) == [file_name]
@@ -170,6 +181,12 @@ def test_the_console_command_from_the_project_folder(make_wav: Callable[..., Pat
     )  # fmt: skip
     assert result.code == 0
     assert "Decoded message: hidden\n" in result.output
+    assert run("2", "1", command=[command]).code == 1
+
+
+def test_the_console_command_starts_the_whole_program() -> None:
+    entry_points = distribution("audiosteg").entry_points
+    assert entry_points.select(name="audiosteg")["audiosteg"].load() is main.main
 
 
 def test_relative_paths_belong_to_the_current_folder(make_wav: Callable[..., Path], tmp_path: Path) -> None:
