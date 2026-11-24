@@ -37,8 +37,13 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -r requirements_dev.txt
       - run: python -m pytest --cov --cov-report=term-missing --cov-report=json
+      - name: Add coverage to the job summary
+        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && hashFiles('.coverage') != '' }}
+        run: |
+          echo "## Test coverage" >> "$GITHUB_STEP_SUMMARY"
+          python -m coverage report --format=markdown --fail-under=0 >> "$GITHUB_STEP_SUMMARY"
       - name: Save coverage
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest' && matrix.python == '3.13' }}
+        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' && matrix.python == '3.13' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage_report
@@ -66,3 +71,52 @@ jobs:
         run: |
           python scripts/generate_sample_audio.py
           git diff --exit-code -- input/original_sample.wav
+
+  badge:
+    name: Update coverage badge
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [tests, checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Download coverage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage_report
+          path: ${{ runner.temp }}/coverage_report
+      - name: Publish badge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REPORT: ${{ runner.temp }}/coverage_report/coverage.json
+        run: |
+          set -euo pipefail
+          percent=$(jq -er '.totals.percent_covered | numbers | floor' "$REPORT")
+          if ! [[ "$percent" =~ ^([0-9]|[1-9][0-9]|100)$ ]]; then
+            echo "The coverage value is not a whole number from 0 to 100."
+            exit 1
+          fi
+          color='#2e7d32'
+          if [ "$percent" -lt 90 ]; then
+            color='#c62828'
+          fi
+          svg=$(printf '%s' \
+            '<svg xmlns="http://www.w3.org/2000/svg" width="110" height="20" role="img" aria-label="coverage: '"$percent"'%">' \
+            '<rect width="66" height="20" fill="#555"/><rect x="66" width="44" height="20" fill="'"$color"'"/>' \
+            '<g fill="#fff" text-anchor="middle" font-family="Verdana,sans-serif" font-size="11">' \
+            '<text x="33" y="14">coverage</text><text x="88" y="14">'"$percent"'%</text></g></svg>')
+          tree=$(jq -n --arg svg "$svg" \
+            '{tree: [{path: "coverage.svg", mode: "100644", type: "blob", content: $svg}]}' |
+            gh api "repos/$REPO/git/trees" --input - --jq .sha)
+          parent=$(gh api "repos/$REPO/git/matching-refs/heads/coverage_badge" |
+            jq -r '[.[] | select(.ref == "refs/heads/coverage_badge") | .object.sha][0] // empty')
+          commit=$(jq -n --arg tree "$tree" --arg parent "$parent" \
+            '{message: "Update coverage badge", tree: $tree, parents: (if $parent == "" then [] else [$parent] end)}' |
+            gh api "repos/$REPO/git/commits" --input - --jq .sha)
+          if [ -n "$parent" ]; then
+            gh api --silent -X PATCH "repos/$REPO/git/refs/heads/coverage_badge" -f "sha=$commit"
+          else
+            gh api --silent "repos/$REPO/git/refs" -f ref=refs/heads/coverage_badge -f "sha=$commit"
+          fi

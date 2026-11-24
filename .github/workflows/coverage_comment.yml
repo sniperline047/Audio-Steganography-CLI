@@ -44,23 +44,38 @@ jobs:
             echo "No coverage report."
             exit 0
           fi
-          percent=$(jq -r '.totals.percent_covered | numbers | floor' "$REPORT")
-          if ! [[ "$percent" =~ ^([0-9]|[1-9][0-9]|100)$ ]]; then
-            echo "The coverage value is not a whole number from 0 to 100."
+          if [ "$(stat -c %s "$REPORT")" -gt 2000000 ]; then
+            echo "The coverage report is too large."
             exit 1
           fi
+          marker='<!-- coverage_comment -->'
+          jq -ers --arg marker "$marker" '
+            def percent:
+              if type == "number" and . >= 0 and . <= 100 then floor
+              else error("invalid coverage value") end;
+            def file_name:
+              if length <= 100 and test("\\A(algorithms|cli|scripts|utils)/([a-z0-9_]+/)*[a-z0-9_]+\\.py\\z") then .
+              else error("invalid file name") end;
+            (if length == 1 then .[0] else error("expected one JSON value") end)
+            | if (.files | type) != "object" or (.files | length) > 50 then error("invalid file list") else . end
+            | (.totals.percent_covered | percent) as $total
+            | [.files | to_entries | sort_by(.key)[]
+                | "| `\(.key | file_name)` | \(.value.summary.percent_covered | percent)% |"] as $rows
+            | [$marker,
+               "Test coverage reported by this pull request: **\($total)%** (required: 90%).",
+               "", "| File | Coverage |", "| --- | --- |"] + $rows
+            | join("\n")
+          ' "$REPORT" > "$RUNNER_TEMP/comment.md"
           number=$(gh api -X GET "repos/$REPO/pulls" -f state=open -f "head=$HEAD_OWNER:$HEAD_BRANCH" |
             jq -r --arg sha "$HEAD_SHA" '[.[] | select(.head.sha == $sha) | .number][0] // empty')
           if [ -z "$number" ]; then
             echo "No open pull request has this commit as its latest commit."
             exit 0
           fi
-          marker='<!-- coverage_comment -->'
-          body=$(printf '%s\nTest coverage reported by this pull request: **%s%%** (required: 90%%).' "$marker" "$percent")
           comment_id=$(gh api --paginate "repos/$REPO/issues/$number/comments" |
             jq -rs --arg marker "$marker" '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith($marker))) | .id][0] // empty')
           if [ -n "$comment_id" ]; then
-            gh api --silent -X PATCH "repos/$REPO/issues/comments/$comment_id" -f "body=$body"
+            gh api --silent -X PATCH "repos/$REPO/issues/comments/$comment_id" -F "body=@$RUNNER_TEMP/comment.md"
           else
-            gh api --silent "repos/$REPO/issues/$number/comments" -f "body=$body"
+            gh api --silent "repos/$REPO/issues/$number/comments" -F "body=@$RUNNER_TEMP/comment.md"
           fi
