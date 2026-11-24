@@ -23,6 +23,7 @@ class Quality:
 
     :param format: The format of both files
     :param part: The part that was measured
+    :param total_frames: The length of both files
     :param signal: The sum of the squares of the original samples
     :param noise: The sum of the squares of the changes
     :param changed: How many samples changed
@@ -34,6 +35,7 @@ class Quality:
 
     format: SampleFormat
     part: Part
+    total_frames: int
     signal: int
     noise: int
     changed: int
@@ -46,6 +48,11 @@ class Quality:
     def samples(self) -> int:
         """Return the number of samples of all channels."""
         return self.part.frames * self.format.channels
+
+    @property
+    def partial(self) -> bool:
+        """Say whether only a part of the files was measured."""
+        return self.part.frames != self.total_frames
 
     @property
     def identical(self) -> bool:
@@ -117,6 +124,7 @@ def measure(pair: Pair, part: Part) -> Quality:
     return Quality(
         pair.format,
         part,
+        pair.frames,
         signal,
         noise,
         changed,

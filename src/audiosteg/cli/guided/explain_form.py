@@ -49,5 +49,5 @@ class ExplainForm:
         """Return the same command."""
         words = ["audiosteg", "explain", self.algorithm]
         if self.algorithm in ALGORITHMS and self.letter != DEFAULT_LETTER:
-            words.append(f"--letter={self.letter}")
+            words += ["--letter", self.letter]
         return command_line(*words)

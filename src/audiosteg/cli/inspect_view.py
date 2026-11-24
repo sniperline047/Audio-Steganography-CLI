@@ -41,12 +41,13 @@ def show_inspection(view: View, path: str, inspection: Inspection) -> None:
             },
         )
         return
+    length = count_word(inspection.frames, "frame") if inspection.frames else "no samples"
     rows: Rows = [
         ("File", display_path(path)),
         ("Format", f"{8 * sample_format.sample_width}-bit PCM WAV"),
         ("Channels", CHANNEL_NAMES.get(sample_format.channels, str(sample_format.channels))),
         ("Sample rate", f"{sample_format.frame_rate:,} Hz"),
-        ("Duration", f"{duration:.3f} s ({count_word(inspection.frames, 'frame')})"),
+        ("Duration", f"{duration:.3f} s ({length})"),
     ]
     for capacity in inspection.capacities:
         sizes = f"{count_word(capacity.plain, 'byte')}, or {capacity.encrypted:,} encrypted"

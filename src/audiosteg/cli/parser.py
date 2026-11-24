@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from typing import Any, NoReturn
 
 from audiosteg.cli.commands import algorithms, compare, explain, hide, inspect, reveal, verify
-from audiosteg.cli.commands.compare import EVERY_SOUND, SOUNDS
+from audiosteg.cli.commands.compare import NO_SOUND_NAMED, NOT_A_SOUND, SOUNDS
 from audiosteg.cli.errors import UsageError
 from audiosteg.cli.options import add_output_options
 
@@ -89,7 +89,16 @@ def join_play_value(words: Sequence[str]) -> list[str]:
             joined[-1] = f"--play={word}"
         else:
             joined.append(word)
-    return [f"--play={EVERY_SOUND}" if word == "--play" else word for word in joined] + list(words[end:])
+    return [f"--play={NO_SOUND_NAMED}" if word == "--play" else word for word in joined] + list(words[end:])
+
+
+def follows_play(words: Sequence[str]) -> bool:
+    """Say whether a word after --play is not an option, so that it may be a misspelled sound."""
+    pairs = zip(words, words[1:], strict=False)
+    return any(
+        word == "--play" and following not in SOUNDS and not following.startswith("-")
+        for word, following in pairs
+    )
 
 
 def parse(parser: Parser, commands: dict[str, Parser], words: Sequence[str]) -> argparse.Namespace:
@@ -105,6 +114,8 @@ def parse(parser: Parser, commands: dict[str, Parser], words: Sequence[str]) -> 
         similar = difflib.get_close_matches(word, options, n=1)
         if word.startswith("--") and similar:
             raise UsageError(f"Unknown option. Did you mean {similar[0]}?")
+    if args.command == "compare" and follows_play(options_only):
+        raise UsageError(f"There is an extra word. {NOT_A_SOUND}")
     raise UsageError(
         "The command line has an unknown option or an extra word. "
         "It is not shown here because it may be private. -p takes no value: it asks for the passphrase."

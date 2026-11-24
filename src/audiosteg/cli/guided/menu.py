@@ -36,7 +36,9 @@ class Guide:
     def show_command(self, command: str | None) -> None:
         """Show the command that does the same."""
         if command is None:
-            self.view.note("The same command cannot be shown: a file name has unusual characters.")
+            self.view.note(
+                "The same command cannot be shown: a file name or another answer has unusual characters."
+            )
         else:
             self.view.note(f"The same as a command: {command}")
 

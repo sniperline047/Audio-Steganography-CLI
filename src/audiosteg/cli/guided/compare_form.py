@@ -8,6 +8,7 @@ from audiosteg.cli.commands.compare import (
     SOUNDS,
     CompareRequest,
     check_pair,
+    in_order,
     metric_list,
 )
 from audiosteg.cli.commands.hide import find_input
@@ -65,7 +66,7 @@ class CompareForm:
             return False
         names = self.prompter.text(f"Names from {', '.join(METRICS)}, with commas", DEFAULT_METRICS)
         try:
-            self.metrics = metric_list(names.replace(" ", ""))
+            self.metrics = in_order(metric_list(names.replace(" ", "")))
         except UsageError as error:
             raise ValueError(f"Choose from: {', '.join(METRICS)}.") from error
         return True
@@ -101,7 +102,7 @@ class CompareForm:
         if self.level == DETAILED:
             words.append("--details")
         if self.level == CHOOSE:
-            words += ["--show", ",".join(self.metrics)]
+            words += [word for name in self.metrics for word in ("--show", name)]
         if self.sound:
             words += ["--play"] if self.sound == EVERY_SOUND else ["--play", self.sound]
         return command_line(*words)

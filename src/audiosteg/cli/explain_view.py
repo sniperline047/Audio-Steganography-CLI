@@ -1,5 +1,6 @@
 """Show how an algorithm hides a character."""
 
+import unicodedata
 from collections.abc import Callable
 from typing import Any
 
@@ -44,6 +45,14 @@ def join_bits(bits: tuple[int, ...]) -> str:
     return "".join(map(str, bits))
 
 
+def show_letter(letter: str) -> str:
+    """Return a character in quotes. A mark that joins the character before it is named instead."""
+    if unicodedata.category(letter).startswith("M"):
+        return f"U+{ord(letter):04X}, which joins the character before it,"
+    quote = '"' if letter == "'" else "'"
+    return f"{quote}{letter}{quote}"
+
+
 def show_list(view: View) -> None:
     """Show one line about every algorithm."""
     if view.as_json:
@@ -84,7 +93,7 @@ def show_character(view: View, walkthrough: Walkthrough) -> None:
     show_step(
         view,
         "Step 1: turn the character into bits",
-        f"The character {walkthrough.letter!r} is {count_word(len(data), 'byte')} in UTF-8:",
+        f"The character {show_letter(walkthrough.letter)} is {count_word(len(data), 'byte')} in UTF-8:",
         *[f"  {byte:#04x} = {byte:08b}" for byte in data],
     )
 
@@ -143,7 +152,7 @@ def show_result(view: View, key: str, walkthrough: Walkthrough) -> None:
     show_step(
         view,
         "Step 4: read the bits back",
-        f"Reading the same bits gives {walkthrough.read_back!r} again.",
+        f"Reading the same bits gives {show_letter(walkthrough.read_back)} again.",
         f"{changed} of {count_word(len(walkthrough.changes), 'sample')} changed, by at most {largest} here. "
         f"This algorithm can change a sample by at most {largest_possible_change(algorithm)}, "
         f"out of {walkthrough.format.full_scale:,}.",

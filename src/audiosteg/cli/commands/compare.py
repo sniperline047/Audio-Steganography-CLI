@@ -30,10 +30,13 @@ METRICS = ("snr", "psnr", "changes", "where", "waveform")
 NUMBERS = METRICS[:4]
 SOUNDS = ("original", "encoded", "difference")
 EVERY_SOUND = "all"
+NO_SOUND_NAMED = "\0"
 MINIMUM_WIDTH, MAXIMUM_WIDTH = 20, 500
 USUAL_WIDTH = 100
+JSON_WIDTH = 80
 NUMBER = re.compile(r"[0-9]{1,9}(\.[0-9]{1,9})?")
-NO_DIFFERENCE = "There is no difference, so nothing was saved."
+NO_DIFFERENCE = "There is no difference in what was compared, so nothing was saved."
+NOT_A_SOUND = f"--play can have one of these values: {', '.join(SOUNDS)}."
 HINT = "To see every number, add --details. To listen, add --play."
 
 
@@ -56,20 +59,28 @@ class SavedDifference:
 
     file: str
     gain: Fraction
+    wanted_gain: Fraction | None
 
 
-def metric_list(text: str) -> tuple[str, ...]:
-    """Check a list of metrics. The order does not matter."""
+def metric_list(text: str) -> list[str]:
+    """Check a list of metrics."""
     chosen = text.split(",")
     if not all(name in METRICS for name in chosen):
         raise UsageError(f"--show needs names separated by commas. Choose from: {', '.join(METRICS)}.")
+    return chosen
+
+
+def in_order(chosen: list[str]) -> tuple[str, ...]:
+    """Return the chosen metrics once each, in the order in which they are shown."""
     return tuple(name for name in METRICS if name in chosen)
 
 
 def sound_name(text: str) -> str:
     """Check what should be played."""
-    if text not in (*SOUNDS, EVERY_SOUND):
-        raise UsageError(f"--play can have one of these values: {', '.join(SOUNDS)}.")
+    if text == NO_SOUND_NAMED:
+        return EVERY_SOUND
+    if text not in SOUNDS:
+        raise UsageError(NOT_A_SOUND)
     return text
 
 
@@ -117,6 +128,8 @@ def find_part(pair: Pair, start: Fraction | None, end: Fraction | None) -> Part:
     """Return the part of the files between two times."""
     from audiosteg.analysis.samples import Part
 
+    if pair.frames == 0 and (start is not None or end is not None):
+        raise UsageError("The files have no samples, so leave out --from and --to.")
     rate = pair.format.frame_rate
     first = 0 if start is None else int(start * rate)
     last = pair.frames if end is None else int(end * rate)
@@ -140,8 +153,10 @@ def waveforms(pair: Pair, part: Part, columns: int) -> dict[str, list[int]]:
 
 
 def count_columns(request: CompareRequest, view: View) -> int:
-    """Return how many columns a waveform has. It always fits in a terminal."""
-    available: int = view.out.console.width
+    """Return how many columns a waveform has. It fits in a terminal, and does not matter to JSON."""
+    if view.as_json:
+        return request.width or JSON_WIDTH
+    available = max(view.out.console.width, 1)
     if request.width is None:
         return min(available, USUAL_WIDTH)
     return min(available, request.width) if view.out.is_terminal else request.width
@@ -165,7 +180,7 @@ def save_difference(
     with safe_output(request.original, output_file, overwrite) as destination:
         write_difference(destination, pair, quality.part, gain)
         check_output_path(request.encoded, output_file, overwrite)
-    return SavedDifference(output_file, gain)
+    return SavedDifference(output_file, gain, request.gain)
 
 
 def play_sounds(request: CompareRequest, sound: str, view: View) -> None:
@@ -189,10 +204,12 @@ def play_sounds(request: CompareRequest, sound: str, view: View) -> None:
             return
         quality = measure(pair, part)
         if quality.identical:
-            view.note("There is no difference to play.")
+            view.note("There is no difference to play in what was compared.")
             return
         gain = choose_gain(quality.largest_change, pair.format.full_scale, request.gain)
-        view.note(f"Playing the difference, {format_gain(gain)} ({duration:.3f} s). Ctrl-C stops.")
+        view.note(
+            f"Playing the difference, {format_gain(gain, request.gain)} ({duration:.3f} s). Ctrl-C stops."
+        )
         play_private(lambda target: write_difference(target, pair, part, gain), duration)
 
 
@@ -233,7 +250,7 @@ def run(args: argparse.Namespace, view: View) -> int:
     request = CompareRequest(
         find_input(args.original),
         find_input(args.encoded),
-        METRICS if args.details else args.show,
+        METRICS if args.details else in_order(args.show),
         args.start,
         args.end,
         args.width,
@@ -266,8 +283,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     group.add_argument("--details", action="store_true", help="show and explain every metric")
     group.add_argument(
         "--show",
+        action="extend",
         type=metric_list,
-        default=(),
+        default=[],
         metavar="NAMES",
         help=f"show only these, separated by commas: {', '.join(METRICS)}",
     )

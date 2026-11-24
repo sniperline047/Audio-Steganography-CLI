@@ -28,19 +28,35 @@ def format_decibels(value: float) -> str:
 
 
 def format_percentage(value: float) -> str:
-    """Return a percentage. Only nothing is 0%, and only everything is 100%."""
+    """Return a percentage, rounded down. Only nothing is 0%, and only everything is 100%."""
     if value in (0, 100):
         return f"{value:.0f}%"
     if value < 0.01:
         return "less than 0.01%"
-    return f"{min(value, 99.99):.2f}%"
+    return f"{Decimal(value).quantize(Decimal('0.01'), ROUND_FLOOR)}%"
 
 
-def format_gain(gain: Fraction) -> str:
-    """Return how much a difference was amplified."""
+def largest_share(quality: Quality) -> str:
+    """Compare the largest change with the largest possible sample, which it can pass."""
+    percentage = format_percentage(quality.largest_change_percentage)
+    if quality.largest_change > quality.format.full_scale:
+        return f"{percentage} of the largest possible sample, from one side of silence to the other"
+    return f"{percentage} of the largest possible sample"
+
+
+def format_number(value: Fraction) -> str:
+    """Return a number with at most two decimals."""
+    return f"{float(value):,.2f}".rstrip("0").rstrip(".")
+
+
+def format_gain(gain: Fraction, wanted: Fraction | None) -> str:
+    """Return how much a difference was amplified, and whether that is less than was asked for."""
+    capped = ""
+    if wanted is not None and gain < wanted:
+        capped = f" (capped from {format_number(wanted)} times to a safe level)"
     if gain >= 1:
-        return f"amplified {f'{float(gain):,.2f}'.rstrip('0').rstrip('.')} times"
-    return f"reduced to {float(gain):.2%}"
+        return f"amplified {format_number(gain)} times{capped}"
+    return f"reduced to {float(gain):.2%}{capped}"
 
 
 def format_seconds(quality: Quality, frame: int) -> str:
@@ -58,27 +74,28 @@ def snr_note(quality: Quality) -> str | None:
 def snr_text(quality: Quality) -> str:
     """Return the signal-to-noise ratio, or why there is none."""
     if quality.identical:
-        return "no noise, the audio is identical"
+        return "no noise, because nothing changed"
     if quality.snr is None:
-        return "none, because the original is silent"
+        return "none, because the original is silent" + (" in this part" if quality.partial else "")
     return format_decibels(quality.snr)
 
 
 def psnr_text(quality: Quality) -> str:
     """Return the peak signal-to-noise ratio, or why there is none."""
-    return "no noise, the audio is identical" if quality.psnr is None else format_decibels(quality.psnr)
+    return "no noise, because nothing changed" if quality.psnr is None else format_decibels(quality.psnr)
 
 
 def changes_text(quality: Quality) -> str:
     """Say how many samples changed."""
+    if quality.samples == 0:
+        return "nothing, because there are no samples"
     percentage = format_percentage(quality.changed_percentage)
     return f"{quality.changed:,} of {count_word(quality.samples, 'sample')} ({percentage})"
 
 
 def largest_text(quality: Quality) -> str:
     """Say how large the largest change is."""
-    percentage = format_percentage(quality.largest_change_percentage)
-    return f"{count_word(quality.largest_change, 'step')} ({percentage} of the largest possible sample)"
+    return f"{count_word(quality.largest_change, 'step')} ({largest_share(quality)})"
 
 
 def where_text(quality: Quality) -> str:
@@ -91,15 +108,30 @@ def where_text(quality: Quality) -> str:
 
 def sounds_the_same(quality: Quality) -> str:
     """Say how likely it is that nobody hears a difference, without claiming to know."""
+    if quality.samples == 0:
+        return "There is nothing to hear, because the files have no samples."
+    if quality.identical and quality.partial:
+        return "Yes, in this part. Every sample of it is the same."
     if quality.silent_original and not quality.identical:
-        return "Hard to say. The original is silent, so any change could be heard."
+        where = "in this part" if quality.partial else "everywhere"
+        return f"Hard to say. The original is silent {where}, so any change could be heard."
     if quality.word in (EXCELLENT, GOOD) and quality.largest_change_percentage > LOUD_CHANGE:
-        percentage = format_percentage(quality.largest_change_percentage)
         return (
-            f"Hard to say. The change is quiet on average, but reaches {percentage} of the largest "
-            "possible sample, which could be a click."
+            "Hard to say. The change is quiet on average, but one sample moved by "
+            f"{largest_share(quality)}, which could be a click."
         )
     return SOUNDS_THE_SAME[quality.word]
+
+
+def show_part(view: View, quality: Quality) -> None:
+    """Say which part was compared, unless it was everything."""
+    if quality.partial:
+        start = format_seconds(quality, quality.part.first)
+        end = format_seconds(quality, quality.part.first + quality.part.frames)
+        total = format_seconds(quality, quality.total_frames)
+        view.out.spans(
+            ("Compared part:   ", "bold"), (f"{start} to {end} of {total}. The rest was not compared.", "")
+        )
 
 
 def show_summary(view: View, quality: Quality) -> None:
@@ -192,12 +224,8 @@ def show_waveforms(view: View, quality: Quality, drawings: dict[str, list[int]])
 def show_saved(view: View, saved: SavedDifference) -> None:
     """Say where the difference was saved."""
     view.out.spans(("Difference saved: ", "bold"), (display_path(saved.file), ""))
-    view.out.spans(
-        (
-            f"  It was {format_gain(saved.gain)}. Its loudest sample is at least 12 dB below the maximum.",
-            "dim",
-        )
-    )
+    gain = format_gain(saved.gain, saved.wanted_gain)
+    view.out.spans((f"  It was {gain}. Its loudest sample is at least 12 dB below the maximum.", "dim"))
 
 
 def number_fields(quality: Quality, metrics: tuple[str, ...]) -> dict[str, Any]:
@@ -240,6 +268,7 @@ def show_comparison(
             "encoded": clean_for_json(request.encoded),
             "first_frame": quality.part.first,
             "frames": quality.part.frames,
+            "total_frames": quality.total_frames,
             "identical": quality.identical,
             "quality": quality.word,
             **number_fields(quality, request.metrics or NUMBERS),
@@ -248,11 +277,16 @@ def show_comparison(
             scale = quality.format.full_scale
             fields["waveform"] = {name: scaled(peaks, scale) for name, peaks in drawings.items()}
         if saved is not None:
-            fields["difference"] = {"file": clean_for_json(saved.file), "gain": float(saved.gain)}
+            fields["difference"] = {
+                "file": clean_for_json(saved.file),
+                "gain": float(saved.gain),
+                "capped": saved.wanted_gain is not None and saved.gain < saved.wanted_gain,
+            }
         else:
             fields["difference"] = None
         view.show_json("compare", True, fields)
         return
+    show_part(view, quality)
     if not request.metrics:
         show_summary(view, quality)
     for metric in METRICS:
