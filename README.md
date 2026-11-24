@@ -1,184 +1,175 @@
 # Audio Steganography CLI
 
-Audio Steganography is a technique used to hide secret messages within audio files. This project provides a command-line interface (CLI) for encoding and decoding messages in audio files using various steganography algorithms. Additionally, it provides a method to calculate the accuracy of the decoded message against the original secret message.
+A learning project that hides a text message inside a WAV file and reads it back. It offers three least significant bit (LSB) algorithms through an interactive menu and needs only the Python standard library.
 
-## Contents
+> **Messages are not encrypted or authenticated.** Anyone who knows the algorithm can read a hidden message, change it, or replace it. Do not use this project to protect real secrets.
 
-- **Original Audio Sample**: `input/original_sample.wav`
-- **Supported Algorithms**:
-  - Standard LSB Steganography
-  - Enhanced LSB Steganography (without flipping)
-  - Enhanced LSB Steganography (with flipping)
+## Requirements
 
-## Algorithms Overview
+- Python 3.11 or newer
+- An uncompressed integer PCM WAV file (8, 16, 24, or 32-bit)
 
-### 1. Standard LSB Steganography
-
-This algorithm hides the secret message in the least significant bits (LSB) of the audio file. It modifies the LSB of each byte in the audio data to encode the secret message. This method is simple and has minimal impact on audio quality but is relatively easy to detect.
-
-- **Code File**: `algorithms/basic_lsb_steganography.py`
-- **Output Audio File**: `output/basic_lsb_encoded.wav`
-
-### 2. Enhanced LSB Steganography (without flipping)
-
-This algorithm improves upon the standard LSB by encoding two bits per byte without flipping them unnecessarily. It uses more sophisticated bit manipulation techniques to minimize the detectability of the encoded message while maintaining better audio quality.
-
-- **Code File**: `algorithms/enhanced_lsb_steganography_no_flip.py`
-- **Output Audio File**: `output/enhanced_lsb_encoded_no_flip.wav`
-
-### 3. Enhanced LSB Steganography (with flipping)
-
-This algorithm further enhances the LSB steganography by using flipping techniques to reduce the pattern detectability. It checks and flips bits as needed to ensure that the encoded data is less detectable and maintains high audio quality.
-
-- **Code File**: `algorithms/enhanced_lsb_steganography_with_flip.py`
-- **Output Audio File**: `output/enhanced_lsb_encoded_with_flip.wav`
+Some PCM files use the "extensible" WAV header. Python 3.11 cannot read that header; Python 3.12 and newer can.
 
 ## Setup
 
-To run this project, ensure you have Python installed (version 3.6 or higher).
+```bash
+git clone https://github.com/sniperline047/Audio-Steganography-CLI.git
+cd Audio-Steganography-CLI
+```
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/yourusername/audio-steganography.git
-   cd audio-steganography
-   ```
+There is nothing to install to run the program.
 
-2. **Install required dependencies:**
-   If there are any dependencies listed in a `requirements.txt` file, install them using pip:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Directory Structure:**
-
-   Ensure the following directory structure:
-
-   ```
-   audio-steganography/
-   ├── cli/
-   │   ├── config.py
-   │   ├── helpers.py
-   │   ├── main.py
-   │   ├── accuracy.py
-   ├── algorithms/
-   │   ├── basic_lsb_steganography.py
-   │   ├── enhanced_lsb_steganography_no_flip.py
-   │   ├── enhanced_lsb_steganography_with_flip.py
-   ├── utils/
-   │   ├── logging_util.py
-   ├── input/
-   │   ├── original_sample.wav
-   ├── output/
-   ├── README.md
-   └── requirements.txt
-   ```
-
-## Running the Application
-
-The application is run through a command-line interface (CLI).
-
-### Start the CLI
-
-To start the CLI, run the following command in your terminal or command prompt:
+## Run
 
 ```bash
 python cli/main.py
 ```
 
-### Options in the CLI
+or, from the project folder:
 
-Once the CLI is running, you will see a menu with the following options:
+```bash
+python -m cli.main
+```
 
-1. **Encode a Message**: Select this option to encode a secret message into an audio file.
-2. **Decode a Message**: Select this option to decode a secret message from an audio file.
-3. **Calculate Accuracy**: Select this option to calculate the accuracy of the decoded message compared to the original secret message.
-4. **Exit**: Exit the application.
+The menu has four options:
 
-### Encoding a Message
+1. **Encode a message**
+2. **Decode a message**
+3. **Calculate accuracy**
+4. **Exit**
 
-1. Choose the "Encode a Message" option.
-2. Select the desired algorithm:
-   - Standard LSB Steganography
-   - Enhanced LSB Steganography (without flipping)
-   - Enhanced LSB Steganography (with flipping)
-3. Choose the input audio file (default is `original_sample.wav` or a custom file).
-4. Enter the secret message you wish to encode.
-5. The encoded audio will be saved to the output directory specified in `cli/config.py`.
+At a path prompt, press Enter (or answer `y` or `yes`) to use the default file. Answer `n` or `no` to type another path.
 
-### Decoding a Message
+The program exits with code 1 if any operation in the session failed, and 0 otherwise.
 
-1. Choose the "Decode a Message" option.
-2. Select the desired algorithm used for encoding.
-3. Choose the input encoded audio file (default or a custom file).
-4. The decoded message will be displayed in the terminal.
+### Encode a message
 
-### Calculating Accuracy
+1. Choose **Encode a message**, then an algorithm.
+2. Type the secret message.
+3. Choose the input audio file. The default is `input/original_sample.wav`.
+4. Choose the output audio file. The default depends on the algorithm (see below).
+5. If the output file exists, confirm that it may be overwritten. The default answer is no.
 
-1. Choose the "Calculate Accuracy" option.
-2. Enter the original secret message used for encoding.
-3. Choose the input audio file and output audio file (press Enter to use standard files).
-4. Select the algorithm used for encoding and decoding.
-5. The accuracy of the decoded message will be calculated and displayed in the terminal.
+The input file is never changed. The program refuses to write to the input file or to a symbolic link. Only the audio is copied; tags and other metadata are not.
 
-## Adding a New Algorithm
+### Decode a message
 
-To add a new algorithm to the CLI, follow these steps:
+1. Choose **Decode a message**, then the algorithm that was used to encode.
+2. Choose the encoded audio file. The default is that algorithm's output file.
 
-1. **Create a new Python file** in the `algorithms/` directory for your new algorithm. For example, `my_new_algorithm.py`.
+Characters that could control the terminal are shown as escape codes such as `\x1b`.
 
-2. **Define `encode` and `decode` functions** in your new Python file:
-   - `encode(input_file_path, output_file_path, secret_message)`: Encodes the secret message into the audio file.
-   - `decode(input_file_path)`: Decodes the secret message from the audio file and returns it.
+### Calculate accuracy
 
-3. **Update `cli/config.py`** to include your new algorithm:
+1. Choose **Calculate accuracy**.
+2. Type the expected message, then choose the algorithm.
+3. Choose the encoded audio file.
+
+This reads an existing file and changes nothing. The score is the number of matching character positions divided by the longer message length, so missing and extra characters lower it. The program also says whether the messages match exactly.
+
+## Algorithms
+
+Each algorithm first stores the message length in bits as a 32-bit number, then the message as UTF-8 text. Files made by older versions with Latin-1 characters can still be decoded.
+
+| Menu | Algorithm | Bits per sample byte | Code | Default output |
+| --- | --- | --- | --- | --- |
+| 1 | Basic LSB Steganography | 1 (lowest bit) | `algorithms/basic_lsb_steganography.py` | `output/basic_lsb_encoded.wav` |
+| 2 | Enhanced LSB Steganography with Bit Flipping | 2 (third and fourth lowest bits) | `algorithms/enhanced_lsb_steganography_with_flip.py` | `output/enhanced_lsb_encoded_flip.wav` |
+| 3 | Enhanced LSB Steganography without Bit Flipping | 2 (third and fourth lowest bits) | `algorithms/enhanced_lsb_steganography_no_flip.py` | `output/enhanced_lsb_encoded_no_flip.wav` |
+
+The with-flip version also inverts the two lowest bits of every byte whose hidden bits change.
+
+### Capacity
+
+For an audio file with `n` sample bytes, the largest message is:
+
+- Basic: `(n - 32) / 8` bytes
+- Enhanced: `(2n - 32) / 8` bytes
+
+Both are rounded down. One character can take up to four UTF-8 bytes.
+
+### Audio quality
+
+"Enhanced" means twice the capacity, not better quality. A 1 KB message gave these signal-to-noise ratios (higher is better). Results change slightly with the message.
+
+| Algorithm | Previous sample | Current sample |
+| --- | --- | --- |
+| Basic | 50.0 dB | 44.0 dB |
+| Enhanced without flipping | 32.3 dB | 27.9 dB |
+| Enhanced with flipping | 30.0 dB | 27.6 dB |
+
+The message is written into sample bytes in order, including the high byte of 16-bit samples, so the start of the file can have audible noise. None of them is designed to resist detection.
+
+## Project layout
+
+```
+Audio-Steganography-CLI/
+├── .github/            Automated checks
+├── algorithms/         The three algorithms
+├── cli/
+│   ├── accuracy.py     Message comparison
+│   ├── config.py       Default paths and algorithm list
+│   ├── helpers.py      Menus and prompts
+│   └── main.py         Program entry point
+├── input/
+│   └── original_sample.wav
+├── output/             Encoded files (created when needed, not tracked by Git)
+├── scripts/
+│   └── generate_sample_audio.py
+├── utils/
+│   ├── errors.py       Error types
+│   ├── logging_util.py Logging setup
+│   ├── message_codec.py Message and bit conversion
+│   ├── stego_file.py   Shared encode and decode steps
+│   ├── text.py         Safe terminal text
+│   └── wav_io.py       WAV reading and safe writing
+├── LICENSE
+├── pyproject.toml
+└── requirements_dev.txt
+```
+
+`input/original_sample.wav` is an original tune. Run `python scripts/generate_sample_audio.py` to create it again.
+
+## Add an algorithm
+
+1. Create a module in `algorithms/` with these functions:
+   - `encode(input_file_path, output_file_path, secret_message, overwrite=False)`
+   - `decode(input_file_path)`, which returns the message
+2. Raise an error from `utils/errors.py` when an operation cannot finish.
+3. Import the module in `cli/config.py` and add an entry to `ALGORITHMS`:
 
    ```python
-   from algorithms import (
-       basic_lsb_steganography,
-       enhanced_lsb_steganography_no_flip,
-       enhanced_lsb_steganography_with_flip,
-       my_new_algorithm  # Import your new algorithm module
-   )
-
-   # Add your new algorithm to the ALGORITHMS dictionary
-   ALGORITHMS = {
-       1: {
-           "name": "Basic LSB Steganography",
-           "encode": basic_lsb_steganography.encode,
-           "decode": basic_lsb_steganography.decode,
-           "output_file": "output/basic_lsb_encoded.wav"
-       },
-       2: {
-           "name": "Enhanced LSB Steganography (no flip)",
-           "encode": enhanced_lsb_steganography_no_flip.encode,
-           "decode": enhanced_lsb_steganography_no_flip.decode,
-           "output_file": "output/enhanced_lsb_encoded_no_flip.wav"
-       },
-       3: {
-           "name": "Enhanced LSB Steganography (with flip)",
-           "encode": enhanced_lsb_steganography_with_flip.encode,
-           "decode": enhanced_lsb_steganography_with_flip.decode,
-           "output_file": "output/enhanced_lsb_encoded_with_flip.wav"
-       },
-       4: {
-           "name": "My New Algorithm",  # Add a descriptive name for your algorithm
-           "encode": my_new_algorithm.encode,
-           "decode": my_new_algorithm.decode,
-           "output_file": "output/my_new_algorithm_encoded.wav"
-       }
-   }
+   4: {
+       "name": "My New Algorithm",
+       "encode": my_new_algorithm.encode,
+       "decode": my_new_algorithm.decode,
+       "output_file": str(PROJECT_ROOT / "output" / "my_new_algorithm_encoded.wav"),
+   },
    ```
 
-4. **Run the CLI**: Your new algorithm should now appear in the list of algorithms when encoding or decoding a message.
+## Development
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements_dev.txt
+ruff check .
+ruff format --check .
+mypy
+pip-audit -r requirements_dev.txt
+pytest --cov
+```
+
+On Windows, activate the environment with `.venv\Scripts\activate`.
 
 ## Contributing
 
-Feel free to contribute to this project by adding more features or improving the existing code. Follow the standard GitHub flow for contributions:
-
 1. Fork the repository.
-2. Create a new branch (`git checkout -b feature/my-new-feature`).
-3. Commit your changes (`git commit -am 'Add new feature'`).
-4. Push to the branch (`git push origin feature/my-new-feature`).
-5. Create a new Pull Request.
+2. Create a branch (`git checkout -b my_new_feature`).
+3. Commit your changes.
+4. Push the branch and open a pull request.
 
----
+## License
+
+[MIT](LICENSE)
