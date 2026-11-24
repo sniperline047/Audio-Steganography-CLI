@@ -2,9 +2,6 @@
 
 from typing import NamedTuple
 
-from audiosteg.algorithms.detection import decode
-from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
-
 
 class AccuracyResult(NamedTuple):
     """The result of comparing two messages."""
@@ -34,22 +31,3 @@ def compare_messages(expected_message: str, decoded_message: str) -> AccuracyRes
         expected_length=len(expected_message),
         decoded_length=len(decoded_message),
     )
-
-
-def calculate_accuracy(
-    expected_message: str,
-    stego_file_path: str,
-    algorithm: Algorithm | LegacyAlgorithm,
-    passphrase: str | None = None,
-) -> AccuracyResult:
-    """
-    Check an existing encoded file against the expected message. No file is changed.
-
-    :param expected_message: The message that should be hidden in the file
-    :param stego_file_path: Path to the encoded audio file
-    :param algorithm: The algorithm that was used to hide it
-    :param passphrase: The passphrase of an encrypted message
-    :return: The comparison result
-    """
-    decoded_message = decode(stego_file_path, algorithm, passphrase=passphrase)
-    return compare_messages(expected_message, decoded_message)

@@ -24,15 +24,17 @@ def extract_two_bits(byte: int) -> tuple[int, ...]:
 
 
 LSB = Algorithm(
-    name="LSB (1 bit per sample, best quality)",
+    name="LSB (1 bit per sample)",
     bits_per_byte=1,
     embed_bits=embed_one_bit,
     extract_bits=extract_one_bit,
+    explanation="Hides 1 bit in each sample. Best sound quality.",
 )
 
 LSB_2 = Algorithm(
-    name="LSB_2 (2 bits per sample, double capacity)",
+    name="LSB_2 (2 bits per sample)",
     bits_per_byte=2,
     embed_bits=embed_two_bits,
     extract_bits=extract_two_bits,
+    explanation="Hides 2 bits in each sample. Double the capacity, a little more noise.",
 )

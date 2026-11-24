@@ -43,14 +43,30 @@ def check_algorithm(algorithm: object) -> None:
         raise TypeError(f"The algorithm must be an Algorithm, not {type(algorithm).__name__}.")
 
 
+def count_message_bytes(samples: int, bits_per_byte: int, encrypted: bool) -> int:
+    """Return the size of the largest message that fits in this many samples."""
+    return max(samples * bits_per_byte // 8 - container_overhead(encrypted), 0)
+
+
+def message_fits(message_length: int, samples: int, bits_per_byte: int, encrypted: bool) -> bool:
+    """Say whether a message and its container fit in this many samples."""
+    return message_length + container_overhead(encrypted) <= samples * bits_per_byte // 8
+
+
 def check_capacity(message_length: int, samples: int, bits_per_byte: int, encrypted: bool) -> None:
     """Make sure the message and its container fit in the audio."""
-    available = samples * bits_per_byte // 8 - container_overhead(encrypted)
-    if message_length > available:
+    if not message_fits(message_length, samples, bits_per_byte, encrypted):
         raise CapacityError(
-            f"The message is too large: it needs {message_length} bytes "
-            f"and the audio file can hold {max(available, 0)} bytes."
+            f"The message is too large: it needs {message_length} bytes and the audio file "
+            f"can hold {count_message_bytes(samples, bits_per_byte, encrypted)} bytes."
         )
+
+
+def file_can_hold(path: str, message: str, algorithm: Algorithm, encrypted: bool) -> bool:
+    """Say whether a message fits in a WAV file with this algorithm."""
+    with open_pcm_wav(path) as audio:
+        samples = count_sample_bytes(audio, path) // audio.getsampwidth()
+    return message_fits(len(message_to_bytes(message)), samples, algorithm.bits_per_byte, encrypted)
 
 
 def encode(

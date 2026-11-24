@@ -20,9 +20,26 @@ def extract_middle_bits(byte: int) -> tuple[int, ...]:
     return (byte >> 3) & 1, (byte >> 2) & 1
 
 
-BASIC_LSB = LegacyAlgorithm("Basic LSB Steganography", 1, extract_lowest_bit)
-ENHANCED_LSB_FLIP = LegacyAlgorithm("Enhanced LSB Steganography with Bit Flipping", 2, extract_middle_bits)
-ENHANCED_LSB = LegacyAlgorithm("Enhanced LSB Steganography without Bit Flipping", 2, extract_middle_bits)
+BASIC_LSB = LegacyAlgorithm(
+    name="Basic LSB Steganography",
+    bits_per_byte=1,
+    extract_bits=extract_lowest_bit,
+    explanation="Reads 1 bit from every byte.",
+)
+
+ENHANCED_LSB_FLIP = LegacyAlgorithm(
+    name="Enhanced LSB Steganography with Bit Flipping",
+    bits_per_byte=2,
+    extract_bits=extract_middle_bits,
+    explanation="Reads 2 middle bits from every byte (with bit flipping).",
+)
+
+ENHANCED_LSB = LegacyAlgorithm(
+    name="Enhanced LSB Steganography without Bit Flipping",
+    bits_per_byte=2,
+    extract_bits=extract_middle_bits,
+    explanation="Reads 2 middle bits from every byte.",
+)
 
 
 def bytes_to_old_message(data: bytes) -> str:

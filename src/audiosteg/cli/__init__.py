@@ -1,1 +1,1 @@
-"""The interactive command line interface."""
+"""The commands and the guided mode."""

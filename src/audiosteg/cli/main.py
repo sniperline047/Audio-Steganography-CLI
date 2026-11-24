@@ -1,186 +1,37 @@
-"""Interactive menu for hiding messages in audio files."""
+"""The program: parse the command line, run the command, and return the exit code."""
 
+import argparse
 import contextlib
 import io
 import os
 import sys
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from importlib.resources import files
+from collections.abc import Sequence
+from importlib.metadata import version
 
-from audiosteg.algorithms.detection import decode, detect
-from audiosteg.cli.accuracy import calculate_accuracy
-from audiosteg.cli.prompts import (
+from audiosteg.cli.errors import CancelledError, OutputClosedError, UsageError
+from audiosteg.cli.parser import COMMANDS, Parser, build_parser, parse
+from audiosteg.cli.views import View, is_dumb_terminal
+from audiosteg.errors import StegoError
+
+SUCCESS, FAILURE, WRONG_USAGE, INTERRUPTED = 0, 1, 2, 130
+HANDLED = (
+    StegoError,
+    UsageError,
+    CancelledError,
     OutputClosedError,
-    ask,
-    ask_hidden,
-    ask_new_passphrase,
-    ask_yes_no,
-    choose_algorithm,
-    choose_legacy_algorithm,
-    display_menu,
-    get_file_path,
-    get_user_choice,
-    require_output,
+    OSError,
+    ValueError,
+    MemoryError,
+    EOFError,
+    KeyboardInterrupt,
 )
-from audiosteg.core import crypto
-from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
-from audiosteg.core.stego_file import encode
-from audiosteg.core.wav_io import check_regular_file
-from audiosteg.errors import MissingLibraryError, StegoError, UnsafeOutputError
-from audiosteg.utils.output_path import check_output_path, normalize_output_path
-from audiosteg.utils.text import escape_text
-
-SAMPLE_FILE = str(files("audiosteg") / "data" / "sample.wav")
-DEFAULT_OUTPUT = "message_encoded.wav"
-EXIT_CHOICE = 4
 
 
-@dataclass(frozen=True)
-class EncodedFile:
-    """An encoded file and everything that is needed to read it."""
-
-    path: str
-    algorithm: Algorithm | LegacyAlgorithm
-    passphrase: str | None = field(repr=False)
-
-
-def check_not_sample(output_file: str) -> None:
-    """Refuse to replace the sample that is included in the package."""
-    if not os.path.exists(output_file) or not os.path.exists(SAMPLE_FILE):
-        return
-    if os.path.samefile(output_file, SAMPLE_FILE):
-        raise UnsafeOutputError("The output path is the included sample, which cannot be replaced.")
-
-
-def choose_passphrase() -> str | None:
-    """Ask for a new passphrase if the encryption library is installed."""
-    try:
-        crypto.check_available()
-    except MissingLibraryError as error:
-        print(f"The message will not be encrypted. {escape_text(str(error))}")
-        return None
-    return ask_new_passphrase()
-
-
-def handle_encode() -> None:
-    """Ask for a message and hide it in a copy of an audio file."""
-    algorithm = choose_algorithm()
-    if algorithm is None:
-        return
-    secret_message = ask("Enter the secret message to encode: ")
-    passphrase = choose_passphrase()
-    input_file = get_file_path("Input audio file", SAMPLE_FILE, "included sample")
-    chosen_path = get_file_path("Output audio file", DEFAULT_OUTPUT)
-
-    check_regular_file(input_file)
-    output_file = normalize_output_path(chosen_path)
-    check_output_path(input_file, output_file, overwrite=True)
-    check_not_sample(output_file)
-    overwrite = False
-    if os.path.exists(output_file):
-        overwrite = ask_yes_no(f"{escape_text(output_file)} already exists. Overwrite it?")
-        if not overwrite:
-            print("Nothing was written.")
-            return
-
-    print("Encoding...")
-    require_output()
-    encode(input_file, output_file, secret_message, algorithm, passphrase=passphrase, overwrite=overwrite)
-    result = "Message encoded, not encrypted," if passphrase is None else "Message encrypted and encoded"
-    print(f"{result} into {escape_text(output_file)}")
-
-
-def choose_encoded_file() -> EncodedFile | None:
-    """Ask for an encoded file and how to read it. Return None for Back."""
-    path = get_file_path("Encoded audio file", DEFAULT_OUTPUT)
-    detected = detect(path)
-    if detected is None:
-        print("No message was detected. If an older version made this file, select how it was encoded.")
-        legacy_algorithm = choose_legacy_algorithm()
-        return None if legacy_algorithm is None else EncodedFile(path, legacy_algorithm, None)
-    algorithm, header = detected
-    passphrase = None
-    if header.encrypted:
-        crypto.check_available()
-        passphrase = ask_hidden("Passphrase, not shown while you type: ") or None
-    return EncodedFile(path, algorithm, passphrase)
-
-
-def show_protection(encoded_file: EncodedFile) -> None:
-    """Say whether a message that was read had been encrypted."""
-    if encoded_file.passphrase is None:
-        print("This message was not encrypted, so anyone could have written it.")
-    else:
-        print("This message was encrypted.")
-
-
-def handle_decode() -> None:
-    """Show the message hidden in an audio file."""
-    encoded_file = choose_encoded_file()
-    if encoded_file is None:
-        return
-    decoded_message = decode(encoded_file.path, encoded_file.algorithm, passphrase=encoded_file.passphrase)
-    if decoded_message:
-        print(f"Decoded message: {escape_text(decoded_message)}")
-    else:
-        print("The decoded message is empty.")
-    show_protection(encoded_file)
-
-
-def handle_accuracy_check() -> None:
-    """Compare the message hidden in an audio file with the expected one."""
-    encoded_file = choose_encoded_file()
-    if encoded_file is None:
-        return
-    expected_message = ask("Enter the expected secret message: ")
-    result = calculate_accuracy(
-        expected_message, encoded_file.path, encoded_file.algorithm, encoded_file.passphrase
-    )
-    show_protection(encoded_file)
-    print(f"Accuracy of decoded message: {result.percentage:.2f}%")
-    print(f"Exact match: {'yes' if result.exact_match else 'no'}")
-    print(f"Expected length: {result.expected_length}, decoded length: {result.decoded_length}")
-
-
-def show_error(message: str) -> None:
-    """Print an error, even if it contains unsafe characters or stderr is closed."""
-    with contextlib.suppress(OSError):
-        print(f"\nError: {escape_text(message)}", file=sys.stderr)
-
-
-def run_operation(operation: Callable[[], None]) -> bool:
-    """Run one menu operation and report any error. Return whether it succeeded."""
-    try:
-        operation()
-    except (StegoError, OSError, ValueError) as error:
-        show_error(str(error))
-        return False
-    except MemoryError:
-        show_error("There is not enough memory for this operation.")
-        return False
-    return True
-
-
-def run_menu() -> int:
-    """Show the menu until the user leaves. Return the exit code."""
-    operations = {1: handle_encode, 2: handle_decode, 3: handle_accuracy_check}
-    failed = False
-    while True:
-        display_menu(
-            ["Encode a message", "Decode a message", "Calculate accuracy", "Exit"],
-            "Select an option",
-        )
-        try:
-            choice = get_user_choice(EXIT_CHOICE)
-        except EOFError:
-            print()
-            break
-        if choice == EXIT_CHOICE:
-            break
-        if choice is not None and not run_operation(operations[choice]):
-            failed = True
-    return 1 if failed else 0
+def exit_code_of(error: BaseException) -> int:
+    """Return the exit code of an error."""
+    if isinstance(error, UsageError):
+        return WRONG_USAGE
+    return INTERRUPTED if isinstance(error, KeyboardInterrupt) else FAILURE
 
 
 def prepare_streams() -> None:
@@ -192,44 +43,80 @@ def prepare_streams() -> None:
         sys.stdin.reconfigure(errors="surrogateescape")
 
 
+def silence(stream_name: str) -> None:
+    """Send a closed stream nowhere, so that Python does not complain about it at the end."""
+    with contextlib.suppress(OSError, ValueError):
+        os.dup2(os.open(os.devnull, os.O_WRONLY), getattr(sys, stream_name).fileno())
+
+
 def flush_output() -> bool:
     """Write any waiting output. Return False if the output is closed."""
+    working = True
+    for name in ("stderr", "stdout"):
+        try:
+            getattr(sys, name).flush()
+        except OSError:
+            silence(name)
+            working = name != "stdout"
+    return working
+
+
+def run_guided(parser: Parser, args: argparse.Namespace, view: View) -> int:
+    """Start the guided mode, or show how to use the commands where it cannot run."""
+    if args.json:
+        raise UsageError("--json needs a command.")
+    if not sys.stdin.isatty() or not sys.stdout.isatty() or is_dumb_terminal():
+        view.err.write(parser.format_help())
+        view.note("")
+        view.note("Error: The guided mode needs a terminal. Choose a command instead.", "bold red")
+        return WRONG_USAGE
+    from audiosteg.cli.guided import run
+
+    return run(view)
+
+
+def run_command(words: Sequence[str]) -> int:
+    """Parse the command line and run what it asks for. Return the exit code."""
+    options = list(words[: words.index("--")]) if "--" in words else list(words)
+    view = View(sys.stdout, sys.stderr, plain="--plain" in options, as_json="--json" in options)
+    command = next((word for word in options if word in COMMANDS), None)
     try:
-        sys.stdout.flush()
-    except OSError:
-        with contextlib.suppress(OSError, ValueError):
-            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
-        return False
-    return True
+        parser, commands = build_parser()
+        args = parse(parser, commands, words)
+        command = args.command
+        if args.version:
+            view.show_version(version("audiosteg"))
+            return SUCCESS
+        if command is None:
+            return run_guided(parser, args, view)
+        exit_code: int = COMMANDS[command].run(args, view)
+        return exit_code
+    except HANDLED as error:
+        if isinstance(error, (KeyboardInterrupt, EOFError)) and view.err.is_terminal:
+            view.note("")
+        failure = exit_code_of(error)
+        with contextlib.suppress(OutputClosedError):
+            view.show_error(error, command, failure)
+        return failure
 
 
-def run_session() -> int:
-    """Run the menu and report why it stopped early, if it did. Return the exit code."""
-    try:
-        return run_menu()
-    except EOFError:
-        show_error("The input ended before the operation finished.")
-        return 1
-    except KeyboardInterrupt:
-        show_error("Interrupted.")
-        return 130
-    except OutputClosedError as error:
-        show_error(str(error))
-        return 1
-    except OSError as error:
-        show_error(f"The program cannot read its input or write its output: {error}")
-        return 1
-
-
-def main() -> int:
-    """Run the CLI program."""
+def main(words: Sequence[str] | None = None) -> int:
+    """Run the program."""
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w")  # noqa: SIM115
-    if sys.stdin is None or sys.stdout is None:
-        show_error("The program needs an open input and output.")
-        return 1
+    if sys.stdin is None:
+        sys.stdin = open(os.devnull)  # noqa: SIM115
+    if sys.stdout is None:
+        with contextlib.suppress(OSError):
+            print("Error: The program needs an open output.", file=sys.stderr)
+        return FAILURE
     prepare_streams()
-    exit_code = run_session()
+    try:
+        exit_code = run_command(sys.argv[1:] if words is None else words)
+    except SystemExit as finished:
+        exit_code = finished.code if isinstance(finished.code, int) else FAILURE
+    except KeyboardInterrupt:
+        exit_code = INTERRUPTED
     if not flush_output():
-        return exit_code or 1
+        return exit_code or FAILURE
     return exit_code

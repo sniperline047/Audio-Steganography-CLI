@@ -1,1 +1,1 @@
-"""The algorithms, their numbered lists, and the code that detects them."""
+"""The algorithms, their names, and the code that detects them."""

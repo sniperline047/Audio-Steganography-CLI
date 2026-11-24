@@ -137,6 +137,7 @@ cython_debug/
 
 # Encoded audio
 /*_encoded*.wav
+/*.stego.wav
 output/*.wav
 .stego_*.tmp
 
