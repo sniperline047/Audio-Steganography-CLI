@@ -1,10 +1,15 @@
 """Shared fixtures."""
 
+import contextlib
 import hashlib
 import importlib.util
 import os
 import random
+import select
+import signal
+import subprocess
 import sys
+import time
 import wave
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -13,7 +18,7 @@ from typing import NamedTuple
 
 import pytest
 
-from audiosteg.cli.main import SAMPLE_FILE
+from audiosteg.cli.commands.hide import SAMPLE_FILE
 from audiosteg.core import crypto
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -155,3 +160,153 @@ def embed() -> Callable[..., bytes]:
         return bytes(frames)
 
     return hide
+
+
+PROGRAM = [sys.executable, "-m", "audiosteg"]
+TIMEOUT = 60
+NO_SIGINT = os.name == "nt" or signal.getsignal(signal.SIGINT) == signal.SIG_IGN
+
+
+class Result:
+    """The outcome of one CLI run."""
+
+    def __init__(self, code: int, output: bytes, errors: bytes) -> None:
+        self.code = code
+        self.raw_output = output
+        self.output = output.decode("utf-8", "surrogateescape").replace("\r\n", "\n")
+        self.errors = errors.decode("utf-8", "surrogateescape").replace("\r\n", "\n")
+        assert "Traceback" not in self.errors
+        assert "Exception ignored" not in self.errors
+
+
+def environment(**changes: str) -> dict[str, str]:
+    """Return an environment that does not depend on the one of the test run."""
+    unwanted = ("NO_COLOR", "FORCE_COLOR", "COLORTERM", "COLUMNS", "LINES")
+    kept = {name: value for name, value in os.environ.items() if name not in unwanted}
+    return {**kept, "PYTHONIOENCODING": "utf-8", "TERM": "xterm-256color", **changes}
+
+
+@pytest.fixture
+def run() -> Callable[..., Result]:
+    """Return a function that runs one command in a real process without a terminal."""
+
+    def run_command(
+        *words: str | Path,
+        stdin: bytes = b"",
+        command: list[str] | None = None,
+        cwd: Path | None = None,
+        encoding: str = "utf-8",
+    ) -> Result:
+        detached = {} if os.name == "nt" else {"start_new_session": True}
+        finished = subprocess.run(
+            [*(command or PROGRAM), *map(str, words)],
+            input=stdin,
+            capture_output=True,
+            cwd=cwd,
+            env=environment(PYTHONIOENCODING=encoding),
+            timeout=TIMEOUT,
+            **detached,
+        )
+        return Result(finished.returncode, finished.stdout, finished.stderr)
+
+    return run_command
+
+
+TERMINAL_PROGRAM = """
+import fcntl, sys, termios
+fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+from audiosteg.cli.main import main
+code = main(sys.argv[1:])
+print("Typing is", "shown" if termios.tcgetattr(0)[3] & termios.ECHO else "hidden")
+sys.stdin.readline()
+sys.exit(code)
+"""
+
+
+class Terminal:
+    """The CLI in a real terminal."""
+
+    def __init__(self, folder: Path, words: list[str], columns: int, changes: dict[str, str]) -> None:
+        import fcntl
+        import pty
+        import struct
+        import termios
+
+        self.seen = ""
+        self.position = 0
+        self.controller, self.device = pty.openpty()
+        fcntl.ioctl(self.device, termios.TIOCSWINSZ, struct.pack("HHHH", 40, columns, 0, 0))
+        self.process = subprocess.Popen(
+            [sys.executable, "-c", TERMINAL_PROGRAM, *words],
+            stdin=self.device,
+            stdout=self.device,
+            stderr=self.device,
+            cwd=folder,
+            env=environment(PROMPT_TOOLKIT_NO_CPR="1", **changes),
+            start_new_session=True,
+        )
+        self.deadline = time.monotonic() + TIMEOUT
+
+    def close(self) -> None:
+        self.process.kill()
+        os.close(self.controller)
+        os.close(self.device)
+        self.process.wait()
+
+    def receive(self, seconds: float) -> None:
+        if select.select([self.controller], [], [], seconds)[0]:
+            self.seen += os.read(self.controller, 4096).decode("utf-8", "replace").replace("\r\n", "\n")
+
+    def read(self, text: str) -> None:
+        """Read until the terminal shows the text."""
+        while text not in self.seen[self.position :]:
+            assert time.monotonic() < self.deadline, f"no {text!r} in {self.seen!r}"
+            self.receive(0.1)
+        self.position = self.seen.index(text, self.position) + len(text)
+
+    def echoes(self) -> bool:
+        import termios
+
+        return bool(termios.tcgetattr(self.device)[3] & termios.ECHO)
+
+    def type(self, text: str) -> None:
+        os.write(self.controller, text.encode())
+
+    def type_hidden(self, text: str) -> None:
+        """Type once the terminal hides the typing."""
+        while self.echoes():
+            assert time.monotonic() < self.deadline, "the terminal still shows what is typed"
+            time.sleep(0.01)
+        self.type(text)
+
+    def answer(self, question: str, keys: str) -> None:
+        """Wait for a question of the guided mode, and type if there is anything to type."""
+        self.read(question)
+        if keys:
+            self.type_hidden(keys)
+
+    def finish(self) -> int:
+        """Check that typing is shown again, let the program stop, and return its exit code."""
+        self.read("Typing is shown")
+        self.type("\n")
+        while self.process.poll() is None:
+            assert time.monotonic() < self.deadline, "the program did not stop"
+            with contextlib.suppress(OSError):
+                self.receive(0.05)
+        assert "Traceback" not in self.seen
+        return self.process.returncode
+
+
+@pytest.fixture
+def terminal(tmp_path: Path) -> Iterator[Callable[..., Terminal]]:
+    """Return a function that starts the CLI in a real terminal."""
+    pytest.importorskip("termios", reason="this system has no such terminals")
+    started: list[Terminal] = []
+
+    def start(*words: str | Path, columns: int = 200, **changes: str) -> Terminal:
+        started.append(Terminal(tmp_path, [*map(str, words)], columns, changes))
+        return started[-1]
+
+    yield start
+    for program in started:
+        program.close()

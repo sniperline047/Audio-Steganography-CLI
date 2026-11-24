@@ -1,8 +1,10 @@
 """Tests for audiosteg/algorithms/registry.py."""
 
+import re
 from collections.abc import Callable
 from itertools import product
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -16,13 +18,20 @@ every_algorithm = pytest.mark.parametrize(
 )
 
 
-def test_numbers_follow_the_order_of_the_menu() -> None:
-    assert list(ALGORITHMS) == list(range(1, len(ALGORITHMS) + 1))
+def test_the_documented_names_and_the_order_of_detection_do_not_change() -> None:
+    assert list(ALGORITHMS.items())[:2] == [("lsb", LSB), ("lsb_2", LSB_2)]
+    assert LEGACY_ALGORITHMS == {
+        "basic": BASIC_LSB,
+        "enhanced_flip": ENHANCED_LSB_FLIP,
+        "enhanced": ENHANCED_LSB,
+    }
 
 
-def test_the_documented_numbers_do_not_change() -> None:
-    assert (ALGORITHMS[1], ALGORITHMS[2]) == (LSB, LSB_2)
-    assert LEGACY_ALGORITHMS == {1: BASIC_LSB, 2: ENHANCED_LSB_FLIP, 3: ENHANCED_LSB}
+@pytest.mark.parametrize("algorithms", [ALGORITHMS, LEGACY_ALGORITHMS])
+def test_every_algorithm_has_a_usable_name_and_one_line_of_explanation(algorithms: Any) -> None:
+    for key, algorithm in algorithms.items():
+        assert re.fullmatch("[a-z][a-z0-9_]*", key)
+        assert algorithm.explanation and algorithm.explanation.isprintable()
 
 
 def test_no_two_algorithms_look_the_same() -> None:

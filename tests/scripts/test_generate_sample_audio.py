@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from audiosteg.cli.main import SAMPLE_FILE
+from audiosteg.cli.commands.hide import SAMPLE_FILE
 from scripts import generate_sample_audio
 
 

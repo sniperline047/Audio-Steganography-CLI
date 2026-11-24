@@ -1,6 +1,8 @@
 """Tests for audiosteg/__init__.py and the files that are installed with it."""
 
 import inspect
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -47,6 +49,15 @@ def test_the_public_functions_keep_their_arguments() -> None:
     assert decode["algorithm"].default is None
     assert decode["passphrase"].kind is inspect.Parameter.KEYWORD_ONLY
     assert decode["passphrase"].default is None
+
+
+def test_importing_the_package_does_not_import_the_libraries_of_the_command_line() -> None:
+    code = (
+        "import audiosteg, sys; "
+        "assert not {'rich', 'questionary', 'prompt_toolkit'} & sys.modules.keys(); "
+        "import audiosteg.cli.main; assert not {'questionary', 'prompt_toolkit'} & sys.modules.keys()"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True, timeout=60)
 
 
 def test_type_checkers_can_use_the_package() -> None:

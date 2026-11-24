@@ -100,7 +100,7 @@ def test_a_damaged_message_is_reported_and_not_treated_as_missing(
 def test_the_first_algorithm_in_the_list_wins(
     make_wav: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(detection, "ALGORITHMS", {1: LSB, 2: LSB_2, 3: SECOND_BIT})
+    monkeypatch.setattr(detection, "ALGORITHMS", {"lsb": LSB, "lsb_2": LSB_2, "second": SECOND_BIT})
     old = tmp_path / "old.wav"
     new = tmp_path / "new.wav"
     encode(str(make_wav()), str(old), "old", LSB)
@@ -114,9 +114,9 @@ def test_a_new_algorithm_is_detected_after_it_is_added_to_the_list(
 ) -> None:
     output = tmp_path / "output.wav"
     encode(str(make_wav()), str(output), "new", SECOND_BIT)
-    monkeypatch.setattr(detection, "ALGORITHMS", {1: LSB, 2: LSB_2})
+    monkeypatch.setattr(detection, "ALGORITHMS", {"lsb": LSB, "lsb_2": LSB_2})
     assert detect(str(output)) is None
-    monkeypatch.setattr(detection, "ALGORITHMS", {1: LSB, 2: LSB_2, 3: SECOND_BIT})
+    monkeypatch.setattr(detection, "ALGORITHMS", {"lsb": LSB, "lsb_2": LSB_2, "second": SECOND_BIT})
     assert decode(str(output)) == "new"
 
 
