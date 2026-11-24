@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import secrets
 import unicodedata
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING
 
 from audiosteg.errors import MissingLibraryError, WrongPassphraseError
@@ -35,10 +37,29 @@ def load_aes_gcm() -> type[AESGCM]:
     return AESGCM
 
 
-def is_available() -> bool:
-    """Return whether the encryption library is installed."""
+@contextmanager
+def explain_refusals() -> Iterator[None]:
+    """Explain an encryption library that is installed but refuses AES-GCM."""
+    from cryptography.exceptions import UnsupportedAlgorithm
+
     try:
-        load_aes_gcm()
+        yield
+    except UnsupportedAlgorithm as error:
+        raise MissingLibraryError("The encryption library does not support AES-GCM.") from error
+
+
+def check_available() -> None:
+    """Make sure that this system can encrypt, without the cost of a real key."""
+    aes_gcm = load_aes_gcm()
+    run_scrypt(b"test", b"test", n=2, r=1)
+    with explain_refusals():
+        aes_gcm(bytes(KEY_SIZE))
+
+
+def is_available() -> bool:
+    """Return whether this system can encrypt."""
+    try:
+        check_available()
     except MissingLibraryError:
         return False
     return True
@@ -48,23 +69,30 @@ def passphrase_to_bytes(passphrase: str) -> bytes:
     """Return the same bytes for every way to type the same characters."""
     if not passphrase:
         raise ValueError("The passphrase is empty.")
-    try:
+    if "\0" in passphrase:
+        raise ValueError("The passphrase contains a null character.")
+    with suppress(UnicodeEncodeError):
         return unicodedata.normalize("NFC", passphrase).encode("utf-8")
-    except UnicodeEncodeError:
-        raise ValueError("The passphrase contains characters that are not valid text.") from None
+    raise ValueError("The passphrase contains characters that are not valid text.")
+
+
+def run_scrypt(passphrase: bytes, salt: bytes, n: int, r: int) -> bytes:
+    """Run scrypt, and explain a Python or OpenSSL that does not offer it."""
+    scrypt = getattr(hashlib, "scrypt", None)
+    if scrypt is None:
+        raise MissingLibraryError("This Python installation does not support scrypt, which encryption needs.")
+    try:
+        key: bytes = scrypt(
+            passphrase, salt=salt, n=n, r=r, p=SCRYPT_P, maxmem=SCRYPT_MAX_MEMORY, dklen=KEY_SIZE
+        )
+    except ValueError as error:
+        raise MissingLibraryError(f"This system refuses scrypt, which encryption needs: {error}") from error
+    return key
 
 
 def derive_key(passphrase: bytes, salt: bytes) -> bytes:
     """Turn a passphrase into an AES-256 key."""
-    return hashlib.scrypt(
-        passphrase,
-        salt=salt,
-        n=SCRYPT_N,
-        r=SCRYPT_R,
-        p=SCRYPT_P,
-        maxmem=SCRYPT_MAX_MEMORY,
-        dklen=KEY_SIZE,
-    )
+    return run_scrypt(passphrase, salt, n=SCRYPT_N, r=SCRYPT_R)
 
 
 def encrypt(message: bytes, header: bytes, passphrase: bytes) -> bytes:
@@ -79,7 +107,9 @@ def encrypt(message: bytes, header: bytes, passphrase: bytes) -> bytes:
     aes_gcm = load_aes_gcm()
     salt = secrets.token_bytes(SALT_SIZE)
     nonce = secrets.token_bytes(NONCE_SIZE)
-    return salt + nonce + aes_gcm(derive_key(passphrase, salt)).encrypt(nonce, message, header)
+    key = derive_key(passphrase, salt)
+    with explain_refusals():
+        return salt + nonce + aes_gcm(key).encrypt(nonce, message, header)
 
 
 def decrypt(body: bytes, header: bytes, passphrase: bytes) -> bytes:
@@ -97,7 +127,9 @@ def decrypt(body: bytes, header: bytes, passphrase: bytes) -> bytes:
     salt = body[:SALT_SIZE]
     nonce = body[SALT_SIZE : SALT_SIZE + NONCE_SIZE]
     ciphertext = body[SALT_SIZE + NONCE_SIZE :]
+    key = derive_key(passphrase, salt)
     try:
-        return aes_gcm(derive_key(passphrase, salt)).decrypt(nonce, ciphertext, header)
+        with explain_refusals():
+            return aes_gcm(key).decrypt(nonce, ciphertext, header)
     except InvalidTag as error:
         raise WrongPassphraseError("Wrong passphrase, or the message was changed.") from error

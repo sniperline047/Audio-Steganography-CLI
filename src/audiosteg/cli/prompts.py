@@ -4,12 +4,12 @@ import os
 import sys
 import warnings
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from getpass import GetPassWarning, getpass
 from typing import TypeVar
 
-from audiosteg.algorithms.legacy import LegacyAlgorithm
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
-from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
 from audiosteg.utils.text import escape_text
 
 AnyAlgorithm = TypeVar("AnyAlgorithm", Algorithm, LegacyAlgorithm)
@@ -48,11 +48,11 @@ def read_hidden_line() -> str:
     with warnings.catch_warnings():
         warnings.simplefilter("error", GetPassWarning)
         try:
-            return getpass("")
+            with suppress(UnicodeDecodeError):
+                return getpass("")
         except GetPassWarning as error:
             raise OSError("This terminal cannot hide the passphrase.") from error
-        except UnicodeDecodeError:
-            raise ValueError("The passphrase contains characters that are not valid text.") from None
+    raise ValueError("The passphrase contains characters that are not valid text.")
 
 
 def ask_hidden(prompt: str) -> str:

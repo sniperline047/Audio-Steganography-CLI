@@ -1,4 +1,4 @@
-"""The description of one way to hide bits in samples."""
+"""The descriptions of the ways to hide bits in samples."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -27,3 +27,18 @@ class Algorithm:
         """Refuse a number of bits that does not divide a byte evenly."""
         if self.bits_per_byte not in (1, 2, 4, 8):
             raise ValueError(f"bits_per_byte must be 1, 2, 4, or 8, not {self.bits_per_byte}.")
+
+
+@dataclass(frozen=True)
+class LegacyAlgorithm:
+    """
+    One way older versions hid bits, using every sample byte in order.
+
+    :param name: The name shown in the menu
+    :param bits_per_byte: How many bits each sample byte carries
+    :param extract_bits: Function that gets the hidden bits from a sample byte
+    """
+
+    name: str
+    bits_per_byte: int
+    extract_bits: ExtractBits

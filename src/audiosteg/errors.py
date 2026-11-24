@@ -46,4 +46,4 @@ class WrongPassphraseError(StegoError):
 
 
 class MissingLibraryError(StegoError):
-    """The optional encryption library is not installed."""
+    """Encryption is not available, for example because its library is not installed."""

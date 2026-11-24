@@ -1,29 +1,13 @@
 """Read files made by older versions. These algorithms cannot hide new messages."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 
-from audiosteg.core.algorithm import ExtractBits
+from audiosteg.core.algorithm import LegacyAlgorithm
 from audiosteg.core.message_codec import bits_to_bytes, extract_all
 from audiosteg.core.wav_io import count_sample_bytes, open_pcm_wav, read_first_bytes
 from audiosteg.errors import NoMessageError
 
 HEADER_BITS = 32
-
-
-@dataclass(frozen=True)
-class LegacyAlgorithm:
-    """
-    One way older versions hid bits, using every sample byte in order.
-
-    :param name: The name shown in the menu
-    :param bits_per_byte: How many bits each sample byte carries
-    :param extract_bits: Function that gets the hidden bits from a sample byte
-    """
-
-    name: str
-    bits_per_byte: int
-    extract_bits: ExtractBits
 
 
 def extract_lowest_bit(byte: int) -> tuple[int, ...]:

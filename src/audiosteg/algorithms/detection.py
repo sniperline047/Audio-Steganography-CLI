@@ -1,9 +1,9 @@
 """Find out which algorithm hid a message, and read the message."""
 
-from audiosteg.algorithms.legacy import LegacyAlgorithm, decode_legacy
+from audiosteg.algorithms.legacy import decode_legacy
 from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.core import stego_file
-from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
 from audiosteg.core.crypto import passphrase_to_bytes
 from audiosteg.core.header import Header
 from audiosteg.errors import NoMessageError, NotEncryptedError

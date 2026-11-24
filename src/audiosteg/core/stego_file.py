@@ -4,7 +4,7 @@ import wave
 from itertools import islice
 
 from audiosteg.core import crypto
-from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
 from audiosteg.core.header import (
     HEADER_SIZE,
     Header,
@@ -37,6 +37,12 @@ from audiosteg.errors import (
 from audiosteg.utils.output_path import check_output_path, normalize_output_path
 
 
+def check_algorithm(algorithm: object) -> None:
+    """Refuse anything that is not an algorithm, such as its name."""
+    if not isinstance(algorithm, Algorithm):
+        raise TypeError(f"The algorithm must be an Algorithm, not {type(algorithm).__name__}.")
+
+
 def check_capacity(message_length: int, samples: int, bits_per_byte: int, encrypted: bool) -> None:
     """Make sure the message and its container fit in the audio."""
     available = samples * bits_per_byte // 8 - container_overhead(encrypted)
@@ -66,12 +72,13 @@ def encode(
     :param passphrase: The passphrase that encrypts the message, or None for no encryption
     :param overwrite: Whether an existing output file may be replaced
     """
-    if not isinstance(algorithm, Algorithm):
-        raise UnsupportedAlgorithmError("This algorithm can only read old files. Use LSB or LSB_2.")
+    if isinstance(algorithm, LegacyAlgorithm):
+        raise UnsupportedAlgorithmError("This algorithm can only read old files, not hide messages.")
+    check_algorithm(algorithm)
     passphrase_bytes = None
     if passphrase is not None:
         passphrase_bytes = crypto.passphrase_to_bytes(passphrase)
-        crypto.load_aes_gcm()
+        crypto.check_available()
     message_bytes = message_to_bytes(message)
     output_path = normalize_output_path(output_path)
     check_output_path(input_path, output_path, overwrite)
@@ -122,6 +129,7 @@ def decode(path: str, algorithm: Algorithm, *, passphrase: str | None = None) ->
     :param passphrase: The passphrase of an encrypted message
     :return: The hidden message
     """
+    check_algorithm(algorithm)
     passphrase_bytes = None if passphrase is None else crypto.passphrase_to_bytes(passphrase)
     with open_pcm_wav(path) as audio:
         header = find_header(audio, path, algorithm)

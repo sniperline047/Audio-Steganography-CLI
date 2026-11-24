@@ -1,6 +1,7 @@
 """Convert messages to bits and back."""
 
 from collections.abc import Iterable, Iterator
+from contextlib import suppress
 
 from audiosteg.core.algorithm import ExtractBits
 from audiosteg.errors import DamagedMessageError, InvalidMessageError
@@ -8,18 +9,16 @@ from audiosteg.errors import DamagedMessageError, InvalidMessageError
 
 def message_to_bytes(message: str) -> bytes:
     """Encode a message as UTF-8 bytes."""
-    try:
+    with suppress(UnicodeEncodeError):
         return message.encode("utf-8")
-    except UnicodeEncodeError as error:
-        raise InvalidMessageError("The message contains characters that are not valid text.") from error
+    raise InvalidMessageError("The message contains characters that are not valid text.")
 
 
 def bytes_to_message(data: bytes) -> str:
     """Decode UTF-8 bytes."""
-    try:
+    with suppress(UnicodeDecodeError):
         return data.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise DamagedMessageError("The hidden message is not valid text.") from error
+    raise DamagedMessageError("The hidden message is not valid text.")
 
 
 def bytes_to_bits(data: bytes) -> Iterator[int]:

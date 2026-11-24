@@ -5,11 +5,10 @@ import io
 import os
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from importlib.resources import files
-from typing import NamedTuple
 
 from audiosteg.algorithms.detection import decode, detect
-from audiosteg.algorithms.legacy import LegacyAlgorithm
 from audiosteg.cli.accuracy import calculate_accuracy
 from audiosteg.cli.prompts import (
     OutputClosedError,
@@ -25,7 +24,7 @@ from audiosteg.cli.prompts import (
     require_output,
 )
 from audiosteg.core import crypto
-from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
 from audiosteg.core.stego_file import encode
 from audiosteg.core.wav_io import check_regular_file
 from audiosteg.errors import StegoError, UnsafeOutputError
@@ -37,12 +36,13 @@ DEFAULT_OUTPUT = "message_encoded.wav"
 EXIT_CHOICE = 4
 
 
-class EncodedFile(NamedTuple):
+@dataclass(frozen=True)
+class EncodedFile:
     """An encoded file and everything that is needed to read it."""
 
     path: str
     algorithm: Algorithm | LegacyAlgorithm
-    passphrase: str | None
+    passphrase: str | None = field(repr=False)
 
 
 def check_not_sample(output_file: str) -> None:
@@ -56,7 +56,7 @@ def check_not_sample(output_file: str) -> None:
 def choose_passphrase() -> str | None:
     """Ask for a new passphrase if the encryption library is installed."""
     if not crypto.is_available():
-        print('The message will not be encrypted. To add encryption, run: pip install ".[crypto]"')
+        print('The message will not be encrypted. Encryption usually needs: pip install ".[crypto]"')
         return None
     return ask_new_passphrase()
 
@@ -85,7 +85,8 @@ def handle_encode() -> None:
     print("Encoding...")
     require_output()
     encode(input_file, output_file, secret_message, algorithm, passphrase=passphrase, overwrite=overwrite)
-    print(f"Message encoded into {escape_text(output_file)}")
+    result = "Message encoded, not encrypted," if passphrase is None else "Message encrypted and encoded"
+    print(f"{result} into {escape_text(output_file)}")
 
 
 def choose_encoded_file() -> EncodedFile | None:
@@ -99,9 +100,17 @@ def choose_encoded_file() -> EncodedFile | None:
     algorithm, header = detected
     passphrase = None
     if header.encrypted:
-        crypto.load_aes_gcm()
+        crypto.check_available()
         passphrase = ask_hidden("Passphrase, not shown while you type: ") or None
     return EncodedFile(path, algorithm, passphrase)
+
+
+def show_protection(encoded_file: EncodedFile) -> None:
+    """Say whether a message that was read had been encrypted."""
+    if encoded_file.passphrase is None:
+        print("This message was not encrypted, so anyone could have written it.")
+    else:
+        print("This message was encrypted.")
 
 
 def handle_decode() -> None:
@@ -109,8 +118,8 @@ def handle_decode() -> None:
     encoded_file = choose_encoded_file()
     if encoded_file is None:
         return
-    path, algorithm, passphrase = encoded_file
-    decoded_message = decode(path, algorithm, passphrase=passphrase)
+    decoded_message = decode(encoded_file.path, encoded_file.algorithm, passphrase=encoded_file.passphrase)
+    show_protection(encoded_file)
     if decoded_message:
         print(f"Decoded message: {escape_text(decoded_message)}")
     else:
@@ -123,7 +132,10 @@ def handle_accuracy_check() -> None:
     if encoded_file is None:
         return
     expected_message = ask("Enter the expected secret message: ")
-    result = calculate_accuracy(expected_message, *encoded_file)
+    result = calculate_accuracy(
+        expected_message, encoded_file.path, encoded_file.algorithm, encoded_file.passphrase
+    )
+    show_protection(encoded_file)
     print(f"Accuracy of decoded message: {result.percentage:.2f}%")
     print(f"Exact match: {'yes' if result.exact_match else 'no'}")
     print(f"Expected length: {result.expected_length}, decoded length: {result.decoded_length}")

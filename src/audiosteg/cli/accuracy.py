@@ -3,8 +3,7 @@
 from typing import NamedTuple
 
 from audiosteg.algorithms.detection import decode
-from audiosteg.algorithms.legacy import LegacyAlgorithm
-from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
 
 
 class AccuracyResult(NamedTuple):

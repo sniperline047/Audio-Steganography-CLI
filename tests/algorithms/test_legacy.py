@@ -10,10 +10,10 @@ from audiosteg.algorithms.legacy import (
     BASIC_LSB,
     ENHANCED_LSB,
     ENHANCED_LSB_FLIP,
-    LegacyAlgorithm,
     bytes_to_old_message,
     read_length_header,
 )
+from audiosteg.core.algorithm import LegacyAlgorithm
 from audiosteg.errors import NoMessageError, UnsupportedAlgorithmError
 
 BASIC_UTF8_CARRIER = bytes.fromhex(

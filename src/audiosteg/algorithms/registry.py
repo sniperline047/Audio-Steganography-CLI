@@ -1,8 +1,8 @@
 """The numbered lists of algorithms."""
 
-from audiosteg.algorithms.legacy import BASIC_LSB, ENHANCED_LSB, ENHANCED_LSB_FLIP, LegacyAlgorithm
+from audiosteg.algorithms.legacy import BASIC_LSB, ENHANCED_LSB, ENHANCED_LSB_FLIP
 from audiosteg.algorithms.lsb import LSB, LSB_2
-from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
 
 ALGORITHMS: dict[int, Algorithm] = {
     1: LSB,
