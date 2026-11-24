@@ -1,17 +1,21 @@
 """Tests for audiosteg/cli/main.py."""
 
+import contextlib
+import hashlib
 import io
 import os
+import select
 import shutil
 import signal
 import subprocess
 import sys
 import sysconfig
 import threading
+import time
 from collections.abc import Callable, Iterator
 from importlib.metadata import distribution
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
 
 import pytest
 
@@ -20,7 +24,7 @@ from audiosteg.algorithms.lsb import LSB, LSB_2
 from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli import main
 from audiosteg.core import crypto
-from audiosteg.errors import UnsafeOutputError
+from audiosteg.errors import MissingLibraryError, UnsafeOutputError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 PROGRAM = [sys.executable, "-m", "audiosteg"]
@@ -65,6 +69,11 @@ class Result:
         assert "Exception ignored" not in self.errors
 
 
+NOT_ENCRYPTED = "This message was not encrypted, so anyone could have written it.\n"
+ENCRYPTED = "This message was encrypted.\n"
+PASSPHRASE_PROMPT = "Passphrase, not shown while you type [none]: "
+
+
 def environment(encoding: str = "utf-8") -> dict[str, str]:
     return {**os.environ, "PYTHONIOENCODING": encoding}
 
@@ -94,6 +103,10 @@ def encode_lines(source: Path, output: Path | str, message: str = "hidden", algo
 
 def decode_lines(path: Path | str) -> list[str]:
     return ["2", str(path)]
+
+
+def encrypt_lines(source: Path, output: Path | str, passphrase: str, algorithm: int = 1) -> list[str]:
+    return ["1", str(algorithm), "hidden", passphrase, passphrase, str(source), str(output)]
 
 
 def accuracy_lines(path: Path, expected: str) -> list[str]:
@@ -617,3 +630,363 @@ def test_a_missing_sample_does_not_block_other_files(tmp_path: Path, monkeypatch
     output.write_bytes(b"old")
     monkeypatch.setattr(main, "SAMPLE_FILE", str(tmp_path / "missing.wav"))
     main.check_not_sample(str(output))
+
+
+def test_the_menu_says_that_a_plain_message_is_not_protected(
+    make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    output = tmp_path / "output.wav"
+    old = make_wav(name="old.wav", frames=bytes(32))
+    lines = [*encode_lines(make_wav(), output), *decode_lines(output), *accuracy_lines(output, "hidden")]
+    result = run(*lines, *decode_lines(old), "1", *accuracy_lines(old, "1")[:2], "1", "", EXIT)
+    assert (result.code, result.errors) == (0, "")
+    assert f"Message encoded, not encrypted, into {output}\n" in result.output
+    assert f"{NOT_ENCRYPTED}Decoded message: hidden\n" in result.output
+    assert f"{NOT_ENCRYPTED}The decoded message is empty.\n" in result.output
+    assert result.output.count(f"{NOT_ENCRYPTED}Accuracy of decoded message: 100.00%\n") == 2
+    assert result.output.count(NOT_ENCRYPTED) == 4
+    assert ENCRYPTED not in result.output
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize(("number", "algorithm"), MENU_ALGORITHMS)
+def test_an_encrypted_message_from_start_to_end(
+    make_wav: Callable[..., Path], tmp_path: Path, number: int, algorithm: Algorithm
+) -> None:
+    output = tmp_path / "output.wav"
+    result = run(
+        *encrypt_lines(make_wav(), output, "sésame 🎵", number),
+        *decode_lines(output), "sésame 🎵",
+        *accuracy_lines(output, "sésame 🎵"), "hidXen",
+        EXIT,
+    )  # fmt: skip
+    assert (result.code, result.errors) == (0, "")
+    assert f"Message encrypted and encoded into {output}\n" in result.output
+    assert f"{ENCRYPTED}Decoded message: hidden\n" in result.output
+    assert f"{ENCRYPTED}Accuracy of decoded message: 83.33%\nExact match: no\n" in result.output
+    assert result.output.count("Passphrase, not shown while you type: ") == 2
+    assert NOT_ENCRYPTED not in result.output
+    assert "sésame" not in result.output
+    assert LEGACY_MENU not in result.output
+    assert decode(str(output), algorithm, passphrase="sésame 🎵") == "hidden"
+
+
+@pytest.mark.needs_crypto
+def test_a_wrong_or_missing_passphrase_is_a_failure(
+    make_wav: Callable[..., Path], embed: Callable[..., bytes], known_answer: Any
+) -> None:
+    path = make_wav(frames=embed(known_answer.container, 1))
+    result = run(
+        *decode_lines(path), "WRONG_KEY",
+        *decode_lines(path), "",
+        *accuracy_lines(path, ""), "Hé 🎵",
+        EXIT,
+    )  # fmt: skip
+    assert result.code == 1
+    assert result.errors.count("Error:") == 3
+    assert "Error: Wrong passphrase, or the message was changed." in result.errors
+    assert result.errors.count("Error: The hidden message is encrypted. A passphrase is needed.") == 2
+    assert "WRONG_KEY" not in result.output + result.errors
+    assert ENCRYPTED not in result.output
+    assert NOT_ENCRYPTED not in result.output
+    assert result.output.count(MAIN_MENU) == 4
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize(
+    ("passphrase", "reason"),
+    [(b"TOP_SECRET \xff", "characters that are not valid text"), (b"TOP_SECRET \0", "a null character")],
+    ids=["not_text", "null"],
+)
+def test_an_unusable_passphrase_is_refused_without_showing_it(
+    make_wav: Callable[..., Path], tmp_path: Path, passphrase: bytes, reason: str
+) -> None:
+    output = tmp_path / "output.wav"
+    result = run("1", "1", "hidden", passphrase, passphrase, str(make_wav()), str(output), EXIT)
+    assert result.code == 1
+    assert f"Error: The passphrase contains {reason}." in result.errors
+    assert "SECRET" not in result.output + result.errors
+    assert sorted(os.listdir(tmp_path)) == ["input.wav"]
+
+
+@pytest.mark.needs_crypto
+def test_passphrases_that_do_not_match_are_asked_again(make_wav: Callable[..., Path], tmp_path: Path) -> None:
+    output = tmp_path / "output.wav"
+    result = run("1", "1", "hidden", "one", "two", "", str(make_wav()), str(output), EXIT)
+    assert (result.code, result.errors) == (0, "")
+    assert result.output.count(PASSPHRASE_PROMPT) == 2
+    assert "The passphrases do not match. Please try again.\n" in result.output
+    assert decode(str(output), LSB) == "hidden"
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize("answers", [["key"], ["key", "other"], ["key", "key"]])
+def test_end_of_input_around_the_passphrase_is_a_failure(tmp_path: Path, answers: list[str]) -> None:
+    result = run("1", "1", "hidden", *answers, cwd=tmp_path)
+    assert result.code == 1
+    assert "input ended before the operation finished" in result.errors
+    assert os.listdir(tmp_path) == []
+
+
+@pytest.mark.needs_crypto
+def test_the_passphrase_stays_out_of_files_and_output(make_wav: Callable[..., Path], tmp_path: Path) -> None:
+    folder = tmp_path / "working"
+    folder.mkdir()
+    source = make_wav()
+    output = tmp_path / "out.wav"
+    result = run(
+        *encrypt_lines(source, output, "TOP_SECRET"),
+        *encrypt_lines(tmp_path / "missing.wav", tmp_path / "no.wav", "TOP_SECRET"),
+        *encrypt_lines(source, source, "TOP_SECRET"),
+        EXIT,
+        cwd=folder,
+    )
+    assert result.code == 1
+    assert result.errors.count("Error:") == 2
+    assert "TOP_SECRET" not in result.output + result.errors
+    assert b"TOP_SECRET" not in output.read_bytes()
+    assert os.listdir(folder) == []
+    assert sorted(os.listdir(tmp_path)) == ["input.wav", "out.wav", "working"]
+
+
+def test_an_encoded_file_does_not_show_its_passphrase() -> None:
+    encoded_file = main.EncodedFile("path.wav", LSB, "TOP_SECRET")
+    assert "TOP_SECRET" not in repr(encoded_file)
+    assert encoded_file.passphrase == "TOP_SECRET"
+
+
+def test_without_the_library_messages_are_plain_and_the_menu_says_so(
+    make_wav: Callable[..., Path],
+    embed: Callable[..., bytes],
+    known_answer: Any,
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "broken" / "cryptography"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("raise ImportError('not here')\n")
+    start = f"import sys; sys.path.insert(0, {str(package.parent)!r})"
+    command = [sys.executable, "-c", f"{start}; from audiosteg.cli.main import main; sys.exit(main())"]
+    private = make_wav(name="private.wav", frames=embed(known_answer.container, 1))
+    output = tmp_path / "output.wav"
+    result = run(
+        "1", "1", "hidden", str(make_wav()), str(output),
+        *decode_lines(output),
+        *decode_lines(private),
+        *accuracy_lines(private, "x")[:2],
+        EXIT,
+        command=command,
+    )  # fmt: skip
+    assert result.code == 1
+    assert "The message will not be encrypted. Encryption usually needs: pip install" in result.output
+    assert "Passphrase" not in result.output
+    assert f"Message encoded, not encrypted, into {output}\n" in result.output
+    assert "Decoded message: hidden\n" in result.output
+    assert result.errors.count("Error: Encryption needs an optional library. To install it, run: pip") == 2
+    assert result.output.count(MAIN_MENU) == 5
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize("problem", ["no_scrypt", "refused_scrypt", "refused_aes"])
+def test_a_system_that_cannot_encrypt_is_explained_before_any_passphrase(
+    make_wav: Callable[..., Path],
+    embed: Callable[..., bytes],
+    known_answer: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    problem: str,
+) -> None:
+    from cryptography.exceptions import UnsupportedAlgorithm
+    from cryptography.hazmat.primitives.ciphers import aead
+
+    def refuse_scrypt(*args: Any, **options: Any) -> bytes:
+        raise ValueError("refused")
+
+    def refuse_aes(key: bytes) -> None:
+        raise UnsupportedAlgorithm("refused")
+
+    if problem == "no_scrypt":
+        monkeypatch.delattr(hashlib, "scrypt")
+    elif problem == "refused_scrypt":
+        monkeypatch.setattr(hashlib, "scrypt", refuse_scrypt)
+    else:
+        monkeypatch.setattr(aead, "AESGCM", refuse_aes)
+    output = tmp_path / "output.wav"
+    private = make_wav(name="private.wav", frames=embed(known_answer.container, 1))
+    answers = ["1", "hidden", str(make_wav()), str(output), str(private), "unread"]
+    monkeypatch.setattr("builtins.input", lambda prompt="": answers.pop(0))
+    assert main.run_operation(main.handle_encode) is True
+    assert "The message will not be encrypted." in capsys.readouterr().out
+    assert decode(str(output)) == "hidden"
+    with pytest.raises(MissingLibraryError):
+        main.handle_decode()
+    assert answers == ["unread"]
+
+
+def test_a_damaged_message_is_not_offered_the_old_algorithms(
+    make_wav: Callable[..., Path], embed: Callable[..., bytes]
+) -> None:
+    path = make_wav(frames=embed(b"ASTG\x02\0\0\0\0\0", 1))
+    result = run(*decode_lines(path), EXIT)
+    assert result.code == 1
+    assert "format version 2" in result.errors
+    assert LEGACY_MENU not in result.output
+
+
+@pytest.mark.parametrize(("number", "answer"), [("1", "one"), ("2", "two"), ("3", "two")])
+def test_an_old_file_is_read_with_the_chosen_algorithm(
+    make_wav: Callable[..., Path], number: str, answer: str
+) -> None:
+    digits = f"{24:032b}" + "".join(f"{byte:08b}" for byte in answer.encode())
+    if answer == "one":
+        frames = bytes(int(digit) for digit in digits)
+    else:
+        frames = bytes(int(digits[start : start + 2], 2) << 2 for start in range(0, len(digits), 2))
+    result = run(*decode_lines(make_wav(frames=frames)), number, EXIT)
+    assert (result.code, result.errors) == (0, "")
+    assert f"Decoded message: {answer}\n" in result.output
+
+
+TERMINAL_PROGRAM = """
+import fcntl, sys, termios
+fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+from audiosteg.cli.main import main
+code = main()
+print("Typing is", "shown" if termios.tcgetattr(0)[3] & termios.ECHO else "hidden")
+sys.stdin.readline()
+sys.exit(code)
+"""
+
+
+class Terminal:
+    """The CLI in a real terminal."""
+
+    def __init__(self, folder: Path) -> None:
+        import pty
+
+        self.seen = ""
+        self.position = 0
+        self.controller, self.device = pty.openpty()
+        self.process = subprocess.Popen(
+            [sys.executable, "-c", TERMINAL_PROGRAM],
+            stdin=self.device,
+            stdout=self.device,
+            stderr=self.device,
+            cwd=folder,
+            env=environment(),
+            start_new_session=True,
+        )
+        self.deadline = time.monotonic() + TIMEOUT
+
+    def close(self) -> None:
+        self.process.kill()
+        self.process.wait()
+        os.close(self.controller)
+        os.close(self.device)
+
+    def read(self, text: str) -> None:
+        """Read until the terminal shows the text."""
+        while text not in self.seen[self.position :]:
+            assert time.monotonic() < self.deadline, f"no {text!r} in {self.seen!r}"
+            if select.select([self.controller], [], [], 0.1)[0]:
+                self.seen += os.read(self.controller, 4096).decode("utf-8", "replace").replace("\r\n", "\n")
+        self.position = self.seen.index(text, self.position) + len(text)
+
+    def echoes(self) -> bool:
+        import termios
+
+        return bool(termios.tcgetattr(self.device)[3] & termios.ECHO)
+
+    def type(self, text: str) -> None:
+        os.write(self.controller, text.encode())
+
+    def type_hidden(self, text: str) -> None:
+        """Type once the terminal hides the typing."""
+        while self.echoes():
+            assert time.monotonic() < self.deadline, "the terminal still shows what is typed"
+            time.sleep(0.01)
+        self.type(text)
+
+    def finish(self) -> int:
+        """Check that typing is shown again, let the program stop, and return its exit code."""
+        self.read("Typing is shown")
+        self.type("\n")
+        while self.process.poll() is None:
+            assert time.monotonic() < self.deadline, "the program did not stop"
+            if select.select([self.controller], [], [], 0.05)[0]:
+                with contextlib.suppress(OSError):
+                    os.read(self.controller, 4096)
+        return self.process.returncode
+
+
+@pytest.fixture
+def terminal(tmp_path: Path) -> Iterator[Terminal]:
+    """Start the CLI in a real terminal."""
+    pytest.importorskip("termios", reason="this system has no such terminals")
+    program = Terminal(tmp_path)
+    yield program
+    program.close()
+
+
+def type_message(terminal: Terminal) -> None:
+    for prompt, answer in [("Choice: ", "1"), ("Choice: ", "1"), ("encode: ", "my message")]:
+        terminal.read(prompt)
+        terminal.type(f"{answer}\n")
+
+
+@pytest.mark.needs_crypto
+def test_a_terminal_never_shows_the_passphrase(
+    make_wav: Callable[..., Path], tmp_path: Path, terminal: Terminal
+) -> None:
+    make_wav()
+    type_message(terminal)
+    for prompt, answer in [
+        (PASSPHRASE_PROMPT, "sésame"),
+        ("Repeat the passphrase: ", "sesame"),
+        (f"do not match. Please try again.\n{PASSPHRASE_PROMPT}", "sésame"),
+        ("Repeat the passphrase: ", "sésame"),
+    ]:
+        terminal.read(prompt)
+        terminal.type_hidden(f"{answer}\n")
+    for prompt, answer in [
+        ("[included sample]: ", "input.wav"),
+        ("Output audio file", ""),
+        ("Choice: ", "2"),
+    ]:
+        terminal.read(prompt)
+        terminal.type(f"{answer}\n")
+    terminal.read("Encoded audio file")
+    terminal.type("\n")
+    terminal.read("Passphrase, not shown while you type: ")
+    terminal.type_hidden("sésame\n")
+    terminal.read(f"{ENCRYPTED}Decoded message: my message\n")
+    terminal.read("Choice: ")
+    terminal.type(f"{EXIT}\n")
+    assert terminal.finish() == 0
+    assert "encode: my message" in terminal.seen
+    assert "same" not in terminal.seen
+    assert "Traceback" not in terminal.seen
+
+
+@needs_sigint
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize(
+    ("key", "code", "reason"),
+    [("\x04", 1, "The input ended"), ("\x03", 130, "Interrupted.")],
+    ids=["end_of_input", "ctrl_c"],
+)
+@pytest.mark.parametrize("repeated", [False, True])
+def test_leaving_a_hidden_prompt_shows_typing_again(
+    tmp_path: Path, terminal: Terminal, key: str, code: int, reason: str, repeated: bool
+) -> None:
+    type_message(terminal)
+    terminal.read(PASSPHRASE_PROMPT)
+    if repeated:
+        terminal.type_hidden("sesame\n")
+        terminal.read("Repeat the passphrase: ")
+    terminal.type_hidden(key)
+    terminal.read(f"Error: {reason}")
+    assert terminal.finish() == code
+    assert "sesame" not in terminal.seen
+    assert "Traceback" not in terminal.seen
+    assert os.listdir(tmp_path) == []
