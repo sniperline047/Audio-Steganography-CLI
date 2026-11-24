@@ -5,17 +5,28 @@ import difflib
 from collections.abc import Sequence
 from typing import Any, NoReturn
 
-from audiosteg.cli.commands import algorithms, hide, reveal, verify
+from audiosteg.cli.commands import algorithms, compare, explain, hide, inspect, reveal, verify
+from audiosteg.cli.commands.compare import EVERY_SOUND, SOUNDS
 from audiosteg.cli.errors import UsageError
 from audiosteg.cli.options import add_output_options
 
-COMMANDS = {"hide": hide, "reveal": reveal, "verify": verify, "algorithms": algorithms}
+COMMANDS = {
+    "hide": hide,
+    "reveal": reveal,
+    "verify": verify,
+    "inspect": inspect,
+    "compare": compare,
+    "explain": explain,
+    "algorithms": algorithms,
+}
 SAFE_MESSAGES = ("the following arguments are required", "not allowed with argument")
 EXAMPLES = """examples:
   audiosteg                                  start the guided mode
   audiosteg hide sample -m "Hello"           hide it in the included sample
   audiosteg reveal sample.stego.wav          read it
   audiosteg verify sample.stego.wav -m "Hello"
+  audiosteg inspect sample.stego.wav         see what the file holds
+  audiosteg explain lsb                      see how it works
 
 exit codes: 0 success, 1 failure, 2 wrong usage, 130 Ctrl-C
 """
@@ -69,12 +80,24 @@ def build_parser() -> tuple[Parser, dict[str, Parser]]:
     return parser, commands
 
 
+def join_play_value(words: Sequence[str]) -> list[str]:
+    """Write --play and its value as one word, so that it never takes the name of a file."""
+    end = words.index("--") if "--" in words else len(words)
+    joined: list[str] = []
+    for word in words[:end]:
+        if word in SOUNDS and joined[-1:] == ["--play"]:
+            joined[-1] = f"--play={word}"
+        else:
+            joined.append(word)
+    return [f"--play={EVERY_SOUND}" if word == "--play" else word for word in joined] + list(words[end:])
+
+
 def parse(parser: Parser, commands: dict[str, Parser], words: Sequence[str]) -> argparse.Namespace:
     """Parse the command line. Words that are not understood are never repeated."""
     options_only = words[: words.index("--")] if "--" in words else words
     if any(word.startswith("-p") and word != "-p" for word in options_only):
         raise UsageError("-p takes no value: it asks for the passphrase. Write other options separately.")
-    args, extra = parser.parse_known_args(words)
+    args, extra = parser.parse_known_args(join_play_value(words))
     if not extra:
         return args
     options = commands[args.command].known_options() if args.command else parser.known_options()

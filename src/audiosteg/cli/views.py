@@ -55,6 +55,11 @@ def protection(encrypted: bool) -> str:
     return ENCRYPTED if encrypted else NOT_ENCRYPTED
 
 
+def count_word(count: int, word: str) -> str:
+    """Return a number with thousands separators and a word in the right form."""
+    return f"{count:,} {word}" if count == 1 else f"{count:,} {word}s"
+
+
 def yes_no(value: bool) -> str:
     """Return yes or no."""
     return "yes" if value else "no"
@@ -106,6 +111,14 @@ class Screen:
         """Write one escaped line at once, in colour if possible, after the start."""
         shown = Text(start).append(escape_text(text), style if self.coloured else "")
         if self.coloured and style:
+            self.draw(shown, soft_wrap=True)
+        else:
+            self.write(f"{shown.plain}\n")
+
+    def spans(self, *spans: tuple[str, str]) -> None:
+        """Write one line of escaped texts, each with its style, in colour if possible."""
+        shown = Text.assemble(*[(escape_text(text), style if self.coloured else "") for text, style in spans])
+        if self.coloured:
             self.draw(shown, soft_wrap=True)
         else:
             self.write(f"{shown.plain}\n")

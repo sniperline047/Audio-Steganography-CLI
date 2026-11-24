@@ -4,9 +4,16 @@ from collections.abc import Callable
 
 from questionary import Choice
 
-from audiosteg.cli.commands.hide import hide
+from audiosteg.cli.commands.compare import compare, play_sounds
+from audiosteg.cli.commands.explain import explain
+from audiosteg.cli.commands.hide import SAMPLE_WORD, hide
+from audiosteg.cli.commands.inspect import inspect_file
 from audiosteg.cli.commands.verify import verify
+from audiosteg.cli.guided.compare_form import CompareForm
+from audiosteg.cli.guided.equivalent import path_word
+from audiosteg.cli.guided.explain_form import ExplainForm
 from audiosteg.cli.guided.hide_form import HideForm
+from audiosteg.cli.guided.inspect_form import InspectForm
 from audiosteg.cli.guided.prompter import EXPECTED_ERRORS, GoBack, Prompter
 from audiosteg.cli.guided.reveal_form import RevealForm
 from audiosteg.cli.views import View
@@ -22,6 +29,7 @@ class Guide:
         """Start the menu."""
         self.view = view
         self.prompter = Prompter(view)
+        self.last_input = SAMPLE_WORD
         self.last_output = ""
         self.failed = False
 
@@ -39,6 +47,7 @@ class Guide:
             return
         self.view.progress("Hiding the message...")
         result = hide(form.request())
+        self.last_input = form.input_word
         self.last_output = form.output_word
         self.view.show_hide(result)
         self.show_command(form.command())
@@ -60,6 +69,33 @@ class Guide:
         self.view.show_verify(result)
         self.show_command(form.command("verify"))
 
+    def inspect(self) -> None:
+        """Ask for a file and describe it."""
+        form = InspectForm(self.prompter, path_word(self.last_output) or SAMPLE_WORD)
+        if not self.prompter.run(form.steps()):
+            return
+        inspect_file(form.word, self.view)
+        self.show_command(form.command())
+
+    def compare(self) -> None:
+        """Ask for two files, compare them, and offer to play them."""
+        form = CompareForm(self.prompter, self.last_input, path_word(self.last_output))
+        if not self.prompter.run(form.steps()):
+            return
+        compare(form.request(), self.view)
+        self.show_command(form.command())
+        if form.ask_play():
+            self.show_command(form.command())
+            play_sounds(form.request(), form.sound, self.view)
+
+    def explain(self) -> None:
+        """Ask for an algorithm and explain it."""
+        form = ExplainForm(self.prompter)
+        if not self.prompter.run(form.steps()):
+            return
+        explain(self.view, form.algorithm, form.letter)
+        self.show_command(form.command())
+
     def algorithms(self) -> None:
         """Show every algorithm."""
         self.view.show_algorithms()
@@ -71,7 +107,10 @@ class Guide:
             Choice("Hide a message", value=self.hide),
             Choice("Reveal a message", value=self.reveal),
             Choice("Verify a message", value=self.verify),
-            Choice("Learn about the algorithms", value=self.algorithms),
+            Choice("Inspect a file", value=self.inspect),
+            Choice("Compare two files", value=self.compare),
+            Choice("Explain an algorithm", value=self.explain),
+            Choice("List the algorithms", value=self.algorithms),
         ]
         while True:
             try:
