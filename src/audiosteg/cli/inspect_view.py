@@ -2,7 +2,7 @@
 
 from audiosteg.analysis.inspection import FoundMessage, Inspection
 from audiosteg.analysis.samples import seconds
-from audiosteg.cli.views import Rows, View, clean_for_json, count_word, display_path
+from audiosteg.cli.views import Rows, View, clean_for_json, count_word, display_path, format_time
 
 CHANNEL_NAMES = {1: "1 (mono)", 2: "2 (stereo)"}
 NONE_DETECTED = "none detected"
@@ -47,7 +47,7 @@ def show_inspection(view: View, path: str, inspection: Inspection) -> None:
         ("Format", f"{8 * sample_format.sample_width}-bit PCM WAV"),
         ("Channels", CHANNEL_NAMES.get(sample_format.channels, str(sample_format.channels))),
         ("Sample rate", f"{sample_format.frame_rate:,} Hz"),
-        ("Duration", f"{duration:.3f} s ({length})"),
+        ("Duration", f"{format_time(inspection.frames, sample_format.frame_rate)} ({length})"),
     ]
     for capacity in inspection.capacities:
         sizes = f"{count_word(capacity.plain, 'byte')}, or {capacity.encrypted:,} encrypted"

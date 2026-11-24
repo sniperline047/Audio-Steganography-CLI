@@ -15,7 +15,7 @@ from audiosteg.cli.commands.hide import find_input
 from audiosteg.cli.errors import UsageError
 from audiosteg.cli.guided.equivalent import command_line, option_safe
 from audiosteg.cli.guided.inspect_form import SAMPLE_HELP
-from audiosteg.cli.guided.prompter import GoBack, Prompter, Step
+from audiosteg.cli.guided.prompter import Prompter, Step
 from audiosteg.cli.player import can_play
 
 DEFAULT_METRICS = "snr,changes"
@@ -75,17 +75,14 @@ class CompareForm:
         """Ask whether to play the files, if there is a player. Return whether to play."""
         if not can_play():
             return False
-        try:
-            self.sound = self.prompter.choose(
-                "Listen to them? Ctrl-C stops the sound and leaves.",
-                [
-                    Choice("No", value=""),
-                    Choice("All three", value=EVERY_SOUND),
-                    *[Choice(f"Only the {name} sound", value=name) for name in SOUNDS],
-                ],
-            )
-        except GoBack:
-            return False
+        self.sound = self.prompter.choose(
+            "Listen to them? Ctrl-C stops the sound and leaves.",
+            [
+                Choice("No", value=""),
+                Choice("All three", value=EVERY_SOUND),
+                *[Choice(f"Only the {name} sound", value=name) for name in SOUNDS],
+            ],
+        )
         return self.sound != ""
 
     def steps(self) -> list[Step]:

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from audiosteg.cli.commands.hide import check_output, find_input, may_replace
 from audiosteg.cli.errors import UsageError
 from audiosteg.cli.options import file_path
-from audiosteg.cli.views import View
+from audiosteg.cli.views import View, format_time
 from audiosteg.utils.output_path import check_output_path
 
 if TYPE_CHECKING:
@@ -37,7 +37,8 @@ JSON_WIDTH = 80
 NUMBER = re.compile(r"[0-9]{1,9}(\.[0-9]{1,9})?")
 NO_DIFFERENCE = "There is no difference in what was compared, so nothing was saved."
 NOT_A_SOUND = f"--play can have one of these values: {', '.join(SOUNDS)}."
-HINT = "To see every number, add --details. To listen, add --play."
+DETAILS_HINT = "To see every number, add --details."
+PLAY_HINT = "To listen, add --play."
 
 
 @dataclass(frozen=True)
@@ -134,8 +135,8 @@ def find_part(pair: Pair, start: Fraction | None, end: Fraction | None) -> Part:
     first = 0 if start is None else int(start * rate)
     last = pair.frames if end is None else int(end * rate)
     if last > pair.frames or (start is not None and first >= pair.frames):
-        duration = pair.frames * 1000 // rate / 1000
-        raise UsageError(f"--from and --to must be inside the audio, which is {duration:.3f} s long.")
+        duration = format_time(pair.frames, rate)
+        raise UsageError(f"--from and --to must be inside the audio, which is {duration} long.")
     if first >= last and (start is not None or end is not None):
         raise UsageError("There is no sample between --from and --to. Choose a longer part.")
     return Part(first, last - first)
@@ -194,11 +195,12 @@ def play_sounds(request: CompareRequest, sound: str, view: View) -> None:
     with open_pair(request.original, request.encoded) as pair:
         part = find_part(pair, request.start, request.end)
         duration = float(seconds(part.frames, pair.format))
+        length = format_time(part.frames, pair.format.frame_rate)
         if sound in (EVERY_SOUND, "original"):
-            view.note(f"Playing the original ({duration:.3f} s). Ctrl-C stops.")
+            view.note(f"Playing the original ({length}). Ctrl-C stops.")
             play_private(lambda target: write_original(target, pair, part), duration)
         if sound in (EVERY_SOUND, "encoded"):
-            view.note(f"Playing the encoded file ({duration:.3f} s). Ctrl-C stops.")
+            view.note(f"Playing the encoded file ({length}). Ctrl-C stops.")
             play_private(lambda target: write_encoded(target, pair, part), duration)
         if sound not in (EVERY_SOUND, "difference"):
             return
@@ -207,9 +209,7 @@ def play_sounds(request: CompareRequest, sound: str, view: View) -> None:
             view.note("There is no difference to play in what was compared.")
             return
         gain = choose_gain(quality.largest_change, pair.format.full_scale, request.gain)
-        view.note(
-            f"Playing the difference, {format_gain(gain, request.gain)} ({duration:.3f} s). Ctrl-C stops."
-        )
+        view.note(f"Playing the difference, {format_gain(gain, request.gain)} ({length}). Ctrl-C stops.")
         play_private(lambda target: write_difference(target, pair, part, gain), duration)
 
 
@@ -221,8 +221,14 @@ def check_pair(request: CompareRequest) -> None:
         pass
 
 
-def compare(request: CompareRequest, view: View, save_to: str | None = None, force: bool = False) -> None:
-    """Compare two files, show the result, and save the difference if that is wanted."""
+def compare(
+    request: CompareRequest,
+    view: View,
+    save_to: str | None = None,
+    force: bool = False,
+    hint: str | None = None,
+) -> None:
+    """Compare two files, show the result and a hint, and save the difference if that is wanted."""
     from audiosteg.analysis.quality import measure
     from audiosteg.analysis.samples import open_pair
     from audiosteg.cli.compare_view import show_comparison
@@ -240,8 +246,17 @@ def compare(request: CompareRequest, view: View, save_to: str | None = None, for
             overwrite = exists and may_replace(output_file, force)
             saved = save_difference(request, pair, quality, output_file, overwrite)
     show_comparison(view, request, quality, drawings, saved)
+    if hint is not None:
+        view.note(hint)
     if save_to is not None and saved is None:
         view.note(NO_DIFFERENCE)
+
+
+def find_hint(play: str | None) -> str:
+    """Say which options could be added to the simple summary."""
+    from audiosteg.cli.player import can_play
+
+    return f"{DETAILS_HINT} {PLAY_HINT}" if play is None and can_play() else DETAILS_HINT
 
 
 def run(args: argparse.Namespace, view: View) -> int:
@@ -260,8 +275,9 @@ def run(args: argparse.Namespace, view: View) -> int:
         from audiosteg.cli.player import check_player
 
         check_player()
+    hint = None if request.metrics or args.json else find_hint(args.play)
     try:
-        compare(request, view, args.save_difference, args.force)
+        compare(request, view, args.save_difference, args.force, hint)
     except FileExistsError as error:
         error.add_note("Add --force to replace it, or choose another name for the difference.")
         raise

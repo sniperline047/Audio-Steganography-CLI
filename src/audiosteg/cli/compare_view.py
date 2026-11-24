@@ -1,14 +1,14 @@
 """Show what compare measured."""
 
+import math
 from collections.abc import Callable
 from decimal import ROUND_FLOOR, Decimal
 from fractions import Fraction
 from typing import Any
 
 from audiosteg.analysis.quality import EXCELLENT, FAIR, GOOD, IDENTICAL, POOR, Quality
-from audiosteg.analysis.samples import seconds
-from audiosteg.cli.commands.compare import HINT, METRICS, NUMBERS, CompareRequest, SavedDifference
-from audiosteg.cli.views import View, clean_for_json, count_word, display_path
+from audiosteg.cli.commands.compare import METRICS, NUMBERS, CompareRequest, SavedDifference
+from audiosteg.cli.views import View, clean_for_json, count_word, display_path, format_time
 from audiosteg.cli.waveform_view import blocks_for, draw_waveform
 
 LOUD_CHANGE = 1
@@ -27,13 +27,14 @@ def format_decibels(value: float) -> str:
     return f"{Decimal(value).quantize(Decimal('0.1'), ROUND_FLOOR)} dB"
 
 
-def format_percentage(value: float) -> str:
+def format_percentage(value: Fraction) -> str:
     """Return a percentage, rounded down. Only nothing is 0%, and only everything is 100%."""
     if value in (0, 100):
-        return f"{value:.0f}%"
-    if value < 0.01:
+        return f"{value}%"
+    hundredths = math.floor(value * 100)
+    if hundredths == 0:
         return "less than 0.01%"
-    return f"{Decimal(value).quantize(Decimal('0.01'), ROUND_FLOOR)}%"
+    return f"{hundredths // 100}.{hundredths % 100:02}%"
 
 
 def largest_share(quality: Quality) -> str:
@@ -45,23 +46,28 @@ def largest_share(quality: Quality) -> str:
 
 
 def format_number(value: Fraction) -> str:
-    """Return a number with at most two decimals."""
-    return f"{float(value):,.2f}".rstrip("0").rstrip(".")
+    """Return a number without rounding. It must not have endless decimals."""
+    return f"{Decimal(value.numerator) / value.denominator:,f}"
 
 
 def format_gain(gain: Fraction, wanted: Fraction | None) -> str:
     """Return how much a difference was amplified, and whether that is less than was asked for."""
     capped = ""
     if wanted is not None and gain < wanted:
-        capped = f" (capped from {format_number(wanted)} times to a safe level)"
-    if gain >= 1:
-        return f"amplified {format_number(gain)} times{capped}"
-    return f"reduced to {float(gain):.2%}{capped}"
+        times = "time" if wanted == 1 else "times"
+        capped = f" (capped from {format_number(wanted)} {times} to a safe level)"
+    if gain < 1:
+        return f"reduced to {format_percentage(gain * 100)}{capped}"
+    if gain == 1:
+        return f"not amplified{capped}"
+    shown = max(Fraction(math.floor(gain * 100), 100), Fraction(101, 100))
+    start = "less than " if shown > gain else ""
+    return f"amplified {start}{format_number(shown)} times{capped}"
 
 
 def format_seconds(quality: Quality, frame: int) -> str:
     """Return the time of a frame."""
-    return f"{float(seconds(frame, quality.format)):.3f} s"
+    return format_time(frame, quality.format.frame_rate)
 
 
 def snr_note(quality: Quality) -> str | None:
@@ -144,7 +150,6 @@ def show_summary(view: View, quality: Quality) -> None:
     word = quality.word if quality.identical else f"{quality.word} (SNR: {snr_text(quality)})"
     view.out.spans(("Quality:         ", "bold"), (word, style))
     view.out.spans(("Changed:         ", "bold"), (changed, ""))
-    view.note(HINT)
 
 
 def show_number(view: View, name: str, value: str, explanation: str) -> None:
@@ -236,9 +241,9 @@ def number_fields(quality: Quality, metrics: tuple[str, ...]) -> dict[str, Any]:
         "changes": {
             "samples": quality.samples,
             "changed_samples": quality.changed,
-            "changed_percentage": quality.changed_percentage,
+            "changed_percentage": float(quality.changed_percentage),
             "largest_change": quality.largest_change,
-            "largest_change_percentage": quality.largest_change_percentage,
+            "largest_change_percentage": float(quality.largest_change_percentage),
         },
         "where": {
             "first_changed_frame": quality.first_changed,

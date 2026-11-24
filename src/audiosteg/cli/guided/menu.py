@@ -82,13 +82,18 @@ class Guide:
     def compare(self) -> None:
         """Ask for two files, compare them, and offer to play them."""
         form = CompareForm(self.prompter, self.last_input, path_word(self.last_output))
-        if not self.prompter.run(form.steps()):
-            return
-        compare(form.request(), self.view)
-        self.show_command(form.command())
-        if form.ask_play():
+        asked: list[int] = []
+        while self.prompter.run(form.steps(), asked):
+            compare(form.request(), self.view)
             self.show_command(form.command())
-            play_sounds(form.request(), form.sound, self.view)
+            try:
+                wants_sound = form.ask_play()
+            except GoBack:
+                continue
+            if wants_sound:
+                self.show_command(form.command())
+                play_sounds(form.request(), form.sound, self.view)
+            return
 
     def explain(self) -> None:
         """Ask for an algorithm and explain it."""

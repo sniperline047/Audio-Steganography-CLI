@@ -26,6 +26,7 @@ NOT_ENCRYPTED = "This message was not encrypted, so anyone could have written it
 ENCRYPTED = "This message was encrypted."
 COLUMN_GAP = 2
 PANEL_FRAME = 6
+FEWEST_DIGITS, MOST_DIGITS = 3, 9
 Rows = list[tuple[str, str]]
 
 
@@ -58,6 +59,18 @@ def protection(encrypted: bool) -> str:
 def count_word(count: int, word: str) -> str:
     """Return a number with thousands separators and a word in the right form."""
     return f"{count:,} {word}" if count == 1 else f"{count:,} {word}s"
+
+
+def format_time(frame: int, frame_rate: int) -> str:
+    """Return the time of a frame with as many digits as --from and --to need to find this frame again."""
+    for digits in range(FEWEST_DIGITS, MOST_DIGITS + 1):
+        unit = 10**digits
+        units = -(-frame * unit // frame_rate)
+        if units * frame_rate // unit == frame:
+            break
+    else:
+        units = frame * unit // frame_rate
+    return f"{units // unit}.{units % unit:0{digits}} s"
 
 
 def yes_no(value: bool) -> str:

@@ -71,7 +71,10 @@ def is_complete(audio: wave.Wave_read) -> bool:
     if frames == 0:
         return True
     audio.setpos(frames - 1)
-    return len(audio.readframes(1)) == read_format(audio).frame_size
+    try:
+        return len(audio.readframes(1)) == read_format(audio).frame_size
+    except RuntimeError:
+        return False
 
 
 def check_input(path: str, name: str) -> None:

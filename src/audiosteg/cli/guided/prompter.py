@@ -131,15 +131,16 @@ class Prompter:
         confirmation = questionary.confirm(question, default=False, auto_enter=False, **self.look)
         return bool(self.ask(confirmation, end_with_ctrl_d=True))
 
-    def run(self, steps: list[Step]) -> bool:
+    def run(self, steps: list[Step], asked: list[int] | None = None) -> bool:
         """
         Ask every question. Back returns to the question before, and an error asks again.
 
         :param steps: Functions that ask, and return whether they asked anything
+        :param asked: The questions that were asked before, to continue with the last of them. It is updated.
         :return: False if the person went back from the first question
         """
-        asked: list[int] = []
-        position = 0
+        asked = [] if asked is None else asked
+        position = asked.pop() if asked else 0
         while position < len(steps):
             try:
                 if steps[position]():

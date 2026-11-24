@@ -5,13 +5,16 @@ from collections.abc import Callable
 from typing import Any
 
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
-from audiosteg.analysis.samples import seconds
 from audiosteg.analysis.walkthrough import SampleChange, Walkthrough, largest_possible_change
 from audiosteg.cli.commands.hide import SAMPLE_FILE, SAMPLE_WORD
-from audiosteg.cli.views import View, clean_for_json, count_word, describe, display_path
+from audiosteg.cli.views import View, clean_for_json, count_word, describe, display_path, format_time
 
 REPLACED = " (old files only)"
 BITS_IN_A_BYTE = 8
+ALREADY_HELD = (
+    "These samples already held the bits, so nothing had to change. "
+    "To see a change, try another character (--letter) or another file (--file)."
+)
 
 
 def mark_changed(byte: int, other: int) -> list[tuple[str, bool]]:
@@ -103,12 +106,12 @@ def show_place(view: View, path: str, walkthrough: Walkthrough) -> None:
     name = "the included tune" if path == SAMPLE_FILE else display_path(path)
     sample_format = walkthrough.format
     count = len(walkthrough.changes)
-    time = float(seconds(walkthrough.first_frame, sample_format))
+    time = format_time(walkthrough.first_frame, sample_format.frame_rate)
     silence = ["The whole file is silent."] if walkthrough.silent else []
     show_step(
         view,
         "Step 2: take real samples",
-        f"{count_word(count, 'sample')} of {name}, from {time:.3f} s on (frame {walkthrough.first_frame:,}).",
+        f"{count_word(count, 'sample')} of {name}, from {time} on (frame {walkthrough.first_frame:,}).",
         *silence,
         "The hide command itself starts at the first sample and puts a header before the message.",
     )
@@ -142,6 +145,8 @@ def show_changes(view: View, walkthrough: Walkthrough) -> None:
             *new,
             (f"{padding}  value {value:<{values}}  {change_word(change)}", ""),
         )
+    if not any(change.change for change in changes):
+        view.out.line(ALREADY_HELD)
 
 
 def show_result(view: View, key: str, walkthrough: Walkthrough) -> None:

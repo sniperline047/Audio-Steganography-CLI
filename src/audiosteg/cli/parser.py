@@ -110,7 +110,10 @@ def parse(parser: Parser, commands: dict[str, Parser], words: Sequence[str]) -> 
     if not extra:
         return args
     options = commands[args.command].known_options() if args.command else parser.known_options()
+    known_elsewhere = {option for command in commands.values() for option in command.known_options()}
     for word in extra:
+        if word.split("=")[0] in known_elsewhere:
+            continue
         similar = difflib.get_close_matches(word, options, n=1)
         if word.startswith("--") and similar:
             raise UsageError(f"Unknown option. Did you mean {similar[0]}?")

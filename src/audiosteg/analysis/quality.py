@@ -2,6 +2,7 @@
 
 import math
 from dataclasses import dataclass
+from fractions import Fraction
 from operator import mul, sub
 
 from audiosteg.analysis.samples import Pair, Part, SampleFormat, read_pairs, to_values
@@ -64,10 +65,21 @@ class Quality:
         """Say whether every original sample is silence."""
         return self.signal == 0
 
+    def reaches(self, limit: int) -> bool:
+        """Say exactly whether the signal-to-noise ratio reaches this many decibels, a multiple of 10."""
+        power: int = 10 ** (limit // 10)
+        return self.signal >= self.noise * power
+
     @property
     def snr(self) -> float | None:
         """Return the signal-to-noise ratio in dB, or None if nothing changed or the original is silent."""
-        return None if self.identical or self.silent_original else decibels(self.signal, self.noise)
+        if self.identical or self.silent_original:
+            return None
+        ratio = decibels(self.signal, self.noise)
+        for _, limit in QUALITY_LIMITS:
+            if not self.reaches(limit):
+                ratio = min(ratio, math.nextafter(limit, 0))
+        return ratio
 
     @property
     def psnr(self) -> float | None:
@@ -82,19 +94,19 @@ class Quality:
         if self.identical:
             return IDENTICAL
         for word, limit in QUALITY_LIMITS:
-            if self.signal >= self.noise * 10 ** (limit // 10):
+            if self.reaches(limit):
                 return word
         return POOR
 
     @property
-    def changed_percentage(self) -> float:
-        """Return how many percent of the samples changed."""
-        return 100 * self.changed / self.samples if self.samples else 0.0
+    def changed_percentage(self) -> Fraction:
+        """Return exactly how many percent of the samples changed."""
+        return Fraction(100 * self.changed, self.samples) if self.samples else Fraction(0)
 
     @property
-    def largest_change_percentage(self) -> float:
-        """Return the largest change in percent of the largest possible sample."""
-        return 100 * self.largest_change / self.format.full_scale
+    def largest_change_percentage(self) -> Fraction:
+        """Return exactly the largest change in percent of the largest possible sample."""
+        return Fraction(100 * self.largest_change, self.format.full_scale)
 
 
 def measure(pair: Pair, part: Part) -> Quality:

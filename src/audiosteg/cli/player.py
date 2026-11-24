@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from types import FrameType
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from audiosteg.cli.errors import PlayerError
 from audiosteg.utils.safe_write import private_opener
@@ -73,6 +73,31 @@ def play_on_windows(path: str, seconds: float) -> None:
             winsound.PlaySound(None, 0)
 
 
+def handlers_of(names: tuple[str, ...]) -> dict[int, Any]:
+    """Return the handlers of the signals that can be replaced and are not ignored."""
+    if threading.current_thread() is not threading.main_thread():
+        return {}
+    numbers = [int(getattr(signal, name)) for name in names if hasattr(signal, name)]
+    handlers = {number: signal.getsignal(number) for number in numbers}
+    return {number: handler for number, handler in handlers.items() if handler not in (None, signal.SIG_IGN)}
+
+
+@contextmanager
+def held_signals() -> Iterator[None]:
+    """Hold signals that could end the program, and deliver them afterwards."""
+    previous = handlers_of(("SIGINT", *ENDING_SIGNALS))
+    held: list[int] = []
+    try:
+        for number in previous:
+            signal.signal(number, lambda number, frame: held.append(number))
+        yield
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+        for number in held:
+            signal.raise_signal(number)
+
+
 def play(path: str, seconds: float) -> None:
     """Play a file until its end. Ctrl-C stops it."""
     if sys.platform == "win32":
@@ -81,13 +106,18 @@ def play(path: str, seconds: float) -> None:
     command = find_command()
     if command is None:
         raise PlayerError(NO_PLAYER)
-    process = subprocess.Popen(
-        [*command, path], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    )
+    process = None
     try:
+        with held_signals():
+            process = subprocess.Popen(
+                [*command, path],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         exit_code = process.wait()
     finally:
-        if process.poll() is None:
+        if process is not None and process.poll() is None:
             process.kill()
             process.wait()
     if exit_code != 0:
@@ -97,25 +127,20 @@ def play(path: str, seconds: float) -> None:
 @contextmanager
 def clean_exit_on_signals() -> Iterator[None]:
     """Let a request to end the program first run the code that cleans up. Later requests wait for it."""
-    numbers = [getattr(signal, name) for name in ENDING_SIGNALS if hasattr(signal, name)]
-    previous = {number: signal.getsignal(number) for number in numbers}
+    previous = handlers_of(ENDING_SIGNALS)
 
     def leave(number: int, frame: FrameType | None) -> None:
-        for known in changed:
+        for known in previous:
             signal.signal(known, signal.SIG_IGN)
         raise SystemExit(SIGNAL_EXIT_CODE + number)
 
-    changed: list[int] = []
     try:
-        if threading.current_thread() is threading.main_thread():
-            for number, handler in previous.items():
-                if handler not in (None, signal.SIG_IGN):
-                    changed.append(number)
-                    signal.signal(number, leave)
+        for number in previous:
+            signal.signal(number, leave)
         yield
     finally:
-        for number in changed:
-            signal.signal(number, previous[number])
+        for number, handler in previous.items():
+            signal.signal(number, handler)
 
 
 def play_private(write: Callable[[BinaryIO], None], seconds: float) -> None:
