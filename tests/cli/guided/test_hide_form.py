@@ -293,7 +293,7 @@ def test_the_suggested_command_does_the_same(
         folder.mkdir()
         make_wav(f"{folder.name}/{name}")
         if existing:
-            encode(str(folder / name), str(folder / "new.wav"), "old", LSB)
+            encode(str(folder / name), str(folder / "-new.wav"), "old", LSB)
     secret = [("Passphrase:", f"{passphrase}{ENTER}"), ("Repeat the passphrase:", f"{passphrase}{ENTER}")]
     typed = name if not name.startswith("~") else f"./{name}"
     result = guide(
@@ -303,7 +303,7 @@ def test_the_suggested_command_does_the_same(
         message("my message"),
         ("Which algorithm?", ENTER if key == "lsb" else DOWN + ENTER),
         *([PLAIN] if passphrase is None else [ENCRYPTED, *secret]),
-        ("Output file", f"new.wav{ENTER}"),
+        ("Output file", f"-new.wav{ENTER}"),
         *([("Overwrite it?", "y")] if existing else []),
         cwd=folders[0],
     )
@@ -320,7 +320,7 @@ def test_the_suggested_command_does_the_same(
         cwd=folders[1],
     )
     assert again.code == 0
-    outputs = [folder / "new.wav" for folder in folders]
+    outputs = [folder / "-new.wav" for folder in folders]
     assert [decode(str(output), passphrase=passphrase) for output in outputs] == ["my message"] * 2
     assert (outputs[0].read_bytes() == outputs[1].read_bytes()) is (passphrase is None)
 
@@ -337,6 +337,23 @@ def test_a_name_that_cannot_be_shown_leaves_the_command_out(
     assert "The same command cannot be shown" in result.text
     assert COMMAND.search(result.text) is None
     assert "gpj\\u202e.wav" in result.text
+
+
+def test_an_unsafe_name_is_shown_escaped_before_it_is_replaced(
+    guide: Any, encryption: Callable[[bool], None], tmp_path: Path
+) -> None:
+    encryption(False)
+    (tmp_path / "gpj\u202e.wav").write_bytes(b"keep me")
+    result = guide(
+        START,
+        SAMPLE,
+        message("x"),
+        FIRST_ALGORITHM,
+        ("Output file", f"gpj\u202e.wav{ENTER}"),
+        ("gpj\\u202e.wav already exists. Overwrite it?", CTRL_C),
+        leave=False,
+    )
+    assert result.code == 130
 
 
 def test_a_form_starts_with_the_safe_answers() -> None:

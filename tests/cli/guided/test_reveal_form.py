@@ -96,6 +96,24 @@ def test_the_command_for_an_old_file(
     assert run("verify", "old.wav", "--legacy", key, "-m", "").code == 0
 
 
+@pytest.mark.usefixtures("plain")
+def test_a_file_without_a_message_after_back_is_not_read_as_the_file_before(
+    guide: Any, make_wav: Callable[..., Path]
+) -> None:
+    make_wav(name="old.wav", frames=bytes(32))
+    result = guide(
+        VERIFY, file("plain.wav"), ("Expected", ESCAPE), file("old.wav"), (LEGACY, ENTER), ("Expected", ENTER)
+    )
+    assert (result.code, "The message matches" in result.text) == (0, True)
+
+
+def test_a_failure_does_not_show_hints_about_options(guide: Any, make_wav: Callable[..., Path]) -> None:
+    make_wav(name="other.wav", frames=b"\xff" * 400)
+    result = guide(REVEAL, file("other.wav"), (LEGACY, ENTER))
+    assert (result.code, "Error: No hidden message was found." in result.text) == (1, True)
+    assert "--legacy" not in result.text and "hide made" not in result.text
+
+
 def test_a_damaged_or_unusable_file_is_asked_again(
     guide: Any, make_wav: Callable[..., Path], embed: Callable[..., bytes], plain: None
 ) -> None:

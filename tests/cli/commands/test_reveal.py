@@ -151,6 +151,8 @@ def test_an_old_file_is_read_with_the_chosen_algorithm(
     path = make_wav(frames=frames)
     result = run("reveal", path, "--legacy", key)
     assert (result.code, result.output, result.errors) == (0, answer, NOT_ENCRYPTED)
+    described = json.loads(run("reveal", path, "--legacy", key, "--json").output)
+    assert (described["algorithm"], described["legacy"], described["message"]) == (key, True, answer)
     undetected = run("reveal", path)
     assert undetected.code == 1
     assert "--legacy" in undetected.errors

@@ -95,12 +95,15 @@ def test_a_long_path_is_never_cut_or_wrapped(
 
 
 @pytest.mark.parametrize("spare", [0, -1])
+@pytest.mark.parametrize("stem", ["x" * 60, "x" * 50 + "\u202e" * 3])
 def test_a_path_is_in_the_panel_only_if_it_fits_on_one_line(
-    run: Any, make_wav: Callable[..., Path], spare: int
+    run: Any, make_wav: Callable[..., Path], stem: str, spare: int
 ) -> None:
-    name = "x" * 60 + ".wav"
+    name = stem + ".wav"
+    words = ["hide", make_wav(), "-m", "x", "-o", name]
+    name = name.replace("\u202e", "\\u202e")
     columns = len("Algorithm") + 2 + len(name) + 6 + spare
-    result = run("hide", make_wav(), "-m", "x", "-o", name, terminals=ALL, columns=columns, NO_COLOR="1")
+    result = run(*words, terminals=ALL, columns=columns, NO_COLOR="1")
     assert (f"│ Output     {name}" in result.text) is (spare == 0)
     assert f"Output:\n{name}\n" in result.text if spare else f"Output:\n{name}" not in result.text
     assert max(map(len, result.output.splitlines())) <= columns
@@ -166,6 +169,16 @@ def test_a_reader_that_left(
         assert result.errors.endswith("Error: The output was closed.\n")
     else:
         assert result.output
+
+
+def test_an_error_that_cannot_be_written_is_not_a_traceback(run: Any) -> None:
+    assert run("reveal", "missing.wav", "--json", broken=("stdout",)).code == 1
+
+
+def test_a_coloured_line_is_never_wrapped(run: Any) -> None:
+    result = run("reveal", "x" * 100 + ".wav", terminals=ALL, columns=40)
+    assert "\x1b[1;31m" in result.seen
+    assert f"{'x' * 100}.wav" in result.text
 
 
 @pytest.mark.parametrize("stream", ALL)

@@ -74,6 +74,11 @@ def test_a_value_that_looks_like_an_option_is_a_value(
         assert decode(str(output)) == message
 
 
+def test_a_name_after_two_dashes_is_not_an_option(run: Any, make_wav: Callable[..., Path]) -> None:
+    make_wav(name="-p.wav")
+    assert run("hide", "-m", "x", "-o", "out.wav", "--", "-p.wav").code == 0
+
+
 @pytest.mark.parametrize("position", [0, 1, 3])
 def test_output_options_may_be_anywhere(run: Any, make_wav: Callable[..., Path], position: int) -> None:
     make_wav(frames=b"\xff" * 400)

@@ -170,7 +170,8 @@ def test_the_word_sample_is_the_included_tune_and_a_path_is_a_file(
 
 def test_an_empty_path_is_refused(run: Any, make_wav: Callable[..., Path], tmp_path: Path) -> None:
     source = make_wav()
-    for words in (["hide", "", "-m", "x"], ["hide", source, "-m", "x", "-o", ""]):
+    for option in ("-o", "--message_file", "--passphrase_file", "input"):
+        words = ["hide", ""] if option == "input" else ["hide", source, option, ""]
         result = run(*words)
         assert (result.code, "Error: A path is empty." in result.errors) == (2, True)
     assert os.listdir(tmp_path) == ["input.wav"]
@@ -564,3 +565,33 @@ def test_json_describes_the_result(run: Any, make_wav: Callable[..., Path], tmp_
         "algorithm": "lsb",
         "encrypted": False,
     }
+
+
+def test_a_file_that_appears_during_the_questions_is_not_replaced(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    class Typing(io.BytesIO):
+        def read1(self, size: int | None = -1) -> bytes:
+            (tmp_path / "out.wav").write_bytes(b"theirs")
+            return super().read1(size)
+
+    result = run("hide", make_wav(), "-o", "out.wav", stdin=b"x\n", terminals=ALL, typing=Typing)
+    assert (result.code, "already exists" in result.errors) == (1, True)
+    assert (tmp_path / "out.wav").read_bytes() == b"theirs"
+
+
+@pytest.mark.needs_crypto
+def test_no_algorithm_is_advised_that_cannot_hold_the_encrypted_message(
+    run: Any, make_wav: Callable[..., Path], key_file: Path
+) -> None:
+    result = run("hide", make_wav(frames=bytes(800)), "-m", "x" * 160, "--passphrase_file", key_file)
+    assert (result.code, "lsb_2" in result.errors, "longer audio file" in result.errors) == (1, False, True)
+
+
+def test_typed_bytes_that_are_not_text_are_refused_without_showing_them(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    result = run("hide", make_wav(), stdin=b"PRIVATE \xff\n", terminals=ALL, NO_COLOR="1")
+    assert result.code == 1
+    assert "Error: The message contains characters that are not valid text." in result.errors
+    assert "PRIVATE" not in result.errors and os.listdir(tmp_path) == ["input.wav"]
