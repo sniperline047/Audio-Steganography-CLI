@@ -79,12 +79,16 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy
-      - name: Audit the development tools and the crypto extra
+      - name: Audit the development tools, the dependencies, and the crypto extra
         run: |
           set -euo pipefail
-          python -c "import tomllib; print(*tomllib.load(open('pyproject.toml', 'rb'))['project']['optional-dependencies']['crypto'], sep='\n')" > "$RUNNER_TEMP/crypto.txt"
-          test -s "$RUNNER_TEMP/crypto.txt"
-          pip-audit -r requirements_dev.txt -r "$RUNNER_TEMP/crypto.txt"
+          python - > "$RUNNER_TEMP/runtime.txt" <<'EOF'
+          import tomllib
+          project = tomllib.load(open("pyproject.toml", "rb"))["project"]
+          print(*project["dependencies"], *project["optional-dependencies"]["crypto"], sep="\n")
+          EOF
+          for name in rich questionary cryptography; do grep -q "^$name" "$RUNNER_TEMP/runtime.txt"; done
+          pip-audit -r requirements_dev.txt -r "$RUNNER_TEMP/runtime.txt"
       - name: Check that the sample audio is reproducible
         run: |
           python scripts/generate_sample_audio.py
@@ -132,16 +136,23 @@ jobs:
           set -euo pipefail
           mkdir "$RUNNER_TEMP/empty"
           cd "$RUNNER_TEMP/empty"
-          for number in 1 2; do
-            printf '%s\n' 1 "$number" "Hello $number" "" "" 4 | "$RUNNER_TEMP/clean/bin/audiosteg"
-            printf '%s\n' 2 "" 4 | "$RUNNER_TEMP/clean/bin/python" -m audiosteg |
-              grep -F "Decoded message: Hello $number"
-            rm message_encoded.wav
-            printf '%s\n' 1 "$number" "Secret $number" key key "" "" 4 | "$RUNNER_TEMP/clean_crypto/bin/audiosteg"
-            printf '%s\n' 2 "" key 4 | "$RUNNER_TEMP/clean_crypto/bin/python" -m audiosteg |
-              grep -F "Decoded message: Secret $number"
-            rm message_encoded.wav
+          printf 'key\n' > key.txt
+          chmod 600 key.txt
+          plain="$RUNNER_TEMP/clean/bin"
+          crypto="$RUNNER_TEMP/clean_crypto/bin"
+          "$plain/audiosteg" --version
+          "$plain/audiosteg" algorithms --json | python -m json.tool
+          for algorithm in lsb lsb_2; do
+            printf '%s' "Hello $algorithm" | "$plain/audiosteg" hide sample -a "$algorithm"
+            test "$("$plain/python" -m audiosteg reveal sample.stego.wav)" = "Hello $algorithm"
+            "$plain/audiosteg" verify sample.stego.wav -m "Hello $algorithm"
+            "$crypto/audiosteg" hide sample -m "Secret $algorithm" -a "$algorithm" --passphrase_file key.txt --force
+            test "$("$crypto/python" -m audiosteg reveal sample.stego.wav --passphrase_file key.txt)" = "Secret $algorithm"
+            if "$plain/audiosteg" reveal sample.stego.wav --passphrase_file key.txt; then exit 1; fi
+            rm sample.stego.wav
           done
+          if "$plain/audiosteg" hide sample -m Hello --passphrase_file key.txt; then exit 1; fi
+          test "$(ls)" = key.txt
 
   badge:
     name: Update coverage badge

@@ -86,10 +86,28 @@ def count_frames(audio: wave.Wave_read, file_size: int) -> int:
     return min(audio.getnframes(), file_size // frame_size)
 
 
-def read_audio(path: str) -> AudioData:
-    """Read a whole PCM WAV file."""
+def check_input_size(path: str) -> None:
+    """Refuse a file that is too large to hold in memory."""
     if os.path.getsize(path) > MAX_INPUT_SIZE:
         raise UnsupportedFormatError("The input file is too large. The limit is 1 GiB.")
+
+
+def count_input_samples(path: str) -> int:
+    """Check that a WAV file can be copied, without reading all of it, and return its number of samples."""
+    check_regular_file(path)
+    check_input_size(path)
+    with open_pcm_wav(path) as audio:
+        frames = audio.getnframes()
+        if frames:
+            audio.setpos(frames - 1)
+            if len(audio.readframes(1)) < audio.getnchannels() * audio.getsampwidth():
+                raise UnsupportedFormatError("The WAV file is shorter than its header says.")
+        return frames * audio.getnchannels()
+
+
+def read_audio(path: str) -> AudioData:
+    """Read a whole PCM WAV file."""
+    check_input_size(path)
     with open_pcm_wav(path) as audio:
         frame_size = audio.getnchannels() * audio.getsampwidth()
         frames = bytearray(audio.readframes(count_frames(audio, os.path.getsize(path))))
