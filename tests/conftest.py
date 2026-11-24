@@ -158,6 +158,47 @@ def make_wav(tmp_path: Path) -> Callable[..., Path]:
     return make
 
 
+def pack(values: list[int], bits: int) -> bytes:
+    """Return numbers as the README says that samples are stored, without the package."""
+    if bits == 8:
+        return bytes(value + 128 for value in values)
+    return b"".join(value.to_bytes(bits // 8, "little", signed=True) for value in values)
+
+
+@pytest.fixture
+def make_samples(make_wav: Callable[..., Path]) -> Callable[..., Path]:
+    """Return a function that creates a WAV file from numbers, where 0 is silence."""
+
+    def make(name: str, values: list[int], bits: int = 16, channels: int = 1, frame_rate: int = 8000) -> Path:
+        return make_wav(name, pack(values, bits), channels, bits // 8, frame_rate)
+
+    return make
+
+
+@pytest.fixture
+def make_pair(make_samples: Callable[..., Path]) -> Callable[..., tuple[str, str]]:
+    """Return a function that creates a.wav and b.wav from two lists of numbers."""
+
+    def make(original: list[int], encoded: list[int], bits: int = 16, **options: int) -> tuple[str, str]:
+        first = make_samples("a.wav", original, bits, **options)
+        return str(first), str(make_samples("b.wav", encoded, bits, **options))
+
+    return make
+
+
+@pytest.fixture
+def sounds(monkeypatch: pytest.MonkeyPatch) -> list[tuple[bytes, float]]:
+    """Return what would be played: the bytes of every file, and how long it is. Nothing is played."""
+    played: list[tuple[bytes, float]] = []
+
+    def record(path: str, seconds: float) -> None:
+        played.append((Path(path).read_bytes(), seconds))
+
+    monkeypatch.setattr(player, "can_play", lambda: True)
+    monkeypatch.setattr(player, "play", record)
+    return played
+
+
 @pytest.fixture
 def read_frames() -> Callable[[Path], bytes]:
     """Return a function that reads every sample byte of a WAV file."""

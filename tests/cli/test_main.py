@@ -46,17 +46,36 @@ def test_the_console_command_starts_the_whole_program() -> None:
     assert entry_points.select(name="audiosteg")["audiosteg"].load() is main.main
 
 
-def test_commands_load_only_what_they_need(make_wav: Callable[..., Path], tmp_path: Path) -> None:
+GUIDED = ["questionary", "prompt_toolkit", "cryptography"]
+ANALYSIS = ["audiosteg.analysis.quality", "audiosteg.analysis.walkthrough", "audiosteg.analysis.inspection"]
+
+
+@pytest.mark.parametrize(
+    ("words", "unwanted"),
+    [
+        (["hide", "input.wav", "-m", "x", "-o", "out.wav"], [*GUIDED, *ANALYSIS, "audiosteg.cli.player"]),
+        (["algorithms"], [*GUIDED, *ANALYSIS, "audiosteg.cli.player"]),
+        (["explain"], [*GUIDED, "audiosteg.cli.player", *ANALYSIS[::2]]),
+        (["inspect", "input.wav"], [*GUIDED, "audiosteg.cli.player", *ANALYSIS[:2]]),
+        (["compare", "input.wav", "input.wav"], [*GUIDED, "audiosteg.cli.player", *ANALYSIS[1:]]),
+    ],
+)
+def test_commands_load_only_what_they_need(
+    make_wav: Callable[..., Path], tmp_path: Path, words: list[str], unwanted: list[str]
+) -> None:
     program = (
-        "import sys; from audiosteg.cli.main import main; code = main(sys.argv[1:]); "
-        "print([name for name in sys.modules if name.split('.')[0] in "
-        "('questionary', 'prompt_toolkit', 'cryptography')], code, file=sys.stderr)"
+        "import sys; from audiosteg.cli.main import main; code = main(sys.argv[2:]); "
+        "print([name for name in sys.argv[1].split() if name in sys.modules], code, file=sys.stderr)"
     )
-    words = ["hide", str(make_wav()), "-m", "x", "-o", str(tmp_path / "out.wav")]
+    make_wav()
     finished = subprocess.run(
-        [sys.executable, "-c", program, *words], capture_output=True, env=environment(), timeout=TIMEOUT
+        [sys.executable, "-c", program, " ".join(unwanted), *words],
+        capture_output=True,
+        cwd=tmp_path,
+        env=environment(),
+        timeout=TIMEOUT,
     )
-    assert finished.stderr.split() == [b"[]", b"0"]
+    assert finished.stderr.split()[-2:] == [b"[]", b"0"]
 
 
 @pytest.mark.parametrize("terminals", [c for size in range(3) for c in combinations(ALL, size)])

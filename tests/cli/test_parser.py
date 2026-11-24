@@ -12,7 +12,7 @@ from conftest import ALL
 
 from audiosteg import decode, encode
 from audiosteg.algorithms.lsb import LSB
-from audiosteg.cli.parser import COMMANDS
+from audiosteg.cli.parser import COMMANDS, follows_play, join_play_value
 
 PASSPHRASE_HELP = "-p takes no value: it asks for the passphrase."
 
@@ -135,7 +135,51 @@ def test_the_examples_in_the_help_work(
         assert result.code == 0, line
 
 
-@pytest.mark.parametrize("words", [[], ["hide"], ["reveal"], ["verify"], ["algorithms"]])
+@pytest.mark.parametrize("words", [[], *([name] for name in COMMANDS)])
 def test_the_help_fits_in_80_columns(run: Any, words: list[str]) -> None:
     lines = run(*words, "--help", COLUMNS="80").output.splitlines()
     assert max(map(len, lines)) <= 80
+
+
+@pytest.mark.parametrize(
+    ("words", "joined"),
+    [
+        ([], []),
+        (["compare", "a", "b"], ["compare", "a", "b"]),
+        (["--play"], ["--play=\0"]),
+        (["--play", "original"], ["--play=original"]),
+        (["--play", "./original"], ["--play=\0", "./original"]),
+        (["--play", "--play", "encoded"], ["--play=\0", "--play=encoded"]),
+        (["--play", "encoded", "difference"], ["--play=encoded", "difference"]),
+        (["original", "--play"], ["original", "--play=\0"]),
+        (["--play", "--", "original"], ["--play=\0", "--", "original"]),
+        (["a", "--", "--play", "original"], ["a", "--", "--play", "original"]),
+        (["--play=original", "encoded"], ["--play=original", "encoded"]),
+    ],
+)
+def test_play_takes_only_a_sound(words: list[str], joined: list[str]) -> None:
+    assert join_play_value(words) == joined
+
+
+@pytest.mark.parametrize(
+    ("words", "expected"),
+    [
+        (["--play", "SECRET"], True),
+        (["--play", "original"], False),
+        (["--play", "--plain"], False),
+        (["--play"], False),
+        (["SECRET", "a"], False),
+    ],
+)
+def test_a_misspelled_sound(words: list[str], expected: bool) -> None:
+    assert follows_play(words) is expected
+
+
+def test_a_word_after_play_is_never_repeated(run: Any) -> None:
+    result = run("compare", "a", "b", "--play", "SECRET")
+    assert result.code == 2
+    assert "There is an extra word. --play can have one of these values: original, encoded" in result.errors
+    assert "SECRET" not in result.errors
+    for words in (["compare", "a", "b", "c"], ["compare", "a", "--play", "b", "c", "--", "d"]):
+        assert run(*words).code == 2
+    assert "--play" not in run("inspect", "a", "--play", "SECRET").errors

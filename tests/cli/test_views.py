@@ -55,7 +55,13 @@ def test_boxes_and_colours_only_where_they_can_be_shown(
 
 @pytest.mark.parametrize("options", [{}, {"terminals": ALL, "COLORTERM": "truecolor"}])
 def test_nothing_from_outside_controls_the_terminal(run: Any, options: dict[str, Any]) -> None:
-    for words in (["reveal", INJECTION], ["hide", INJECTION, "-m", "x"], ["verify", INJECTION, "-m", "x"]):
+    for words in (
+        ["reveal", INJECTION],
+        ["hide", INJECTION, "-m", "x"],
+        ["verify", INJECTION, "-m", "x"],
+        ["inspect", INJECTION],
+        ["explain", "lsb", "--file", INJECTION],
+    ):
         result = run(*words, **options)
         assert result.code == 1
         assert SHOWN in result.text
@@ -155,13 +161,22 @@ def test_a_result_does_not_show_its_message() -> None:
 
 
 @pytest.mark.parametrize("as_json", [False, True])
-@pytest.mark.parametrize("command", ["hide", "reveal", "verify", "algorithms"])
+@pytest.mark.parametrize(
+    "command", ["hide", "reveal", "verify", "inspect", "compare", "explain", "algorithms"]
+)
 @pytest.mark.parametrize("broken", ["stdout", "stderr"])
 def test_a_reader_that_left(
     run: Any, make_wav: Callable[..., Path], tmp_path: Path, command: str, broken: str, as_json: bool
 ) -> None:
     encode(str(make_wav()), str(tmp_path / "plain.wav"), "x", LSB)
-    words = {"hide": ["input.wav", "-m", "x"], "reveal": ["plain.wav"], "verify": ["plain.wav", "-m", "x"]}
+    words = {
+        "hide": ["input.wav", "-m", "x"],
+        "reveal": ["plain.wav"],
+        "verify": ["plain.wav", "-m", "x"],
+        "inspect": ["plain.wav"],
+        "compare": ["input.wav", "plain.wav", "--details"],
+        "explain": ["lsb"],
+    }
     options = ["--json"] if as_json else []
     result = run(command, *words.get(command, []), *options, broken=(broken,))
     assert result.code == (1 if broken == "stdout" else 0)
