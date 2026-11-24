@@ -1,20 +1,21 @@
-"""Read PCM WAV files and write them without damaging existing files."""
+"""Read and write PCM WAV files."""
 
 import os
-import secrets
-import shutil
 import stat
+import struct
 import wave
 from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path
-from typing import NamedTuple
+from typing import BinaryIO, NamedTuple
 
-from utils.errors import UnsafeOutputError, UnsupportedFormatError
+from utils.errors import UnsupportedFormatError
+from utils.safe_write import safe_output
 
 WAVE_FORMAT_IEEE_FLOAT = 3
 MAX_FRAME_SIZE = 2**16 - 1
 MAX_BYTES_PER_SECOND = 2**32 - 1
+UNKNOWN_DATA_SIZE = 2**32 - 1
+MAX_INPUT_SIZE = 2**30
 
 
 class AudioData(NamedTuple):
@@ -32,12 +33,39 @@ def check_regular_file(path: str) -> None:
         raise UnsupportedFormatError(f"The input is not a regular file: {path}")
 
 
+def check_header(source: BinaryIO) -> None:
+    """Check header fields that the wave module does not check."""
+    source.seek(0)
+    if len(source.read(12)) < 12:
+        raise EOFError
+    expected_size = 0
+    stored_size = 0
+    while len(header := source.read(8)) == 8:
+        name, size = struct.unpack("<4sI", header)
+        if name == b"data":
+            if size == UNKNOWN_DATA_SIZE:
+                raise UnsupportedFormatError("The WAV file does not state its audio size (a streamed file).")
+            break
+        chunk_start = source.tell()
+        if name == b"fmt ":
+            fields = source.read(16)
+            if len(fields) < 16:
+                raise EOFError
+            channels, stored_size, bits = struct.unpack("<2xH8xHH", fields)
+            expected_size = channels * ((bits + 7) // 8)
+        source.seek(chunk_start + size + size % 2)
+    if stored_size != expected_size:
+        raise UnsupportedFormatError("WAV files with padded samples are not supported.")
+    source.seek(0)
+
+
 @contextmanager
 def open_pcm_wav(path: str) -> Iterator[wave.Wave_read]:
     """Open a PCM WAV file for reading."""
     check_regular_file(path)
     with open(path, "rb") as source:
         try:
+            check_header(source)
             with wave.open(source, "rb") as audio:
                 check_pcm(audio)
                 yield audio
@@ -68,10 +96,13 @@ def count_frames(audio: wave.Wave_read, file_size: int) -> int:
 
 def read_audio(path: str) -> AudioData:
     """Read a whole PCM WAV file."""
+    if os.path.getsize(path) > MAX_INPUT_SIZE:
+        raise UnsupportedFormatError("The input file is too large. The limit is 1 GiB.")
     with open_pcm_wav(path) as audio:
         frame_size = audio.getnchannels() * audio.getsampwidth()
         frames = bytearray(audio.readframes(count_frames(audio, os.path.getsize(path))))
-        del frames[len(frames) - len(frames) % frame_size :]
+        if len(frames) < audio.getnframes() * frame_size:
+            raise UnsupportedFormatError("The WAV file is shorter than its header says.")
         return AudioData(audio.getnchannels(), audio.getsampwidth(), audio.getframerate(), frames)
 
 
@@ -89,43 +120,13 @@ def read_first_bytes(audio: wave.Wave_read, count: int) -> bytes:
     return audio.readframes(frames_needed)[:count]
 
 
-def check_output_path(input_path: str, output_path: str, overwrite: bool) -> None:
-    """Refuse output paths that could damage the input or another existing file."""
-    if not output_path:
-        raise UnsafeOutputError("The output path is empty.")
-    if os.path.islink(output_path):
-        raise UnsafeOutputError(f"The output path is a symbolic link: {output_path}")
-    if not os.path.exists(output_path):
-        return
-    if os.path.samefile(input_path, output_path):
-        raise UnsafeOutputError("The input and output must be different files.")
-    if not os.path.isfile(output_path):
-        raise UnsafeOutputError(f"The output path is not a regular file: {output_path}")
-    if not overwrite:
-        raise FileExistsError(f"The output file already exists: {output_path}")
-    if not os.access(output_path, os.W_OK):
-        raise PermissionError(f"The output file is read-only: {output_path}")
-
-
 def write_audio(input_path: str, output_path: str, audio: AudioData, overwrite: bool) -> None:
-    """Write a WAV file to a temporary file, then move it into place in one step."""
-    check_output_path(input_path, output_path, overwrite)
-    target = Path(output_path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.parent / f".stego_{secrets.token_hex(8)}.tmp"
-    try:
-        with open(temporary, "xb") as destination:
-            with wave.open(destination, "wb") as new_audio:
-                new_audio.setnchannels(audio.channels)
-                new_audio.setsampwidth(audio.sample_width)
-                new_audio.setframerate(audio.frame_rate)
-                new_audio.writeframes(audio.frames)
-            destination.flush()
-            os.fsync(destination.fileno())
-        if target.exists():
-            shutil.copymode(target, temporary)
-        check_output_path(input_path, output_path, overwrite)
-        os.replace(temporary, target)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
+    """Write a WAV file safely. The output path must come from normalize_output_path."""
+    with (
+        safe_output(input_path, output_path, overwrite) as destination,
+        wave.open(destination, "wb") as new_audio,
+    ):
+        new_audio.setnchannels(audio.channels)
+        new_audio.setsampwidth(audio.sample_width)
+        new_audio.setframerate(audio.frame_rate)
+        new_audio.writeframes(audio.frames)

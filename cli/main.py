@@ -1,5 +1,6 @@
 """Interactive menu for hiding messages in audio files."""
 
+import contextlib
 import io
 import os
 import sys
@@ -19,8 +20,9 @@ from cli.helpers import (
     get_user_choice,
 )
 from utils.errors import StegoError
+from utils.output_path import check_output_path, normalize_output_path
 from utils.text import escape_text
-from utils.wav_io import check_output_path, check_regular_file
+from utils.wav_io import check_regular_file
 
 EXIT_CHOICE = 4
 
@@ -39,9 +41,10 @@ def handle_encode() -> None:
         return
     secret_message = input("Enter the secret message to encode: ")
     input_file = get_file_path("input audio file", STANDARD_INPUT_FILE_PATH)
-    output_file = get_file_path("output audio file", algorithm["output_file"])
+    chosen_path = get_file_path("output audio file", algorithm["output_file"])
 
     check_regular_file(input_file)
+    output_file = normalize_output_path(chosen_path)
     check_output_path(input_file, output_file, overwrite=True)
     overwrite = False
     if os.path.exists(output_file):
@@ -80,12 +83,21 @@ def handle_accuracy_check() -> None:
     print(f"Expected length: {result.expected_length}, decoded length: {result.decoded_length}")
 
 
+def show_error(message: str) -> None:
+    """Print an error, even if it contains unsafe characters or stderr is closed."""
+    with contextlib.suppress(OSError):
+        print(f"\nError: {escape_text(message)}", file=sys.stderr)
+
+
 def run_operation(operation: Callable[[], None]) -> bool:
     """Run one menu operation and report any error. Return whether it succeeded."""
     try:
         operation()
     except (StegoError, OSError, ValueError) as error:
-        print(f"Error: {escape_text(str(error))}", file=sys.stderr)
+        show_error(str(error))
+        return False
+    except MemoryError:
+        show_error("The file is too large for the available memory.")
         return False
     return True
 
@@ -94,30 +106,70 @@ def run_menu() -> int:
     """Show the menu until the user leaves. Return the exit code."""
     operations = {1: handle_encode, 2: handle_decode, 3: handle_accuracy_check}
     failed = False
-    try:
-        while True:
-            display_menu(
-                ["Encode a message", "Decode a message", "Calculate accuracy", "Exit"],
-                "Select an option",
-            )
+    while True:
+        display_menu(
+            ["Encode a message", "Decode a message", "Calculate accuracy", "Exit"],
+            "Select an option",
+        )
+        try:
             choice = get_user_choice(EXIT_CHOICE)
-            if choice == EXIT_CHOICE:
-                break
-            if choice is not None and not run_operation(operations[choice]):
-                failed = True
-    except (EOFError, KeyboardInterrupt):
-        print()
+        except EOFError:
+            print()
+            break
+        if choice == EXIT_CHOICE:
+            break
+        if choice is not None and not run_operation(operations[choice]):
+            failed = True
     return 1 if failed else 0
 
 
-def main() -> int:
-    """Run the CLI program."""
+def prepare_streams() -> None:
+    """Accept and show text that the terminal's encoding does not support."""
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):
             stream.reconfigure(errors="backslashreplace")
     if isinstance(sys.stdin, io.TextIOWrapper):
         sys.stdin.reconfigure(errors="surrogateescape")
-    return run_menu()
+
+
+def flush_output() -> bool:
+    """Write any waiting output. Return False if the output is closed."""
+    try:
+        sys.stdout.flush()
+    except OSError:
+        with contextlib.suppress(OSError, ValueError):
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return False
+    return True
+
+
+def run_session() -> int:
+    """Run the menu and report why it stopped early, if it did. Return the exit code."""
+    try:
+        return run_menu()
+    except EOFError:
+        show_error("The input ended before the operation finished.")
+        return 1
+    except KeyboardInterrupt:
+        show_error("Interrupted.")
+        return 130
+    except OSError as error:
+        show_error(f"The program cannot read its input or write its output: {error}")
+        return 1
+
+
+def main() -> int:
+    """Run the CLI program."""
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")  # noqa: SIM115
+    if sys.stdin is None or sys.stdout is None:
+        show_error("The program needs an open input and output.")
+        return 1
+    prepare_streams()
+    exit_code = run_session()
+    if not flush_output():
+        return exit_code or 1
+    return exit_code
 
 
 if __name__ == "__main__":

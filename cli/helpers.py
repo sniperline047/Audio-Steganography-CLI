@@ -15,8 +15,9 @@ def display_menu(options: Sequence[str], header: str) -> None:
 
 def get_user_choice(num_options: int) -> int | None:
     """Get a menu choice, or None if it is not valid."""
+    answer = input("\nChoice: ")
     try:
-        choice = int(input("\nChoice: "))
+        choice = int(answer)
     except ValueError:
         print("\nPlease enter a valid number!")
         return None

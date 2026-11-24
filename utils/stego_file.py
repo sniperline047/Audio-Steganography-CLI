@@ -4,7 +4,6 @@ from collections.abc import Callable, Iterator
 from itertools import islice
 
 from utils.errors import CapacityError, NoMessageError
-from utils.logging_util import setup_logger
 from utils.message_codec import (
     HEADER_BITS,
     MAX_MESSAGE_BITS,
@@ -15,8 +14,8 @@ from utils.message_codec import (
     message_to_bytes,
     read_length_header,
 )
+from utils.output_path import check_output_path, normalize_output_path
 from utils.wav_io import (
-    check_output_path,
     check_regular_file,
     count_sample_bytes,
     open_pcm_wav,
@@ -24,8 +23,6 @@ from utils.wav_io import (
     read_first_bytes,
     write_audio,
 )
-
-logger = setup_logger(__name__)
 
 EmbedBits = Callable[[int, tuple[int, ...]], int]
 ExtractBits = Callable[[int], tuple[int, ...]]
@@ -62,6 +59,7 @@ def write_message(
     """
     message_bytes = message_to_bytes(message)
     check_regular_file(input_path)
+    output_path = normalize_output_path(output_path)
     check_output_path(input_path, output_path, overwrite)
     audio = read_audio(input_path)
     check_capacity(len(message_bytes), len(audio.frames), bits_per_byte)
@@ -73,7 +71,6 @@ def write_message(
         position += 1
 
     write_audio(input_path, output_path, audio, overwrite)
-    logger.info("Encoded a message of %d bytes", len(message_bytes))
 
 
 def extract_all(sample_bytes: bytes, extract_bits: ExtractBits) -> Iterator[int]:
@@ -102,5 +99,4 @@ def read_message(path: str, bits_per_byte: int, extract_bits: ExtractBits) -> st
     message_bytes = bits_to_bytes(message_bits)
     if len(message_bytes) * 8 != length:
         raise NoMessageError("The audio file ends before the hidden message does.")
-    logger.info("Decoded a message of %d bytes", len(message_bytes))
     return bytes_to_message(message_bytes)
