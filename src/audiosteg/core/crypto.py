@@ -56,15 +56,6 @@ def check_available() -> None:
         aes_gcm(bytes(KEY_SIZE))
 
 
-def is_available() -> bool:
-    """Return whether this system can encrypt."""
-    try:
-        check_available()
-    except MissingLibraryError:
-        return False
-    return True
-
-
 def passphrase_to_bytes(passphrase: str) -> bytes:
     """Return the same bytes for every way to type the same characters."""
     if not passphrase:

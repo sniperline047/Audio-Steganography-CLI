@@ -2,6 +2,7 @@
 
 import contextlib
 import hashlib
+import importlib.util
 import io
 import os
 import select
@@ -23,7 +24,6 @@ from audiosteg import Algorithm, decode, encode
 from audiosteg.algorithms.lsb import LSB, LSB_2
 from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli import main
-from audiosteg.core import crypto
 from audiosteg.errors import MissingLibraryError, UnsafeOutputError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -49,7 +49,7 @@ LEGACY_MENU = (
 LEGACY_BACK = "4"
 DEFAULT_FILE = "message_encoded.wav"
 MENU_ALGORITHMS = [(1, LSB), (2, LSB_2)]
-NO_PASSPHRASE = [""] if crypto.is_available() else []
+NO_PASSPHRASE = [""] if importlib.util.find_spec("cryptography") else []
 
 posix_shell = pytest.mark.skipif(os.name == "nt", reason="a POSIX shell is needed to close a stream")
 needs_sigint = pytest.mark.skipif(
@@ -641,8 +641,8 @@ def test_the_menu_says_that_a_plain_message_is_not_protected(
     result = run(*lines, *decode_lines(old), "1", *accuracy_lines(old, "1")[:2], "1", "", EXIT)
     assert (result.code, result.errors) == (0, "")
     assert f"Message encoded, not encrypted, into {output}\n" in result.output
-    assert f"{NOT_ENCRYPTED}Decoded message: hidden\n" in result.output
-    assert f"{NOT_ENCRYPTED}The decoded message is empty.\n" in result.output
+    assert f"Decoded message: hidden\n{NOT_ENCRYPTED}" in result.output
+    assert f"The decoded message is empty.\n{NOT_ENCRYPTED}" in result.output
     assert result.output.count(f"{NOT_ENCRYPTED}Accuracy of decoded message: 100.00%\n") == 2
     assert result.output.count(NOT_ENCRYPTED) == 4
     assert ENCRYPTED not in result.output
@@ -662,7 +662,7 @@ def test_an_encrypted_message_from_start_to_end(
     )  # fmt: skip
     assert (result.code, result.errors) == (0, "")
     assert f"Message encrypted and encoded into {output}\n" in result.output
-    assert f"{ENCRYPTED}Decoded message: hidden\n" in result.output
+    assert f"Decoded message: hidden\n{ENCRYPTED}" in result.output
     assert f"{ENCRYPTED}Accuracy of decoded message: 83.33%\nExact match: no\n" in result.output
     assert result.output.count("Passphrase, not shown while you type: ") == 2
     assert NOT_ENCRYPTED not in result.output
@@ -777,7 +777,10 @@ def test_without_the_library_messages_are_plain_and_the_menu_says_so(
         command=command,
     )  # fmt: skip
     assert result.code == 1
-    assert "The message will not be encrypted. Encryption usually needs: pip install" in result.output
+    assert (
+        "The message will not be encrypted. Encryption needs an optional library. To install it, run: pip"
+        in result.output
+    )
     assert "Passphrase" not in result.output
     assert f"Message encoded, not encrypted, into {output}\n" in result.output
     assert "Decoded message: hidden\n" in result.output
@@ -786,7 +789,14 @@ def test_without_the_library_messages_are_plain_and_the_menu_says_so(
 
 
 @pytest.mark.needs_crypto
-@pytest.mark.parametrize("problem", ["no_scrypt", "refused_scrypt", "refused_aes"])
+@pytest.mark.parametrize(
+    ("problem", "reason"),
+    [
+        ("no_scrypt", "does not support scrypt"),
+        ("refused_scrypt", "refuses scrypt"),
+        ("refused_aes", "AES-GCM"),
+    ],
+)
 def test_a_system_that_cannot_encrypt_is_explained_before_any_passphrase(
     make_wav: Callable[..., Path],
     embed: Callable[..., bytes],
@@ -795,6 +805,7 @@ def test_a_system_that_cannot_encrypt_is_explained_before_any_passphrase(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     problem: str,
+    reason: str,
 ) -> None:
     from cryptography.exceptions import UnsupportedAlgorithm
     from cryptography.hazmat.primitives.ciphers import aead
@@ -816,7 +827,10 @@ def test_a_system_that_cannot_encrypt_is_explained_before_any_passphrase(
     answers = ["1", "hidden", str(make_wav()), str(output), str(private), "unread"]
     monkeypatch.setattr("builtins.input", lambda prompt="": answers.pop(0))
     assert main.run_operation(main.handle_encode) is True
-    assert "The message will not be encrypted." in capsys.readouterr().out
+    shown = capsys.readouterr().out
+    assert "The message will not be encrypted." in shown
+    assert reason in shown
+    assert "pip install" not in shown
     assert decode(str(output)) == "hidden"
     with pytest.raises(MissingLibraryError):
         main.handle_decode()
@@ -959,7 +973,7 @@ def test_a_terminal_never_shows_the_passphrase(
     terminal.type("\n")
     terminal.read("Passphrase, not shown while you type: ")
     terminal.type_hidden("sésame\n")
-    terminal.read(f"{ENCRYPTED}Decoded message: my message\n")
+    terminal.read(f"Decoded message: my message\n{ENCRYPTED}")
     terminal.read("Choice: ")
     terminal.type(f"{EXIT}\n")
     assert terminal.finish() == 0

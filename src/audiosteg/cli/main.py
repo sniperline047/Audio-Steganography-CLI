@@ -27,7 +27,7 @@ from audiosteg.core import crypto
 from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
 from audiosteg.core.stego_file import encode
 from audiosteg.core.wav_io import check_regular_file
-from audiosteg.errors import StegoError, UnsafeOutputError
+from audiosteg.errors import MissingLibraryError, StegoError, UnsafeOutputError
 from audiosteg.utils.output_path import check_output_path, normalize_output_path
 from audiosteg.utils.text import escape_text
 
@@ -55,8 +55,10 @@ def check_not_sample(output_file: str) -> None:
 
 def choose_passphrase() -> str | None:
     """Ask for a new passphrase if the encryption library is installed."""
-    if not crypto.is_available():
-        print('The message will not be encrypted. Encryption usually needs: pip install ".[crypto]"')
+    try:
+        crypto.check_available()
+    except MissingLibraryError as error:
+        print(f"The message will not be encrypted. {escape_text(str(error))}")
         return None
     return ask_new_passphrase()
 
@@ -119,11 +121,11 @@ def handle_decode() -> None:
     if encoded_file is None:
         return
     decoded_message = decode(encoded_file.path, encoded_file.algorithm, passphrase=encoded_file.passphrase)
-    show_protection(encoded_file)
     if decoded_message:
         print(f"Decoded message: {escape_text(decoded_message)}")
     else:
         print("The decoded message is empty.")
+    show_protection(encoded_file)
 
 
 def handle_accuracy_check() -> None:

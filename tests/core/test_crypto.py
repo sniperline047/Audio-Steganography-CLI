@@ -125,7 +125,7 @@ def test_an_unusable_passphrase_is_refused_without_showing_it(passphrase: str, r
 
 @pytest.mark.needs_crypto
 def test_this_system_can_encrypt() -> None:
-    assert crypto.is_available()
+    crypto.check_available()
 
 
 @pytest.mark.needs_crypto
@@ -143,7 +143,6 @@ def test_checking_for_encryption_is_cheap(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_a_missing_library_is_explained(no_library: None, fast_scrypt: None) -> None:
-    assert not crypto.is_available()
     attempts = [
         lambda: crypto.check_available(),
         lambda: crypto.encrypt(b"message", HEADER, KEY),
@@ -185,7 +184,8 @@ def test_encryption_is_not_available_without_scrypt(monkeypatch: pytest.MonkeyPa
         monkeypatch.delattr(hashlib, "scrypt")
     else:
         monkeypatch.setattr(hashlib, "scrypt", refuse)
-    assert not crypto.is_available()
+    with pytest.raises(MissingLibraryError, match="scrypt"):
+        crypto.check_available()
 
 
 @pytest.mark.needs_crypto
@@ -201,7 +201,8 @@ def test_a_library_that_refuses_aes_gcm_is_explained(
 
     body = crypto.encrypt(b"message", HEADER, KEY)
     monkeypatch.setattr(aead, "AESGCM", Refusing)
-    assert not crypto.is_available()
+    with pytest.raises(MissingLibraryError, match="does not support AES-GCM"):
+        crypto.check_available()
     with pytest.raises(MissingLibraryError, match="does not support AES-GCM"):
         crypto.encrypt(b"message", HEADER, KEY)
     with pytest.raises(MissingLibraryError, match="does not support AES-GCM"):
