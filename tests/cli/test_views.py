@@ -187,3 +187,18 @@ def test_progress_is_for_a_person_only(run: Any, make_wav: Callable[..., Path], 
     words = ["hide", "input.wav", "-m", "x", "--force"]
     assert ("Hiding the message..." in run(*words, terminals=(stream,)).errors) is (stream == "stderr")
     assert run(*words, "--json", terminals=ALL).errors == ""
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not remove a folder that is in use")
+@pytest.mark.xfail(strict=True, reason="the file is written, but showing its path fails")
+def test_a_removed_current_folder_does_not_turn_success_into_failure(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = tmp_path / "folder"
+    folder.mkdir()
+    words = ["hide", make_wav(), "-m", "x", "-o", tmp_path / "out.wav"]
+
+    monkeypatch.setattr(views.View, "progress", lambda self, text: folder.rmdir())
+    result = run(*words, cwd=folder)
+    assert (tmp_path / "out.wav").exists()
+    assert result.code == 0
