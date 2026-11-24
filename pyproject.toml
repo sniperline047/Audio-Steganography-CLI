@@ -1,0 +1,37 @@
+[project]
+name = "audio_steganography_cli"
+version = "0.1.0"
+description = "A learning project for hiding messages in WAV files."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+branch = true
+source = ["algorithms", "cli", "scripts", "utils"]
+patch = ["subprocess"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "SIM", "UP", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+"cli/main.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["algorithms", "cli", "scripts", "utils"]

@@ -52,6 +52,7 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
+coverage.json
 *.cover
 *.py,cover
 .hypothesis/
@@ -133,3 +134,10 @@ cython_debug/
 
 # VS Code
 .vscode/
+
+# Encoded audio
+output/*.wav
+.stego_*.tmp
+
+# Ruff
+.ruff_cache/

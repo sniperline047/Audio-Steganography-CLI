@@ -1,0 +1,81 @@
+name: Coverage comment
+
+on:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: coverage_comment-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+
+jobs:
+  comment:
+    name: Post coverage
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Download coverage
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage_report
+          path: ${{ runner.temp }}/coverage_report
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Post comment
+        if: steps.download.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPORT: ${{ runner.temp }}/coverage_report/coverage.json
+        run: |
+          set -euo pipefail
+          if [ ! -f "$REPORT" ] || [ -L "$REPORT" ]; then
+            echo "No coverage report."
+            exit 0
+          fi
+          if [ "$(stat -c %s "$REPORT")" -gt 2000000 ]; then
+            echo "The coverage report is too large."
+            exit 1
+          fi
+          marker='<!-- coverage_comment -->'
+          jq -ers --arg marker "$marker" '
+            def percent:
+              if type == "string" and test("\\A([0-9]|[1-9][0-9]|100)\\z") then .
+              else error("invalid coverage value") end;
+            def file_name:
+              if length <= 100 and test("\\A(algorithms|cli|scripts|utils)/([a-z0-9_]+/)*[a-z0-9_]+\\.py\\z") then .
+              else error("invalid file name") end;
+            (if length == 1 then .[0] else error("expected one JSON value") end)
+            | if (.files | type) != "object" or (.files | length) > 50 then error("invalid file list") else . end
+            | (.totals.percent_covered_display | percent) as $total
+            | [.files | to_entries | sort_by(.key)[]
+                | "| `\(.key | file_name)` | \(.value.summary.percent_covered_display | percent)% |"] as $rows
+            | [$marker,
+               "Test coverage reported by this pull request: **\($total)%** (required: 90%).",
+               "", "| File | Coverage |", "| --- | --- |"] + $rows
+            | join("\n")
+          ' "$REPORT" > "$RUNNER_TEMP/comment.md"
+          number=$(gh api -X GET "repos/$REPO/pulls" -f state=open -f "head=$HEAD_OWNER:$HEAD_BRANCH" |
+            jq -r --arg sha "$HEAD_SHA" '[.[] | select(.head.sha == $sha) | .number][0] // empty')
+          if [ -z "$number" ]; then
+            echo "No open pull request has this commit as its latest commit."
+            exit 0
+          fi
+          comment_id=$(gh api --paginate "repos/$REPO/issues/$number/comments" |
+            jq -rs --arg marker "$marker" '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith($marker))) | .id][0] // empty')
+          if [ -n "$comment_id" ]; then
+            gh api --silent -X PATCH "repos/$REPO/issues/comments/$comment_id" -F "body=@$RUNNER_TEMP/comment.md"
+          else
+            gh api --silent "repos/$REPO/issues/$number/comments" -F "body=@$RUNNER_TEMP/comment.md"
+          fi
