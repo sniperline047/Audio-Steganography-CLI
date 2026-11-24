@@ -171,8 +171,8 @@ To see every number, add --details. To listen, add --play.
 | Option | Meaning |
 | --- | --- |
 | `--details` | Every metric and the waveforms, each with an explanation |
-| `--show NAMES` | Only these, separated by commas: `snr`, `psnr`, `changes`, `where`, `waveform` |
-| `--from`, `--to` | Only this part, in seconds. It also limits what is saved and played. |
+| `--show NAMES` | Only these, separated by commas or with several `--show`: `snr`, `psnr`, `changes`, `where`, `waveform` |
+| `--from`, `--to` | Only this part, in seconds. It also limits what is saved and played. The result then names the part. |
 | `--width COLUMNS` | The width of the waveforms, from 20 to 500. A terminal never gets more than fits. |
 | `--play [WHAT]` | Listen to `original`, `encoded`, or `difference`. Without a value, all three in this order. |
 | `--gain N` | Amplify the difference `N` times (1 or more). The default is as much as is safe. |
@@ -181,7 +181,7 @@ To see every number, add --details. To listen, add --play.
 
 `--play` never takes a file name as its value. For files named `original`, `encoded`, or `difference` after it, write `./original`.
 
-The difference is the encoded audio minus the original. Its largest sample is at least 12 dB below the maximum (-12 dBFS), also with `--gain`. The program says how much it amplified or reduced the difference:
+The difference is the encoded audio minus the original. Its largest sample is at least 12 dB below the maximum (-12 dBFS), also with `--gain`, and a larger gain is capped. The program says how much it amplified or reduced the difference:
 
 ```
 Difference saved: difference.wav
@@ -190,7 +190,7 @@ Difference saved: difference.wav
 
 A difference file follows the same rules as the output of `hide`: it never replaces an input, the included sample, or a link. If there is no difference, nothing is written.
 
-Sound is played only with `--play`, by a player that the system already has: `afplay` on macOS, Windows itself, or `aplay`, `paplay`, or `ffplay` in `/usr/bin` or `/usr/local/bin` on Linux. It plays private temporary files, which are removed afterwards. Ctrl-C stops the sound and the program.
+Sound is played only with `--play`, by a player that the system already has: `afplay` on macOS, Windows itself, or `aplay`, `paplay`, or `ffplay` in `/usr/bin` or `/usr/local/bin` on Linux. It plays private temporary files, which are removed afterwards. Ctrl-C stops the sound and the program. If the program is asked to end while it plays (SIGTERM or SIGHUP), it stops the sound, removes the file, and exits with 143 or 129.
 
 #### What the metrics mean
 
@@ -236,11 +236,11 @@ A sample is a whole number where 0 is silence. 8-bit samples are stored from 0 t
 | SNR | `10 * log10(sum(s^2) / sum(d^2))` dB | An average. A short loud change in a long file can hide in it. There is no SNR if the original is silent. |
 | PSNR | `10 * log10(p^2 / mean(d^2))` dB, where `p` is 128, 32768, 8388608, or 2147483648 for 8, 16, 24, or 32 bits | It ignores how loud the audio really is, so quiet audio looks better than it sounds. |
 | Changed samples | How many `d` are not 0 | Many tiny changes can be harder to hear than one large change. |
-| Largest change | The largest `d` without its sign, also as a percentage of `p` | One step is louder in 8-bit audio than in 16-bit audio. |
+| Largest change | The largest `d` without its sign, also as a percentage of `p`. From one extreme to the other, it is almost 200%. | One step is louder in 8-bit audio than in 16-bit audio. |
 | Where | The time of the first changed sample, the end of the last one, and the number of changed samples in each tenth of the audio | A time covers one frame, which is one sample of each channel. |
 | Waveform | The largest sample (or change) in each column, without its sign | Very short sounds look as wide as a column. |
 
-The words come from the SNR: Excellent from 70 dB, Good from 50 dB, Fair from 30 dB, and Poor below that or if a silent original changed. Files without any change are Identical. **These limits are this project's choice, not a hearing standard.** They do not consider which sounds cover which others, and no number here can prove what a person hears. If one change passes 1% of the largest possible sample, the summary says that it could be a click. Shown decibels are rounded down. If nothing changed, there is no noise and so no SNR and no PSNR.
+The words come from the SNR: Excellent from 70 dB, Good from 50 dB, Fair from 30 dB, and Poor below that or if a silent original changed. Files without any change are Identical. **These limits are this project's choice, not a hearing standard.** They do not consider which sounds cover which others, and no number here can prove what a person hears. If one change passes 1% of the largest possible sample, the summary says that it could be a click. Shown decibels and percentages are rounded down. If nothing changed, there is no noise and so no SNR and no PSNR.
 
 ### explain
 
@@ -324,15 +324,15 @@ The JSON document has `ok` and `command`, and:
 | `reveal` | `file`, `algorithm`, `legacy`, `encrypted`, `message` |
 | `verify` | `file`, `algorithm`, `legacy`, `encrypted`, `exact_match`, `percentage`, `expected_length`, `found_length` |
 | `inspect` | `file`, `bits`, `channels`, `sample_rate`, `frames`, `seconds`, `cannot_hide` (a reason or `null`), `capacity` (a list of `algorithm`, `plain`, `encrypted`), `messages` (a list of `algorithm`, `encrypted`, `size`, `problem`; empty if none was detected) |
-| `compare` | `original`, `encoded`, `first_frame`, `frames`, `identical`, `quality`, the numbers below, `difference` (`file` and `gain`, or `null`) |
+| `compare` | `original`, `encoded`, `first_frame`, `frames`, `total_frames`, `identical`, `quality`, the numbers below, `difference` (`file`, which is absolute, `gain`, and `capped`, or `null`) |
 | `explain` | Without a name, like `algorithms`. With one, `key`, `name`, `bits_per_byte`, `explanation`, `legacy`, and for an old algorithm `replaced_because`, for others `letter`, `utf_8`, `file`, `first_frame`, `silent`, `samples`, `read_back`, `largest_possible_change`, `strengths`, `weaknesses` |
 | `algorithms` | `algorithms` and `legacy`: lists of `key`, `name`, `bits_per_byte`, `explanation` |
 | `--version` | `version` (`command` is `null`) |
 | Error | `error`: `type`, `message`, `hint` (or `null`), `exit_code` |
 
-The numbers of `compare` are `snr_db` and `snr_note`, `psnr_db` and `psnr_note`, then `samples`, `changed_samples`, `changed_percentage`, `largest_change`, `largest_change_percentage`, then `first_changed_frame`, `last_changed_frame`, `changed_by_tenth`. `--show` limits them to its names, in the order `snr`, `psnr`, `changes`, `where`. `waveform` needs `--details` or `--show waveform`; its numbers are from 0 to 1, where 1 is the largest possible sample. A number that does not exist is `null`, and its note says why: `identical` or `silent_original`. `--play` and `--step` cannot be used with `--json`.
+The numbers of `compare` are `snr_db` and `snr_note`, `psnr_db` and `psnr_note`, then `samples`, `changed_samples`, `changed_percentage`, `largest_change`, `largest_change_percentage`, then `first_changed_frame`, `last_changed_frame`, `changed_by_tenth`. `--show` limits them to its names, in the order `snr`, `psnr`, `changes`, `where`. `waveform` needs `--details` or `--show waveform`; it has 80 columns, or `--width`, or fewer for very short audio, whatever the terminal is. Its numbers are shares of the largest possible sample: 0 to 1, and up to almost 2 for the difference. A number that does not exist is `null`, and its note says why: `identical` or `silent_original`. `--play` and `--step` cannot be used with `--json`.
 
-`ok` says whether the command finished. If `verify` finds a difference, `ok` is `true`, `exact_match` is `false`, and the exit code is 1. Paths in these fields are as given, except `output`, which is absolute, and the input `sample`, which is shown as the path of the included file. Only `reveal` shows a message. A passphrase is never shown.
+`ok` says whether the command finished. If `verify` finds a difference, `ok` is `true`, `exact_match` is `false`, and the exit code is 1. Paths in these fields are as given, except `output` and the file of `difference`, which are absolute, and the input `sample`, which is shown as the path of the included file. Only `reveal` shows a message. A passphrase is never shown.
 
 The error types are `usage`, `cancelled`, `interrupted`, `input_ended`, `out_of_memory`, `file`, `file_exists`, `file_not_found`, `invalid_value`, `capacity`, `damaged_message`, `invalid_message`, `missing_library`, `no_message`, `not_encrypted`, `passphrase_required`, `unsafe_output`, `unsupported_algorithm`, `unsupported_format`, and `wrong_passphrase`.
 
@@ -357,7 +357,7 @@ If the output is closed (for example, by a pipe such as `| head`), the code is 1
 - An empty message and replacing a file must be confirmed: type `y` and Enter.
 - A message that does not fit is refused at once, and only algorithms that can hold it are offered.
 - Compare asks whether to show three lines, everything, or what you choose. It then offers to play the sounds, if the system has a player.
-- After each action, it shows the command that does the same. The message and the passphrase are never part of it. A command is not shown if a file name has characters that a shell could change.
+- After each action, it shows the command that does the same. The message and the passphrase are never part of it. A command is not shown if a file name or another answer has characters that a shell could change.
 
 Spaces around a typed path are removed, and `~` means your home folder. The exit code is 1 if an action failed. The guided mode needs a terminal for stdin, stdout, and stderr; without one, the program shows the help and exits with code 2.
 
