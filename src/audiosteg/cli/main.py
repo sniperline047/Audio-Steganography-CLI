@@ -66,14 +66,16 @@ def run_guided(parser: Parser, args: argparse.Namespace, view: View) -> int:
     if args.json:
         raise UsageError("--json needs a command.")
     streams = (sys.stdin, sys.stdout, sys.stderr)
-    if not all(stream.isatty() for stream in streams) or is_dumb_terminal():
-        view.err.write(parser.format_help())
-        view.note("")
-        view.note("Error: The guided mode needs a terminal. Choose a command instead.", "bold red")
-        return WRONG_USAGE
-    from audiosteg.cli.guided.menu import run
+    if all(stream.isatty() for stream in streams) and not is_dumb_terminal():
+        from audiosteg.cli.guided.menu import run
+        from audiosteg.cli.guided.prompter import can_show_menus
 
-    return run(view)
+        if can_show_menus():
+            return run(view)
+    view.err.write(parser.format_help())
+    view.note("")
+    view.note("Error: The guided mode needs a terminal. Choose a command instead.", "bold red")
+    return WRONG_USAGE
 
 
 def run_command(words: Sequence[str]) -> int:

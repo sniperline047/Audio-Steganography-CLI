@@ -1,10 +1,12 @@
 """Ask questions with the same keys and colours everywhere."""
 
 import os
+import sys
 from collections.abc import Callable
 from typing import Any
 
 import questionary
+from prompt_toolkit.application import get_app_session
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent, merge_key_bindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.output import ColorDepth
@@ -30,12 +32,26 @@ NO_COLOURS = Style(
     [(name, "noinherit") for name in ("qmark", "question", "answer", "pointer", "highlighted", "selected")]
 )
 
+CONSOLE_ERRORS: tuple[type[Exception], ...] = ()
+if sys.platform == "win32":
+    from prompt_toolkit.output.win32 import NoConsoleScreenBufferError
+
+    CONSOLE_ERRORS = (NoConsoleScreenBufferError,)
+
 
 class GoBack(Exception):
     """The person wants to go back one question."""
 
 
 BACK = Choice("Back", value=GoBack)
+
+
+def can_show_menus() -> bool:
+    """Say whether menus can be shown. Some Windows terminals are not a console, which menus need."""
+    try:
+        return get_app_session().output is not None
+    except CONSOLE_ERRORS:
+        return False
 
 
 class Prompter:
