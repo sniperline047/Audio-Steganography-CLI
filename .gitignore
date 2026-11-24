@@ -133,3 +133,10 @@ cython_debug/
 
 # VS Code
 .vscode/
+
+# Encoded audio
+output/*.wav
+.stego_*.tmp
+
+# Ruff
+.ruff_cache/
