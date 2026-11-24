@@ -1,5 +1,9 @@
+[build-system]
+requires = ["flit_core==4.2.0"]
+build-backend = "flit_core.buildapi"
+
 [project]
-name = "audio_steganography_cli"
+name = "audiosteg"
 version = "0.1.0"
 description = "A learning project for hiding messages in WAV files."
 readme = "README.md"
@@ -8,14 +12,21 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = []
 
+[project.scripts]
+audiosteg = "audiosteg.cli.main:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.coverage.run]
 branch = true
-source = ["algorithms", "cli", "scripts", "utils"]
+source = ["scripts"]
+source_pkgs = ["audiosteg"]
 patch = ["subprocess"]
+
+[tool.coverage.paths]
+audiosteg = ["src/audiosteg", "*/site-packages/audiosteg"]
 
 [tool.coverage.report]
 fail_under = 90
@@ -28,10 +39,8 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["B", "E", "F", "I", "SIM", "UP", "W"]
 
-[tool.ruff.lint.per-file-ignores]
-"cli/main.py" = ["E402"]
-
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["algorithms", "cli", "scripts", "utils"]
+files = ["src", "scripts"]
+mypy_path = "src"

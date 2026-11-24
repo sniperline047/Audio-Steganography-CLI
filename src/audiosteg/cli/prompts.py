@@ -4,8 +4,9 @@ import os
 import sys
 from collections.abc import Sequence
 
-from cli.config import ALGORITHMS, Algorithm
-from utils.text import escape_text
+from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.registry import ALGORITHMS
+from audiosteg.utils.text import escape_text
 
 
 class OutputClosedError(Exception):
@@ -59,7 +60,7 @@ def ask_yes_no(question: str) -> bool:
         print("Please answer y or n.")
 
 
-def get_file_path(description: str, default_path: str) -> str:
+def get_file_path(description: str, default_path: str, default_label: str | None = None) -> str:
     """
     Get a file path from the user.
 
@@ -67,9 +68,10 @@ def get_file_path(description: str, default_path: str) -> str:
 
     :param description: What the file is, for example "Input audio file"
     :param default_path: The path used when the user presses Enter
+    :param default_label: The text shown instead of the default path
     :return: The chosen path
     """
-    path = ask(f"\n{description} [{escape_text(default_path)}]: ").strip()
+    path = ask(f"\n{description} [{escape_text(default_label or default_path)}]: ").strip()
     if not path:
         return default_path
     expanded_path = os.path.expanduser(path)
@@ -80,7 +82,7 @@ def get_file_path(description: str, default_path: str) -> str:
 
 def display_algorithm_menu() -> None:
     """Display the algorithm selection menu."""
-    names = [algorithm["name"] for algorithm in ALGORITHMS.values()]
+    names = [algorithm.name for algorithm in ALGORITHMS.values()]
     display_menu([*names, "Back"], "Select an algorithm")
 
 

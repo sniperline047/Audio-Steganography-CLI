@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable, Iterator, Sequence
 
-from utils.errors import InvalidMessageError, NoMessageError
+from audiosteg.errors import InvalidMessageError, NoMessageError
 
 HEADER_BITS = 32
 MAX_MESSAGE_BITS = 2**HEADER_BITS - 1

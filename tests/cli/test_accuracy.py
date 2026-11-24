@@ -1,4 +1,4 @@
-"""Tests for cli/accuracy.py."""
+"""Tests for audiosteg/cli/accuracy.py."""
 
 import os
 from collections.abc import Callable
@@ -6,9 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from cli.accuracy import AccuracyResult, calculate_accuracy, compare_messages
-from cli.config import ALGORITHMS
-from utils.errors import NoMessageError
+from audiosteg import encode
+from audiosteg.cli.accuracy import AccuracyResult, calculate_accuracy, compare_messages
+from audiosteg.core.registry import ALGORITHMS
+from audiosteg.errors import NoMessageError
 
 
 @pytest.mark.parametrize(
@@ -43,7 +44,7 @@ def test_checking_a_file_changes_nothing(
 ) -> None:
     algorithm = ALGORITHMS[number]
     output = tmp_path / "output.wav"
-    algorithm["encode"](str(make_wav()), str(output), "hidden", False)
+    encode(str(make_wav()), str(output), "hidden", algorithm)
     content = output.read_bytes()
     output.chmod(0o444)
     modified = output.stat().st_mtime_ns

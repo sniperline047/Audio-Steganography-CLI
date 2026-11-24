@@ -136,7 +136,7 @@ cython_debug/
 .vscode/
 
 # Encoded audio
-output/*.wav
+/*_lsb_encoded*.wav
 .stego_*.tmp
 
 # Ruff

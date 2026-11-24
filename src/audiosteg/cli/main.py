@@ -5,14 +5,10 @@ import io
 import os
 import sys
 from collections.abc import Callable
+from importlib.resources import files
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
-from cli.accuracy import calculate_accuracy
-from cli.config import STANDARD_INPUT_FILE_PATH
-from cli.helpers import (
+from audiosteg.cli.accuracy import calculate_accuracy
+from audiosteg.cli.prompts import (
     OutputClosedError,
     ask,
     ask_yes_no,
@@ -22,11 +18,13 @@ from cli.helpers import (
     get_user_choice,
     require_output,
 )
-from utils.errors import StegoError
-from utils.output_path import check_output_path, normalize_output_path
-from utils.text import escape_text
-from utils.wav_io import check_regular_file
+from audiosteg.core.stego_file import decode, encode
+from audiosteg.core.wav_io import check_regular_file
+from audiosteg.errors import StegoError
+from audiosteg.utils.output_path import check_output_path, normalize_output_path
+from audiosteg.utils.text import escape_text
 
+SAMPLE_FILE = str(files("audiosteg") / "data" / "sample.wav")
 EXIT_CHOICE = 4
 
 
@@ -36,8 +34,8 @@ def handle_encode() -> None:
     if algorithm is None:
         return
     secret_message = ask("Enter the secret message to encode: ")
-    input_file = get_file_path("Input audio file", STANDARD_INPUT_FILE_PATH)
-    chosen_path = get_file_path("Output audio file", algorithm["output_file"])
+    input_file = get_file_path("Input audio file", SAMPLE_FILE, "included sample")
+    chosen_path = get_file_path("Output audio file", algorithm.output_file_name)
 
     check_regular_file(input_file)
     output_file = normalize_output_path(chosen_path)
@@ -51,7 +49,7 @@ def handle_encode() -> None:
 
     print("Encoding...")
     require_output()
-    algorithm["encode"](input_file, output_file, secret_message, overwrite)
+    encode(input_file, output_file, secret_message, algorithm, overwrite=overwrite)
     print(f"Message encoded into {escape_text(output_file)}")
 
 
@@ -60,8 +58,8 @@ def handle_decode() -> None:
     algorithm = choose_algorithm()
     if algorithm is None:
         return
-    encoded_file = get_file_path("Encoded audio file", algorithm["output_file"])
-    decoded_message = algorithm["decode"](encoded_file)
+    encoded_file = get_file_path("Encoded audio file", algorithm.output_file_name)
+    decoded_message = decode(encoded_file, algorithm)
     if decoded_message:
         print(f"Decoded message: {escape_text(decoded_message)}")
     else:
@@ -74,7 +72,7 @@ def handle_accuracy_check() -> None:
     algorithm = choose_algorithm()
     if algorithm is None:
         return
-    encoded_file = get_file_path("Encoded audio file", algorithm["output_file"])
+    encoded_file = get_file_path("Encoded audio file", algorithm.output_file_name)
     result = calculate_accuracy(expected_message, algorithm, encoded_file)
     print(f"Accuracy of decoded message: {result.percentage:.2f}%")
     print(f"Exact match: {'yes' if result.exact_match else 'no'}")
@@ -171,7 +169,3 @@ def main() -> int:
     if not flush_output():
         return exit_code or 1
     return exit_code
-
-
-if __name__ == "__main__":
-    sys.exit(main())

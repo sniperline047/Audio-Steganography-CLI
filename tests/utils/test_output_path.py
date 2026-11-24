@@ -1,12 +1,12 @@
-"""Tests for utils/output_path.py."""
+"""Tests for audiosteg/utils/output_path.py."""
 
 import os
 from pathlib import Path
 
 import pytest
 
-from utils.errors import UnsafeOutputError
-from utils.output_path import check_output_path, check_windows_path, normalize_output_path
+from audiosteg.errors import UnsafeOutputError
+from audiosteg.utils.output_path import check_output_path, check_windows_path, normalize_output_path
 
 
 @pytest.fixture

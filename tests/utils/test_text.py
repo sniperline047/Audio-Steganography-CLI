@@ -1,10 +1,10 @@
-"""Tests for utils/text.py."""
+"""Tests for audiosteg/utils/text.py."""
 
 import unicodedata
 
 import pytest
 
-from utils.text import escape_text
+from audiosteg.utils.text import escape_text
 
 
 @pytest.mark.parametrize(

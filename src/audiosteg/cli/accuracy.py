@@ -2,7 +2,8 @@
 
 from typing import NamedTuple
 
-from cli.config import Algorithm
+from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.stego_file import decode
 
 
 class AccuracyResult(NamedTuple):
@@ -44,4 +45,4 @@ def calculate_accuracy(expected_message: str, algorithm: Algorithm, stego_file_p
     :param stego_file_path: Path to the encoded audio file
     :return: The comparison result
     """
-    return compare_messages(expected_message, algorithm["decode"](stego_file_path))
+    return compare_messages(expected_message, decode(stego_file_path, algorithm))

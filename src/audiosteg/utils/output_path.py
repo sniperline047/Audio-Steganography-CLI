@@ -4,7 +4,7 @@ import ntpath
 import os
 import stat
 
-from utils.errors import UnsafeOutputError
+from audiosteg.errors import UnsafeOutputError
 
 WINDOWS_DEVICES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {
     f"{port}{number}" for port in ("COM", "LPT") for number in "123456789¹²³"

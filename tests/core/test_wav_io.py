@@ -1,4 +1,4 @@
-"""Tests for utils/wav_io.py."""
+"""Tests for audiosteg/core/wav_io.py."""
 
 import os
 import struct
@@ -8,9 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from utils import wav_io
-from utils.errors import UnsupportedFormatError
-from utils.wav_io import (
+from audiosteg.core import wav_io
+from audiosteg.core.wav_io import (
     AudioData,
     check_regular_file,
     count_sample_bytes,
@@ -19,6 +18,7 @@ from utils.wav_io import (
     read_first_bytes,
     write_audio,
 )
+from audiosteg.errors import UnsupportedFormatError
 
 PCM, ADPCM, FLOAT, MU_LAW, EXTENSIBLE = 1, 2, 3, 7, 0xFFFE
 PCM_SUBTYPE = bytes.fromhex("0100000000001000800000aa00389b71")

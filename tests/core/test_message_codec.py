@@ -1,9 +1,8 @@
-"""Tests for utils/message_codec.py."""
+"""Tests for audiosteg/core/message_codec.py."""
 
 import pytest
 
-from utils.errors import InvalidMessageError, NoMessageError
-from utils.message_codec import (
+from audiosteg.core.message_codec import (
     add_length_header,
     bits_to_bytes,
     bytes_to_bits,
@@ -11,6 +10,7 @@ from utils.message_codec import (
     message_to_bytes,
     read_length_header,
 )
+from audiosteg.errors import InvalidMessageError, NoMessageError
 
 
 def header(value: int) -> list[int]:

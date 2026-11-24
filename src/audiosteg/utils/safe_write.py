@@ -10,7 +10,7 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import BinaryIO
 
-from utils.output_path import check_output_path, find_file
+from audiosteg.utils.output_path import check_output_path, find_file
 
 HARD_LINK_UNSUPPORTED = {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EMLINK}
 

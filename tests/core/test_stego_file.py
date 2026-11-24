@@ -1,4 +1,4 @@
-"""Tests for utils/stego_file.py."""
+"""Tests for audiosteg/core/stego_file.py."""
 
 import errno
 import os
@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from utils.errors import (
+from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.stego_file import check_capacity, decode, encode
+from audiosteg.errors import (
     CapacityError,
     InvalidMessageError,
     NoMessageError,
@@ -15,7 +17,6 @@ from utils.errors import (
     UnsafeOutputError,
     UnsupportedFormatError,
 )
-from utils.stego_file import check_capacity, read_message, write_message
 
 
 def embed_bit(byte: int, bits: tuple[int, ...]) -> int:
@@ -26,12 +27,15 @@ def extract_bit(byte: int) -> tuple[int, ...]:
     return (byte & 1,)
 
 
+LOWEST_BIT = Algorithm("Lowest bit", 1, embed_bit, extract_bit, "lowest_bit.wav")
+
+
 def hide(source: Path | str, output: Path | str, message: str = "hidden", overwrite: bool = False) -> None:
-    write_message(str(source), str(output), message, 1, embed_bit, overwrite)
+    encode(str(source), str(output), message, LOWEST_BIT, overwrite=overwrite)
 
 
 def reveal(path: Path | str) -> str:
-    return read_message(str(path), 1, extract_bit)
+    return decode(str(path), LOWEST_BIT)
 
 
 def carrier(header: int, message: bytes = b"") -> bytes:

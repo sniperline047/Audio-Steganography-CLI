@@ -1,4 +1,4 @@
-"""Tests for cli/helpers.py."""
+"""Tests for audiosteg/cli/prompts.py."""
 
 import io
 import os
@@ -7,8 +7,15 @@ from pathlib import Path
 
 import pytest
 
-from cli.config import ALGORITHMS
-from cli.helpers import OutputClosedError, ask, ask_yes_no, choose_algorithm, get_file_path, get_user_choice
+from audiosteg.cli.prompts import (
+    OutputClosedError,
+    ask,
+    ask_yes_no,
+    choose_algorithm,
+    get_file_path,
+    get_user_choice,
+)
+from audiosteg.core.registry import ALGORITHMS
 
 Answer = Callable[..., list[str]]
 
