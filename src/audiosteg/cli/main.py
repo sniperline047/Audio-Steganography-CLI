@@ -20,12 +20,18 @@ from audiosteg.cli.prompts import (
 )
 from audiosteg.core.stego_file import decode, encode
 from audiosteg.core.wav_io import check_regular_file
-from audiosteg.errors import StegoError
+from audiosteg.errors import StegoError, UnsafeOutputError
 from audiosteg.utils.output_path import check_output_path, normalize_output_path
 from audiosteg.utils.text import escape_text
 
 SAMPLE_FILE = str(files("audiosteg") / "data" / "sample.wav")
 EXIT_CHOICE = 4
+
+
+def check_not_sample(output_file: str) -> None:
+    """Refuse to replace the sample that is included in the package."""
+    if os.path.exists(output_file) and os.path.samefile(output_file, SAMPLE_FILE):
+        raise UnsafeOutputError("The output path is the included sample, which cannot be replaced.")
 
 
 def handle_encode() -> None:
@@ -40,6 +46,7 @@ def handle_encode() -> None:
     check_regular_file(input_file)
     output_file = normalize_output_path(chosen_path)
     check_output_path(input_file, output_file, overwrite=True)
+    check_not_sample(output_file)
     overwrite = False
     if os.path.exists(output_file):
         overwrite = ask_yes_no(f"{escape_text(output_file)} already exists. Overwrite it?")

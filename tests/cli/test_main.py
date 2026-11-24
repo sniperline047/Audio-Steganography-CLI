@@ -17,20 +17,24 @@ from audiosteg import Algorithm, decode, encode
 from audiosteg.algorithms.basic_lsb import BASIC_LSB
 from audiosteg.algorithms.enhanced_lsb import ENHANCED_LSB
 from audiosteg.algorithms.enhanced_lsb_flip import ENHANCED_LSB_FLIP
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli import main
+from audiosteg.errors import UnsafeOutputError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 PROGRAM = [sys.executable, "-m", "audiosteg"]
 TIMEOUT = 60
 StartProcess = Callable[[], subprocess.Popen[bytes]]
 EXIT = "4"
-BACK = "4"
+BACK = str(len(ALGORITHMS) + 1)
+INVALID_ALGORITHM = str(len(ALGORITHMS) + 2)
 MAIN_MENU = "1) Encode a message\n2) Decode a message\n3) Calculate accuracy\n4) Exit\n"
 ALGORITHM_MENU = (
     "1) Basic LSB Steganography\n"
     "2) Enhanced LSB Steganography with Bit Flipping\n"
     "3) Enhanced LSB Steganography without Bit Flipping\n"
-    "4) Back\n"
+    + "".join(f"{number}) {ALGORITHMS[number].name}\n" for number in sorted(ALGORITHMS) if number > 3)
+    + f"{BACK}) Back\n"
 )
 DEFAULT_FILES = [
     (1, "basic_lsb_encoded.wav"),
@@ -156,10 +160,12 @@ def test_each_menu_number_uses_its_own_algorithm(
 
 
 def test_the_console_command_from_the_project_folder(make_wav: Callable[..., Path], tmp_path: Path) -> None:
+    command = shutil.which("audiosteg", path=sysconfig.get_path("scripts"))
+    assert command is not None, "the audiosteg command is not installed"
     output = tmp_path / "output.wav"
     result = run(
         *encode_lines(make_wav(), output), *decode_lines(output), EXIT,
-        command=[str(shutil.which("audiosteg", path=sysconfig.get_path("scripts")))],
+        command=[command],
         cwd=PROJECT_ROOT,
     )  # fmt: skip
     assert result.code == 0
@@ -191,7 +197,7 @@ def test_an_invalid_algorithm_is_asked_again_and_the_message_is_kept(
 ) -> None:
     output = tmp_path / "output.wav"
     encode(str(make_wav()), str(output), "hidden", BASIC_LSB)
-    result = run("3", "hidden", "5", "", "x", "1", str(output), EXIT)
+    result = run("3", "hidden", INVALID_ALGORITHM, "", "x", "1", str(output), EXIT)
     assert (result.code, result.errors) == (0, "")
     assert "Exact match: yes\n" in result.output
     assert result.output.count(ALGORITHM_MENU) == 4
@@ -240,6 +246,37 @@ def test_the_input_file_cannot_be_the_output_and_is_refused_before_any_overwrite
     assert "must be different files" in result.errors
     assert "Overwrite" not in result.output
     assert source.read_bytes() == original
+
+
+@pytest.mark.parametrize("kind", ["path", "linked_folder", "hard_link", "symbolic_link", "other_case"])
+def test_the_included_sample_cannot_be_the_output(
+    make_wav: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    folder = tmp_path / "data"
+    folder.mkdir()
+    sample = folder / "sample.wav"
+    sample.write_bytes(b"sample")
+    output = {"path": sample, "other_case": folder / "SAMPLE.WAV"}.get(kind, tmp_path / "link.wav")
+    try:
+        if kind == "linked_folder":
+            (tmp_path / "linked").symlink_to(folder, target_is_directory=True)
+            output = tmp_path / "linked" / "sample.wav"
+        elif kind == "hard_link":
+            os.link(sample, output)
+        elif kind == "symbolic_link":
+            output.symlink_to(sample)
+    except OSError:
+        pytest.skip("this system does not allow this kind of link")
+    if not output.exists():
+        pytest.skip("this file system tells letter cases apart")
+    answers = [*encode_lines(make_wav(), output)[1:], "y"]
+    monkeypatch.setattr(main, "SAMPLE_FILE", str(sample))
+    monkeypatch.setattr("builtins.input", lambda prompt="": answers.pop(0))
+    reason = "symbolic link" if kind == "symbolic_link" else "included sample"
+    with pytest.raises(UnsafeOutputError, match=reason):
+        main.handle_encode()
+    assert answers == ["y"]
+    assert sample.read_bytes() == b"sample"
 
 
 def test_an_output_folder_is_refused_before_any_overwrite_prompt(
