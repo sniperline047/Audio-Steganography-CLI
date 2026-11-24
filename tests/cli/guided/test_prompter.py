@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from prompt_toolkit.application import AppSession, create_app_session
+from prompt_toolkit.input import create_pipe_input
+from prompt_toolkit.output import DummyOutput
 from questionary import Choice
 
 from audiosteg.cli.guided import prompter as prompter_module
@@ -143,8 +146,24 @@ def test_the_arrow_keys_wrap_around(guide: Any) -> None:
     assert guide((MENU, UP + ENTER), leave=False).code == 0
 
 
-def test_menu_values_that_are_false_are_answers(prompter: Callable[[str], Prompter]) -> None:
-    for value in (False, ""):
-        made = prompter("")
-        made.ask = lambda question, end_with_ctrl_d, value=value: value  # type: ignore[method-assign]
+@pytest.mark.parametrize("value", [False, ""])
+def test_menu_values_that_are_false_are_answers(prompter: Callable[[str], Prompter], value: Any) -> None:
+    made = prompter("")
+    made.ask = lambda question, end_with_ctrl_d: value  # type: ignore[method-assign]
+    with create_pipe_input() as keys, create_app_session(input=keys, output=DummyOutput()):
         assert made.choose("?", [Choice("no", value=value)]) == value
+
+
+def test_a_terminal_that_is_not_a_console_gets_the_help(run: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    class NotAConsole(Exception):
+        pass
+
+    def refuse(session: AppSession) -> None:
+        raise NotAConsole
+
+    monkeypatch.setattr(prompter_module, "CONSOLE_ERRORS", (NotAConsole,))
+    monkeypatch.setattr(AppSession, "output", property(refuse))
+    result = run(terminals=("stdin", "stdout", "stderr"))
+    assert (result.code, result.output) == (2, "")
+    assert "usage: audiosteg" in result.errors
+    assert "Error: The guided mode needs a terminal. Choose a command instead." in result.errors
