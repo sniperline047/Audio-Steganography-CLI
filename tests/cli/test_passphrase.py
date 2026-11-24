@@ -4,6 +4,7 @@ import io
 import os
 import warnings
 from collections.abc import Callable
+from functools import partial
 from getpass import GetPassWarning
 from pathlib import Path
 
@@ -79,17 +80,20 @@ def test_leaving_a_hidden_prompt_is_not_an_empty_answer(
 
     terminal(leave)
     with pytest.raises(error):
-        ask_new_passphrase(print)
+        ask_new_passphrase(lambda: ask_hidden(""), lambda: ask_hidden(""), print)
 
 
 def test_a_new_passphrase_must_be_repeated_and_not_empty(terminal: SetGetpass) -> None:
-    answers = ["key", "Key", "", "key ", "key", "key", "key"]
+    answers = ["key", "Key", "", "key\n", "a\tb", "key ", "key", "key", "key"]
     terminal(lambda prompt: answers.pop(0))
     shown: list[str] = []
-    assert ask_new_passphrase(shown.append) == "key"
+    ask = partial(ask_hidden, "")
+    assert ask_new_passphrase(ask, ask, shown.append) == "key"
     assert answers == []
     mismatch = "The passphrases do not match. Please try again."
-    assert shown == [mismatch, "The passphrase is empty. Please try again.", mismatch]
+    control = "The passphrase contains a line break or another control character. Please try again."
+    empty = "The passphrase is empty. Please try again."
+    assert shown == [mismatch, empty, control, control, mismatch]
 
 
 @pytest.mark.parametrize(

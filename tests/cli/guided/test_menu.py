@@ -1,6 +1,5 @@
-"""Tests for audiosteg/cli/guided.py."""
+"""Tests for audiosteg/cli/guided/menu.py."""
 
-import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -9,8 +8,6 @@ import pytest
 
 from audiosteg import decode, encode
 from audiosteg.algorithms.lsb import LSB
-from audiosteg.cli import guided
-from audiosteg.cli.guided import GoBack, Prompter
 
 DOWN, ENTER, ESCAPE, CTRL_C, CTRL_D = "\x1b[B", "\r", "\x1b", "\x03", "\x04"
 MENU = "What would you like to do?"
@@ -152,83 +149,3 @@ def test_leaving_the_overwrite_question_keeps_the_file(
         program.answer("Output file", keys)
     assert program.finish() == code
     assert decode(str(output)) == "keep me"
-
-
-@pytest.fixture
-def prompter(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], Prompter]:
-    """Return a function that makes a prompter whose next text answer is known."""
-
-    class Out:
-        coloured = False
-
-    class View:
-        out = Out()
-
-    def make(answer: str) -> Prompter:
-        made = Prompter(View())  # type: ignore[arg-type]
-        monkeypatch.setattr(guided.questionary, "text", lambda *args, **options: None)
-        monkeypatch.setattr(made, "ask", lambda question: answer)
-        return made
-
-    return make
-
-
-@pytest.mark.parametrize(
-    ("text", "path"),
-    [
-        ("", "default.wav"),
-        ("   ", "default.wav"),
-        ("other.wav", "other.wav"),
-        ("my folder/a file.wav", "my folder/a file.wav"),
-        (" \t other.wav \t", "other.wav"),
-    ],
-)
-def test_file_path_answers(prompter: Callable[[str], Prompter], text: str, path: str) -> None:
-    assert prompter(text).file("Output file", "default.wav") == path
-
-
-def test_a_tilde_means_the_home_folder(
-    prompter: Callable[[str], Prompter], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    for variable in ("HOME", "USERPROFILE"):
-        monkeypatch.setenv(variable, str(tmp_path))
-    assert Path(prompter(" ~/a.wav ").file("Input")) == tmp_path / "a.wav"
-    assert prompter("./~/a.wav").file("Input") == "./~/a.wav"
-
-
-@pytest.mark.skipif(os.name == "nt", reason="Windows guesses the folder of an unknown user")
-def test_an_unknown_home_folder_is_refused(prompter: Callable[[str], Prompter]) -> None:
-    with pytest.raises(FileNotFoundError, match="No home folder"):
-        prompter("~no_such_user_here/a.wav").file("Input")
-
-
-def test_going_back_skips_questions_that_were_not_asked(prompter: Callable[[str], Prompter]) -> None:
-    asked: list[str] = []
-
-    def first() -> bool:
-        asked.append("first")
-        return True
-
-    def skipped() -> bool:
-        return False
-
-    def last() -> bool:
-        asked.append("last")
-        if asked.count("last") == 1:
-            raise GoBack
-        return True
-
-    assert prompter("").run([first, skipped, last]) is True
-    assert asked == ["first", "last", "first", "last"]
-
-
-@pytest.mark.parametrize(
-    ("words", "shown"),
-    [
-        (("audiosteg", "reveal", "a.wav"), "audiosteg reveal a.wav"),
-        (("audiosteg", "reveal", "a\x1b[2J.wav"), None),
-        (("audiosteg", "reveal", "a\u202e.wav"), None),
-    ],
-)
-def test_only_commands_that_can_be_shown_are_shown(words: tuple[str, ...], shown: str | None) -> None:
-    assert guided.command_line(*words) == shown

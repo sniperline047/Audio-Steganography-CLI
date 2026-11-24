@@ -101,7 +101,7 @@ def test_unusable_messages_are_refused_without_showing_them(
     output = tmp_path / "out.wav"
     result = run("hide", make_wav(), "-o", output, stdin=data)
     assert result.code == 1
-    assert "not valid UTF-8" in result.errors or "larger than the audio file" in result.errors
+    assert "not valid UTF-8" in result.errors or "message is too large" in result.errors
     assert "bad" not in result.errors and "xx" not in result.errors
     assert not output.exists()
 
