@@ -69,7 +69,7 @@ class HideForm:
         """Ask for a message that the file can hold."""
         message = self.prompter.text("Message to hide")
         length, limit = len(message_to_bytes(message)), largest_message(self.samples, encrypted=False)
-        if length > limit:
+        if not fitting_algorithms(message, self.samples, encrypted=False):
             raise CapacityError(
                 f"The message is too large: it needs {length} bytes and the audio file can hold "
                 f"{limit} bytes. Type a shorter message, or go back and choose a longer audio file."
@@ -94,7 +94,7 @@ class HideForm:
         keys = self.fitting(encrypted=False)
         if len(keys) < len(ALGORITHMS):
             self.prompter.view.note(
-                f"The message is too large for some algorithms. It fits: {', '.join(keys)}."
+                f"The message is too large for some algorithms. These can hold it: {', '.join(keys)}."
             )
         self.algorithm = self.prompter.choose(
             "Which algorithm? If you are not sure, use the first.",

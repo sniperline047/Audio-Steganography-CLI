@@ -429,7 +429,7 @@ def test_a_message_that_is_too_large_is_refused_at_once(
     )
     assert result.code == 0
     assert "it needs 188 bytes and the audio file can hold 186 bytes" in result.text
-    assert "The message is too large for some algorithms. It fits: lsb_2." in result.text
+    assert "The message is too large for some algorithms. These can hold it: lsb_2." in result.text
     assert "lsb: Hides" not in result.text
     assert decode(str(tmp_path / "input.stego.wav"), LSB_2) == "é" * 93
 
@@ -447,3 +447,13 @@ def test_a_message_that_encryption_makes_too_large_is_refused_at_once(
     assert "Encryption makes the message too large for lsb" in result.text
     assert advice in result.text
     assert "Passphrase:" not in result.text
+
+
+def test_a_file_that_is_too_small_for_any_message_is_explained(
+    guide: Any, make_wav: Callable[..., Path]
+) -> None:
+    make_wav(frames=bytes(20))
+    result = guide(START, OWN_FILE, INPUT, message(""), ("Message to hide:", CTRL_C), leave=False)
+    assert result.code == 130
+    assert "it needs 0 bytes and the audio file can hold 0 bytes" in result.text
+    assert "Hide an empty message?" not in result.text
