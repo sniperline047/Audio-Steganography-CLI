@@ -8,7 +8,7 @@ from audiosteg import Algorithm
 
 
 def make_algorithm(bits_per_byte: int) -> Algorithm:
-    return Algorithm("Test", bits_per_byte, lambda byte, bits: byte, lambda byte: (), "test.wav")
+    return Algorithm("Test", bits_per_byte, lambda byte, bits: byte, lambda byte: ())
 
 
 @pytest.mark.parametrize("bits_per_byte", [1, 2, 4, 8])

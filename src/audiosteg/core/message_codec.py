@@ -1,11 +1,9 @@
 """Convert messages to bits and back."""
 
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator
 
-from audiosteg.errors import InvalidMessageError, NoMessageError
-
-HEADER_BITS = 32
-MAX_MESSAGE_BITS = 2**HEADER_BITS - 1
+from audiosteg.core.algorithm import ExtractBits
+from audiosteg.errors import DamagedMessageError, InvalidMessageError
 
 
 def message_to_bytes(message: str) -> bytes:
@@ -17,11 +15,11 @@ def message_to_bytes(message: str) -> bytes:
 
 
 def bytes_to_message(data: bytes) -> str:
-    """Decode UTF-8 bytes, falling back to Latin-1 for files made by older versions."""
+    """Decode UTF-8 bytes."""
     try:
         return data.decode("utf-8")
-    except UnicodeDecodeError:
-        return data.decode("latin-1")
+    except UnicodeDecodeError as error:
+        raise DamagedMessageError("The hidden message is not valid text.") from error
 
 
 def bytes_to_bits(data: bytes) -> Iterator[int]:
@@ -46,22 +44,7 @@ def bits_to_bytes(bits: Iterable[int]) -> bytes:
     return bytes(result)
 
 
-def add_length_header(message_bytes: bytes) -> bytes:
-    """Put the message length, in bits, in front of the message as 4 big-endian bytes."""
-    return (len(message_bytes) * 8).to_bytes(HEADER_BITS // 8, "big") + message_bytes
-
-
-def read_length_header(header_bits: Sequence[int], available_bits: int) -> int:
-    """
-    Read and check the message length.
-
-    :param header_bits: The first 32 hidden bits
-    :param available_bits: How many hidden bits can follow the header
-    :return: The message length in bits
-    """
-    if len(header_bits) < HEADER_BITS:
-        raise NoMessageError("The audio file is too short to hold a hidden message.")
-    length = int.from_bytes(bits_to_bytes(header_bits), "big")
-    if length > available_bits or length % 8 != 0:
-        raise NoMessageError("No hidden message was found. Check the file and the algorithm.")
-    return length
+def extract_all(sample_bytes: bytes, extract_bits: ExtractBits) -> Iterator[int]:
+    """Yield the hidden bits of every given byte."""
+    for byte in sample_bytes:
+        yield from extract_bits(byte)

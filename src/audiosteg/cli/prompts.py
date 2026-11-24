@@ -2,11 +2,17 @@
 
 import os
 import sys
-from collections.abc import Sequence
+import warnings
+from collections.abc import Mapping, Sequence
+from getpass import GetPassWarning, getpass
+from typing import TypeVar
 
-from audiosteg.algorithms.registry import ALGORITHMS
+from audiosteg.algorithms.legacy import LegacyAlgorithm
+from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
 from audiosteg.core.algorithm import Algorithm
 from audiosteg.utils.text import escape_text
+
+AnyAlgorithm = TypeVar("AnyAlgorithm", Algorithm, LegacyAlgorithm)
 
 
 class OutputClosedError(Exception):
@@ -33,6 +39,38 @@ def ask(prompt: str) -> str:
     print(prompt, end="")
     require_output()
     return input()
+
+
+def read_hidden_line() -> str:
+    """Read one line without showing it. Input that is not a terminal is read normally."""
+    if not sys.stdin.isatty():
+        return input()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", GetPassWarning)
+        try:
+            return getpass("")
+        except GetPassWarning as error:
+            raise OSError("This terminal cannot hide the passphrase.") from error
+        except UnicodeDecodeError:
+            raise ValueError("The passphrase contains characters that are not valid text.") from None
+
+
+def ask_hidden(prompt: str) -> str:
+    """Show a prompt and read one line without showing it."""
+    print(prompt, end="")
+    require_output()
+    return read_hidden_line()
+
+
+def ask_new_passphrase() -> str | None:
+    """Ask for a passphrase twice, until both match. Return None if the answer is empty."""
+    while True:
+        passphrase = ask_hidden("Passphrase, not shown while you type [none]: ")
+        if not passphrase:
+            return None
+        if ask_hidden("Repeat the passphrase: ") == passphrase:
+            return passphrase
+        print("The passphrases do not match. Please try again.")
 
 
 def get_user_choice(num_options: int) -> int | None:
@@ -80,16 +118,20 @@ def get_file_path(description: str, default_path: str, default_label: str | None
     return expanded_path
 
 
-def display_algorithm_menu() -> None:
-    """Display the algorithm selection menu."""
-    names = [algorithm.name for algorithm in ALGORITHMS.values()]
-    display_menu([*names, "Back"], "Select an algorithm")
+def choose_from(algorithms: Mapping[int, AnyAlgorithm], header: str) -> AnyAlgorithm | None:
+    """Ask for one of the algorithms until the choice is valid. Return None for Back."""
+    while True:
+        display_menu([*(algorithm.name for algorithm in algorithms.values()), "Back"], header)
+        choice = get_user_choice(len(algorithms) + 1)
+        if choice is not None:
+            return algorithms.get(choice)
 
 
 def choose_algorithm() -> Algorithm | None:
-    """Ask for an algorithm until the choice is valid. Return None for Back."""
-    while True:
-        display_algorithm_menu()
-        choice = get_user_choice(len(ALGORITHMS) + 1)
-        if choice is not None:
-            return ALGORITHMS.get(choice)
+    """Ask for the algorithm that hides a message."""
+    return choose_from(ALGORITHMS, "Select an algorithm")
+
+
+def choose_legacy_algorithm() -> LegacyAlgorithm | None:
+    """Ask for the algorithm of a file made by an older version."""
+    return choose_from(LEGACY_ALGORITHMS, "Select an old algorithm")

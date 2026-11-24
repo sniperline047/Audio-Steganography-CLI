@@ -23,8 +23,10 @@ def test_the_public_names() -> None:
     namespace: dict[str, object] = {}
     exec("from audiosteg import *", namespace)
     assert namespace.keys() - {"__builtins__"} == {
-        "Algorithm", "CapacityError", "InvalidMessageError", "NoMessageError", "StegoError",
-        "UnsafeOutputError", "UnsupportedFormatError", "decode", "encode",
+        "Algorithm", "CapacityError", "DamagedMessageError", "InvalidMessageError",
+        "MissingLibraryError", "NoMessageError", "NotEncryptedError", "PassphraseRequiredError",
+        "StegoError", "UnsafeOutputError", "UnsupportedAlgorithmError", "UnsupportedFormatError",
+        "WrongPassphraseError", "decode", "encode",
     }  # fmt: skip
 
 
@@ -35,10 +37,16 @@ def test_every_public_error_can_be_caught_as_one_type() -> None:
 
 def test_the_public_functions_keep_their_arguments() -> None:
     encode = inspect.signature(audiosteg.encode).parameters
-    assert list(encode) == ["input_path", "output_path", "message", "algorithm", "overwrite"]
+    assert list(encode) == ["input_path", "output_path", "message", "algorithm", "passphrase", "overwrite"]
     assert encode["overwrite"].kind is inspect.Parameter.KEYWORD_ONLY
     assert encode["overwrite"].default is False
-    assert list(inspect.signature(audiosteg.decode).parameters) == ["path", "algorithm"]
+    assert encode["passphrase"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert encode["passphrase"].default is None
+    decode = inspect.signature(audiosteg.decode).parameters
+    assert list(decode) == ["path", "algorithm", "passphrase"]
+    assert decode["algorithm"].default is None
+    assert decode["passphrase"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert decode["passphrase"].default is None
 
 
 def test_type_checkers_can_use_the_package() -> None:

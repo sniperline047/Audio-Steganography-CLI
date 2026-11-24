@@ -6,26 +6,43 @@ import os
 import sys
 from collections.abc import Callable
 from importlib.resources import files
+from typing import NamedTuple
 
+from audiosteg.algorithms.detection import decode, detect
+from audiosteg.algorithms.legacy import LegacyAlgorithm
 from audiosteg.cli.accuracy import calculate_accuracy
 from audiosteg.cli.prompts import (
     OutputClosedError,
     ask,
+    ask_hidden,
+    ask_new_passphrase,
     ask_yes_no,
     choose_algorithm,
+    choose_legacy_algorithm,
     display_menu,
     get_file_path,
     get_user_choice,
     require_output,
 )
-from audiosteg.core.stego_file import decode, encode
+from audiosteg.core import crypto
+from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.stego_file import encode
 from audiosteg.core.wav_io import check_regular_file
 from audiosteg.errors import StegoError, UnsafeOutputError
 from audiosteg.utils.output_path import check_output_path, normalize_output_path
 from audiosteg.utils.text import escape_text
 
 SAMPLE_FILE = str(files("audiosteg") / "data" / "sample.wav")
+DEFAULT_OUTPUT = "message_encoded.wav"
 EXIT_CHOICE = 4
+
+
+class EncodedFile(NamedTuple):
+    """An encoded file and everything that is needed to read it."""
+
+    path: str
+    algorithm: Algorithm | LegacyAlgorithm
+    passphrase: str | None
 
 
 def check_not_sample(output_file: str) -> None:
@@ -36,14 +53,23 @@ def check_not_sample(output_file: str) -> None:
         raise UnsafeOutputError("The output path is the included sample, which cannot be replaced.")
 
 
+def choose_passphrase() -> str | None:
+    """Ask for a new passphrase if the encryption library is installed."""
+    if not crypto.is_available():
+        print('The message will not be encrypted. To add encryption, run: pip install ".[crypto]"')
+        return None
+    return ask_new_passphrase()
+
+
 def handle_encode() -> None:
     """Ask for a message and hide it in a copy of an audio file."""
     algorithm = choose_algorithm()
     if algorithm is None:
         return
     secret_message = ask("Enter the secret message to encode: ")
+    passphrase = choose_passphrase()
     input_file = get_file_path("Input audio file", SAMPLE_FILE, "included sample")
-    chosen_path = get_file_path("Output audio file", algorithm.output_file_name)
+    chosen_path = get_file_path("Output audio file", DEFAULT_OUTPUT)
 
     check_regular_file(input_file)
     output_file = normalize_output_path(chosen_path)
@@ -58,17 +84,33 @@ def handle_encode() -> None:
 
     print("Encoding...")
     require_output()
-    encode(input_file, output_file, secret_message, algorithm, overwrite=overwrite)
+    encode(input_file, output_file, secret_message, algorithm, passphrase=passphrase, overwrite=overwrite)
     print(f"Message encoded into {escape_text(output_file)}")
+
+
+def choose_encoded_file() -> EncodedFile | None:
+    """Ask for an encoded file and how to read it. Return None for Back."""
+    path = get_file_path("Encoded audio file", DEFAULT_OUTPUT)
+    detected = detect(path)
+    if detected is None:
+        print("No message was detected. If an older version made this file, select how it was encoded.")
+        legacy_algorithm = choose_legacy_algorithm()
+        return None if legacy_algorithm is None else EncodedFile(path, legacy_algorithm, None)
+    algorithm, header = detected
+    passphrase = None
+    if header.encrypted:
+        crypto.load_aes_gcm()
+        passphrase = ask_hidden("Passphrase, not shown while you type: ") or None
+    return EncodedFile(path, algorithm, passphrase)
 
 
 def handle_decode() -> None:
     """Show the message hidden in an audio file."""
-    algorithm = choose_algorithm()
-    if algorithm is None:
+    encoded_file = choose_encoded_file()
+    if encoded_file is None:
         return
-    encoded_file = get_file_path("Encoded audio file", algorithm.output_file_name)
-    decoded_message = decode(encoded_file, algorithm)
+    path, algorithm, passphrase = encoded_file
+    decoded_message = decode(path, algorithm, passphrase=passphrase)
     if decoded_message:
         print(f"Decoded message: {escape_text(decoded_message)}")
     else:
@@ -77,12 +119,11 @@ def handle_decode() -> None:
 
 def handle_accuracy_check() -> None:
     """Compare the message hidden in an audio file with the expected one."""
-    expected_message = ask("Enter the expected secret message: ")
-    algorithm = choose_algorithm()
-    if algorithm is None:
+    encoded_file = choose_encoded_file()
+    if encoded_file is None:
         return
-    encoded_file = get_file_path("Encoded audio file", algorithm.output_file_name)
-    result = calculate_accuracy(expected_message, algorithm, encoded_file)
+    expected_message = ask("Enter the expected secret message: ")
+    result = calculate_accuracy(expected_message, *encoded_file)
     print(f"Accuracy of decoded message: {result.percentage:.2f}%")
     print(f"Exact match: {'yes' if result.exact_match else 'no'}")
     print(f"Expected length: {result.expected_length}, decoded length: {result.decoded_length}")
@@ -102,7 +143,7 @@ def run_operation(operation: Callable[[], None]) -> bool:
         show_error(str(error))
         return False
     except MemoryError:
-        show_error("The file is too large for the available memory.")
+        show_error("There is not enough memory for this operation.")
         return False
     return True
 
