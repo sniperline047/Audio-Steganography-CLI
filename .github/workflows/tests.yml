@@ -35,7 +35,9 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install -r requirements_dev.txt
+      - run: python -m pip install -r requirements_dev.txt .
+      - name: Check that the installed package is tested
+        run: python -c "import audiosteg; assert 'site-packages' in audiosteg.__file__, audiosteg.__file__"
       - run: python -m pytest --cov --cov-report=term-missing --cov-report=json
       - name: Add coverage to the job summary
         if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' && matrix.python == '3.15' && hashFiles('.coverage') != '' }}
@@ -70,12 +72,41 @@ jobs:
       - name: Check that the sample audio is reproducible
         run: |
           python scripts/generate_sample_audio.py
-          git diff --exit-code -- input/original_sample.wav
+          git diff --exit-code -- src/audiosteg/data/sample.wav
+
+  build:
+    name: Build and install
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15"
+      - run: python -m pip install -r requirements_dev.txt
+      - run: python -m build --outdir "$RUNNER_TEMP/dist"
+      - name: Install the wheel in a clean environment
+        run: |
+          python -m venv "$RUNNER_TEMP/clean"
+          "$RUNNER_TEMP/clean/bin/python" -m pip install "$RUNNER_TEMP"/dist/*.whl
+          "$RUNNER_TEMP/clean/bin/python" -m pip check
+      - name: Hide and read a message from an empty folder
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/empty"
+          cd "$RUNNER_TEMP/empty"
+          for number in 1 2 3; do
+            printf '%s\n' 1 "$number" "Hello $number" "" "" 4 | "$RUNNER_TEMP/clean/bin/audiosteg"
+            printf '%s\n' 2 "$number" "" 4 | "$RUNNER_TEMP/clean/bin/python" -m audiosteg |
+              grep -F "Decoded message: Hello $number"
+          done
 
   badge:
     name: Update coverage badge
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [tests, checks]
+    needs: [tests, checks, build]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
