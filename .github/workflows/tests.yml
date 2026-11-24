@@ -87,6 +87,14 @@ jobs:
           python-version: "3.15"
       - run: python -m pip install -r requirements_dev.txt
       - run: python -m build --outdir "$RUNNER_TEMP/dist"
+      - name: Check the files in the wheel
+        run: |
+          set -euo pipefail
+          unzip -Z1 "$RUNNER_TEMP"/dist/*.whl | tee "$RUNNER_TEMP/wheel_files.txt"
+          data=$(grep '^audiosteg/data/.' "$RUNNER_TEMP/wheel_files.txt")
+          test "$data" = audiosteg/data/sample.wav
+          grep -qxF audiosteg/py.typed "$RUNNER_TEMP/wheel_files.txt"
+          grep -qx 'audiosteg-[^/]*\.dist-info/licenses/LICENSE' "$RUNNER_TEMP/wheel_files.txt"
       - name: Install the wheel in a clean environment
         run: |
           python -m venv "$RUNNER_TEMP/clean"
