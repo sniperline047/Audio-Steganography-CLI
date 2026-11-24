@@ -132,7 +132,7 @@ Lists the names that `-a` and `--legacy` accept.
 
 ### Passphrases
 
-A passphrase is never a value on the command line. `-p` asks for it in the terminal without showing it. A passphrase file must be a regular UTF-8 file. Exactly one newline at its end is removed. `hide` refuses a passphrase that is empty or contains a line break or another control character, because it could not be typed later; `reveal` uses what the file holds. If other users can read the file, the program shows a warning (not on Windows).
+A passphrase is never a value on the command line. `-p` asks for it in the terminal without showing it. A passphrase file must be a regular UTF-8 file. Exactly one newline at its end is removed. `hide` refuses a passphrase that is empty or contains a line break or another control character, because it could not be typed later; `hide` also refuses a file that starts with a byte order mark (BOM). `reveal` and `verify` use what the file holds. If other users can read the file, the program shows a warning (not on Windows).
 
 ### Output for programs
 
@@ -152,7 +152,7 @@ The JSON document has `ok` and `command`, and:
 | `--version` | `version` (`command` is `null`) |
 | Error | `error`: `type`, `message`, `hint` (or `null`), `exit_code` |
 
-`ok` says whether the command finished. If `verify` finds a difference, `ok` is `true`, `exact_match` is `false`, and the exit code is 1. Only `reveal` shows a message. A passphrase is never shown.
+`ok` says whether the command finished. If `verify` finds a difference, `ok` is `true`, `exact_match` is `false`, and the exit code is 1. Paths in these fields are as given, except `output`, which is absolute. Only `reveal` shows a message. A passphrase is never shown.
 
 The error types are `usage`, `cancelled`, `interrupted`, `input_ended`, `out_of_memory`, `file`, `file_exists`, `file_not_found`, `invalid_value`, `capacity`, `damaged_message`, `invalid_message`, `missing_library`, `no_message`, `not_encrypted`, `passphrase_required`, `unsafe_output`, `unsupported_algorithm`, `unsupported_format`, and `wrong_passphrase`.
 
@@ -173,7 +173,9 @@ If the output is closed (for example, by a pipe such as `| head`), the code is 1
 
 - The arrow keys and Enter choose from a menu. Enter at a text question accepts the default in brackets.
 - Back, or the Esc key, returns to the question before.
-- Ctrl-C leaves.
+- Ctrl-C leaves with code 130. Ctrl-D at the main menu leaves like Exit. Ctrl-D at any other question leaves with code 1; at a text question, only if nothing is typed yet.
+- An empty message and replacing a file must be confirmed: type `y` and Enter.
+- A message that does not fit is refused at once, and only algorithms that can hold it are offered.
 - After each action, it shows the command that does the same. The message and the passphrase are never part of it. A command is not shown if a file name has characters that a shell could change.
 
 Spaces around a typed path are removed, and `~` means your home folder. The exit code is 1 if an action failed. The guided mode needs a terminal for stdin, stdout, and stderr; without one, the program shows the help and exits with code 2.
