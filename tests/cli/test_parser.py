@@ -32,7 +32,10 @@ PASSPHRASE_HELP = "-p takes no value: it asks for the passphrase."
         (["reveal", "in.wav", "--passphrase_fil=SECRET"], "Did you mean --passphrase_file?"),
         (["reveal", "in.wav", "--legcy", "SECRET"], "Did you mean --legacy?"),
         (["-p", "TOP_SECRET"], ""),
-        (["TOP_SECRET"], "Unknown command. Choose from: hide, reveal, verify, algorithms."),
+        (
+            ["TOP_SECRET"],
+            "Unknown command. Choose from: hide, reveal, verify, inspect, compare, explain, algorithms.",
+        ),
         (["invalid SECRET, not allowed with argument"], "Unknown command."),
         (["hide"], "The following arguments are required: INPUT."),
         (["hide", "in.wav", "-m"], "--message needs a value. If it starts with a dash, write --message="),

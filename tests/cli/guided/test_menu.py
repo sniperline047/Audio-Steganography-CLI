@@ -11,7 +11,7 @@ from audiosteg import decode
 
 DOWN, ENTER, ESCAPE, CTRL_C, CTRL_D = "\x1b[B", "\r", "\x1b", "\x03", "\x04"
 MENU = "What would you like to do?"
-HIDE, REVEAL, VERIFY, ALGORITHMS, EXIT = ((MENU, DOWN * number + ENTER) for number in range(5))
+HIDE, REVEAL, VERIFY, _, _, _, ALGORITHMS, EXIT = ((MENU, DOWN * number + ENTER) for number in range(8))
 
 
 @pytest.mark.needs_crypto
