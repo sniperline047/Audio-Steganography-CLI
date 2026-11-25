@@ -218,6 +218,17 @@ def test_back_out_of_a_keyed_message(guide: Any, make_wav: Callable[..., Path]) 
     assert (result.code, "The message matches" in result.text) == (0, True)
 
 
+@pytest.mark.needs_crypto
+@pytest.mark.usefixtures("fast_scrypt", "no_numpy")
+def test_a_passphrase_that_finds_nothing_names_what_was_not_looked_for(
+    guide: Any, make_wav: Callable[..., Path]
+) -> None:
+    make_wav(name="nothing.wav")
+    result = guide(REVEAL, file("nothing.wav"), KEYED, passphrase("wrong"), (NEXT, CTRL_C), leave=False)
+    after = result.text.split("Error: No hidden message was found with this passphrase.")[1]
+    assert "Messages of echo cannot be detected here, because NumPy is missing." in after
+
+
 def test_a_keyed_message_cannot_be_read_without_the_library(
     guide: Any, make_wav: Callable[..., Path], no_library: None
 ) -> None:

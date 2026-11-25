@@ -143,7 +143,7 @@ A codeword is some data bytes followed by its parity bytes, at most 255 together
 
 `P` parity bytes correct up to `P / 2` wrong bytes, rounded down, wherever they are: 8 of the 26 bytes of the header, and about a quarter of every codeword of a long message. With more wrong bytes, correcting mostly fails. If it does not, the marker, and the CRC or the AES-GCM tag of the container, decide whether the message is accepted, so a wrong text is not shown as right.
 
-A reader corrects the header first. If that fails, or the marker is wrong, there is no message. A random 26 bytes pass with a chance of about 1 in 10^27. The same rules as above apply to the version and the flags. The rest must fit in the complete blocks of the file.
+A reader corrects the header first. If that fails, or the marker is wrong, there is no message. Random bytes pass the correction and the marker with a chance of about 1 in 5 * 10^22. The same rules as above apply to the version and the flags. The rest must fit in the complete blocks of the file.
 
 ### Hiding
 
@@ -157,11 +157,11 @@ where samples before the first one are 0. `o` is how much the echo for 1 is want
 - `k` and `t` are the quotient and the remainder of `(n + 128) / 1024`.
 - `f = 0.5 - 0.5 cos(pi * min(t, 256) / 256)`, and the result is `w[k] * (1 - f) + w[k + 1] * f`.
 
-So the echo changes smoothly within 256 frames around each edge of a block, and ends 128 frames after the last block. Everything else stays as it is, with one exception: if a result is too large for a sample, every sample of the file is multiplied by the same number below 1. Results are rounded to the nearest whole number.
+So the echo changes smoothly within 256 frames around each edge of a block, and ends 128 frames after the last block. Everything else stays as it is, with two exceptions, the next one and old markers (below): if a result is too large for a sample, every sample of the file is multiplied by the same number below 1, and `hide` says so. Results are rounded to the nearest whole number.
 
 The strength `a` is the first of 0.2, 0.3, 0.4, and 0.5 with which `hide` can read the message back from its own result with at most half of the wrong bytes that every codeword can correct. If there is none, 0.5 is used if the message can be read back at all. Otherwise the file is refused and nothing is saved. A reader does not need to know `a`.
 
-If the result would still show the marker of an older `LSB`, `LSB_2`, `LSB_4`, or `LSB_PARITY` message (the first samples can be silent), the lowest bit of the first sample is flipped, so that the old message is not found first.
+If the result would still show the marker of an older `LSB`, `LSB_2`, `LSB_4`, or `LSB_PARITY` message (the first samples can be silent), the lowest bit of the first sample is flipped (or that of another of the first 8 samples, or of two of them, if that would show another such marker), so that the old message is not found first.
 
 ### Reading
 

@@ -44,13 +44,21 @@ class EchoHiding(SignalAlgorithm):
         loudness: Numbers = steps[block] * (1 - fade) + steps[block + 1] * fade
         return loudness
 
-    def make_change(self, sound: Numbers, first_frame: int, bits: Numbers) -> Numbers:
+    def prepare(self, first_frame: int, frames: int, bits: Numbers) -> Numbers:
+        """Return how loud the echo for 0 and the echo for 1 are at each frame."""
+        np = load_numpy()
+        loudness: Numbers = np.stack(
+            [self.loudness(first_frame, frames, wanted) for wanted in (1 - bits, bits)]
+        )
+        return loudness
+
+    def make_change(self, sound: Numbers, shared: Numbers) -> Numbers:
         """Return the two echoes, each where its bit is hidden."""
         frames = len(sound) - self.history_frames
         early, late = (sound[self.history_frames - delay :][:frames] for delay in self.delays)
-        zeros = self.loudness(first_frame, frames, 1 - bits)
-        ones = self.loudness(first_frame, frames, bits)
-        return zeros * early + ones * late
+        zeros, ones = shared
+        change: Numbers = zeros * early + ones * late
+        return change
 
     def find_cepstra(self, blocks: Numbers) -> Numbers:
         """

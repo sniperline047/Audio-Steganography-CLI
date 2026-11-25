@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import wave
 from collections.abc import Callable, Iterator
+from itertools import chain, combinations
 from typing import TYPE_CHECKING
 
 from audiosteg.core.algorithm import Algorithm
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
 BLOCKS_AT_A_TIME = 64
 BYTES_AT_A_TIME = 1 << 20
 COMFORTABLE_STRAIN = 0.5
+FLIPPED_SAMPLES = 8
 
 
 class Sound:
@@ -94,16 +96,12 @@ def read_hidden_bytes(sound: Sound, algorithm: SignalAlgorithm, first: int, size
         complete = len(mixed) // algorithm.block_frames
         blocks = mixed[: complete * algorithm.block_frames].reshape(complete, algorithm.block_frames)
         bits += algorithm.read_bits(blocks)
-        if complete < wanted:
-            break
     return bits_to_bytes(bits)
 
 
 def find_header(sound: Sound, algorithm: SignalAlgorithm) -> tuple[Header, float] | None:
     """Read the header and how hard it was to correct. Refuse a length that does not fit in the sound."""
     load_numpy()
-    if sound.frames < PROTECTED_HEADER_SIZE * 8 * algorithm.block_frames:
-        return None
     restored = restore_header(read_hidden_bytes(sound, algorithm, 0, PROTECTED_HEADER_SIZE))
     header = None if restored is None else parse_header(restored.data)
     if restored is None or header is None:
@@ -123,28 +121,28 @@ def read_container(sound: Sound, algorithm: SignalAlgorithm, header: Header) -> 
     return Restored(header.to_bytes() + body.data, body.strain)
 
 
-def channel_pieces(stored: Bytes, frames: int) -> Iterator[tuple[int, Bytes]]:
-    """Yield the samples of each channel, a few at a time, with the number of their first frame."""
-    for channel in range(stored.shape[1]):
-        for first in range(0, len(stored), frames):
-            yield first, stored[first : first + frames, channel]
+def channel_pieces(stored: Bytes, frames: int) -> Iterator[Bytes]:
+    """Yield a few frames at a time, one channel after the other."""
+    for first in range(0, len(stored), frames):
+        for channel in range(stored.shape[1]):
+            yield stored[first : first + frames, channel]
 
 
 def changed_pieces(
     original: Bytes, bits: Numbers, algorithm: SignalAlgorithm, level: float
 ) -> Iterator[Numbers]:
-    """Yield the changed numbers of each channel, a few blocks at a time."""
+    """Yield the changed numbers, in the order of channel_pieces."""
     np = load_numpy()
-    history = np.zeros(algorithm.history_frames)
-    for first, piece in channel_pieces(original, BLOCKS_AT_A_TIME * algorithm.block_frames):
-        if first == 0:
-            history = np.zeros(algorithm.history_frames)
-        sound = np.concatenate([history, to_numbers(piece)])
-        history = sound[len(sound) - algorithm.history_frames :]
-        changed: Numbers = sound[algorithm.history_frames :] + level * algorithm.make_change(
-            sound, first, bits
-        )
-        yield changed
+    history, frames = algorithm.history_frames, BLOCKS_AT_A_TIME * algorithm.block_frames
+    for first in range(0, len(original), frames):
+        end = min(first + frames, len(original))
+        shared = algorithm.prepare(first, end - first, bits)
+        start = max(first - history, 0)
+        for channel in range(original.shape[1]):
+            known = to_numbers(original[start:end, channel])
+            sound = np.concatenate([np.zeros(history - (first - start)), known])
+            changed: Numbers = sound[history:] + level * algorithm.make_change(sound, shared)
+            yield changed
 
 
 def find_gain(original: Bytes, bits: Numbers, algorithm: SignalAlgorithm, level: float) -> float:
@@ -177,7 +175,7 @@ def embed_bits(
     gain = find_gain(before, numbers, algorithm, level)
     frames = BLOCKS_AT_A_TIME * algorithm.block_frames
     changed = changed_pieces(before, numbers, algorithm, level)
-    for (_, piece), new in zip(channel_pieces(after, frames), changed, strict=True):
+    for piece, new in zip(channel_pieces(after, frames), changed, strict=True):
         piece[:] = to_stored(gain * new, audio.sample_width)
     return gain
 
@@ -185,17 +183,33 @@ def embed_bits(
 def make_quieter(audio: AudioData, first_frame: int, gain: float) -> None:
     """Multiply every sample from a frame on."""
     stored = sample_bytes(audio.frames, audio.channels, audio.sample_width)[first_frame:]
-    for _, piece in channel_pieces(stored, BYTES_AT_A_TIME):
+    for piece in channel_pieces(stored, BYTES_AT_A_TIME):
         piece[:] = to_stored(gain * to_numbers(piece), audio.sample_width)
 
 
-def hide_old_markers(audio: AudioData, earlier: tuple[Algorithm, ...]) -> None:
-    """Flip the lowest bit of the first sample if an older message would be detected before the new one."""
+def has_old_marker(audio: AudioData, earlier: tuple[Algorithm, ...]) -> bool:
+    """Say whether a message of an earlier algorithm would be detected."""
     for algorithm in earlier:
         samples = len(MARKER) * 8 // algorithm.bits_per_byte * algorithm.samples_per_group
         low_bytes = bytes(audio.frames[: samples * audio.sample_width : audio.sample_width])
         if bits_to_bytes(extract_groups(low_bytes, algorithm)) == MARKER:
-            audio.frames[0] ^= 1
+            return True
+    return False
+
+
+def hide_old_markers(audio: AudioData, earlier: tuple[Algorithm, ...]) -> None:
+    """Flip the lowest bit of one or two of the first samples, so that no older message is detected first."""
+    if not has_old_marker(audio, earlier):
+        return
+    samples = range(FLIPPED_SAMPLES)
+    for chosen in chain(combinations(samples, 1), combinations(samples, 2)):
+        positions = [sample * audio.sample_width for sample in chosen]
+        for position in positions:
+            audio.frames[position] ^= 1
+        if not has_old_marker(audio, earlier):
+            return
+        for position in positions:
+            audio.frames[position] ^= 1
 
 
 def read_back(audio: AudioData, container: bytes, algorithm: SignalAlgorithm) -> float | None:
@@ -212,11 +226,13 @@ def read_back(audio: AudioData, container: bytes, algorithm: SignalAlgorithm) ->
     return max(strain, restored.strain) if restored.data == container else None
 
 
-def embed_container(audio: AudioData, container: bytes, algorithm: SignalAlgorithm) -> None:
+def embed_container(audio: AudioData, container: bytes, algorithm: SignalAlgorithm) -> float:
     """
     Put a container into the sound with the weakest level that can be read back well.
 
     If no level is comfortable, the strongest one is used if it can be read back at all.
+
+    :return: What every sample was multiplied by: 1, or less if the result would be too loud
     """
     bits = list(bytes_to_bits(protect(container)))
     size = algorithm.changed_frames(len(bits)) * audio.channels * audio.sample_width
@@ -230,7 +246,9 @@ def embed_container(audio: AudioData, container: bytes, algorithm: SignalAlgorit
     else:
         raise UnsuitableAudioError(
             "The message could not be read back from this sound, so nothing was saved. "
-            "The sound may be too quiet or too simple, such as silence or pure tones."
+            "The sound may be too quiet or too simple, such as silence or pure tones, it may already hold "
+            "a message of this kind, or its channels may cancel each other."
         )
     if gain < 1:
         make_quieter(audio, len(original) // (audio.channels * audio.sample_width), gain)
+    return gain

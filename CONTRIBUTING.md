@@ -175,7 +175,8 @@ The commands, the guided mode, detection, the capacity check, and the file handl
 
 An algorithm that has to see the sound as numbers is a subclass of `SignalAlgorithm` (in `core/signal_algorithm.py`) instead. It gets the error correction, the samples of every format, the read-back before saving, and the commands for free:
 
-- `make_change(sound, first_frame, bits)` gets one channel as floating point numbers, with `history_frames` earlier frames at its start, and returns what to add to every frame after them. The engine calls it with a few whole blocks at a time, multiplies the result by the level, and takes care of loud sounds. The result must depend only on the arguments, because it is called twice for each piece.
+- `prepare(first_frame, frames, bits)` returns what all channels of a piece have in common, such as how loud each echo is.
+- `make_change(sound, shared)` gets one channel as floating point numbers, with `history_frames` earlier frames at its start, and the result of `prepare`. It returns what to add to every frame after them. The engine calls both with a few whole blocks at a time, multiplies the result by the level, and takes care of loud sounds. Their results must depend only on the arguments, because they are called twice for each piece.
 - `find_signs(blocks)` gets one row for each block, with all channels added together, and returns two numbers for each: how much it looks like a hidden 0 and like a hidden 1.
 - `block_frames` is how many frames carry a bit, `tail_frames` how many change after the last block, and `levels` are the strengths to try, the weakest first.
 - `earlier` names the algorithms that are detected before it.

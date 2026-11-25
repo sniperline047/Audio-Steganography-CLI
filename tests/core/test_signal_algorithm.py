@@ -65,7 +65,10 @@ def test_the_larger_sign_decides_the_bit() -> None:
     import numpy as np
 
     class Signs(SignalAlgorithm):
-        def make_change(self, sound: Any, first_frame: int, bits: Any) -> Any:
+        def prepare(self, first_frame: int, frames: int, bits: Any) -> Any:
+            return bits
+
+        def make_change(self, sound: Any, shared: Any) -> Any:
             return sound
 
         def find_signs(self, blocks: Any) -> Any:

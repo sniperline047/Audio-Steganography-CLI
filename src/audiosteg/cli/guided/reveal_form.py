@@ -82,6 +82,8 @@ class RevealForm:
                 return True
             except NoMessageError as error:
                 self.prompter.view.show_error(error, None, 1)
+                for sentence in not_checked(undetectable_here()):
+                    self.prompter.view.note(sentence)
                 self.prompter.choose("What next?", [Choice("Try another passphrase")])
 
     def read(self) -> RevealResult | None:

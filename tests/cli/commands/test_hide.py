@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import random
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -40,11 +41,33 @@ def test_a_sound_that_is_too_short_for_echoes_is_explained(run: Any, tmp_path: P
     result = run("hide", "sample", "-m", "Hello", "-a", "echo")
     assert (result.code, result.output) == (1, "")
     assert result.errors == (
-        "Error: The message is too large: it needs 5 bytes and the audio file can hold 0 bytes. "
-        "With echo, it needs at least 18.9 s of sound like this. "
+        "Error: The audio file is too short for this algorithm, even for an empty message. "
+        "With echo, this message needs at least 18.9 s of sound like this. "
         "Use the algorithm lsb, which can hold it, or a longer audio file.\n"
     )
     assert os.listdir(tmp_path) == []
+
+
+@pytest.mark.needs_signal
+@pytest.mark.parametrize("message", ["", "Hello"])
+def test_the_reason_for_a_short_sound_names_no_sizes(run: Any, message: str) -> None:
+    errors = run("hide", "sample", "-m", message, "-a", "echo").errors
+    assert "even for an empty message" in errors and "0 bytes" not in errors
+
+
+@pytest.mark.needs_signal
+def test_a_file_that_is_made_quieter_is_named(run: Any, make_wav: Callable[..., Path]) -> None:
+    make_wav(name="loud.wav", frames=bytes(random.Random(1).choices([0, 255], k=500_000)))
+    loud = run("hide", "loud.wav", "-m", "Hello", "-a", "echo")
+    assert loud.code == 0
+    note = "The result would have been too loud, so the whole file was made quieter (82.7% of its level).\n"
+    assert loud.errors == note
+    fields = json.loads(run("hide", "loud.wav", "-m", "Hello", "-a", "echo", "--force", "--json").output)
+    assert fields["gain"] == pytest.approx(0.827, abs=0.001)
+    make_wav(name="soft.wav", frames=bytes(random.Random(1).choices(range(100, 156), k=500_000)))
+    soft = run("hide", "soft.wav", "-m", "Hello", "-a", "echo")
+    assert (soft.code, soft.errors) == (0, "")
+    assert json.loads(run("hide", "soft.wav", "-m", "x", "-o", "a.wav", "--json").output)["gain"] == 1.0
 
 
 @pytest.mark.needs_signal
@@ -56,7 +79,8 @@ def test_a_sound_that_cannot_carry_echoes_is_explained(
     assert (result.code, result.output) == (1, "")
     assert result.errors == (
         "Error: The message could not be read back from this sound, so nothing was saved. "
-        "The sound may be too quiet or too simple, such as silence or pure tones.\n"
+        "The sound may be too quiet or too simple, such as silence or pure tones, it may already hold "
+        "a message of this kind, or its channels may cancel each other.\n"
         "Use another audio file, or an algorithm that works with every sound, such as lsb.\n"
     )
     assert os.listdir(tmp_path) == ["input.wav"]
@@ -664,6 +688,7 @@ def test_json_describes_the_result(run: Any, make_wav: Callable[..., Path], tmp_
         "output": os.path.join(os.path.realpath(tmp_path), "out.wav"),
         "algorithm": "lsb",
         "encrypted": False,
+        "gain": 1.0,
     }
 
 

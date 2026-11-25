@@ -25,6 +25,9 @@ DRAWING_CHARACTERS = "╭─╮│╰╯▀▄"
 DUMB_TERMINALS = ("dumb", "unknown")
 NOT_ENCRYPTED = "This message was not encrypted, so anyone could have written it."
 ENCRYPTED = "This message was encrypted."
+MADE_QUIETER = (
+    "The result would have been too loud, so the whole file was made quieter ({:.1%} of its level)."
+)
 COLUMN_GAP = 2
 PANEL_FRAME = 6
 FEWEST_DIGITS, MOST_DIGITS = 3, 9
@@ -212,6 +215,7 @@ class View:
                 "output": clean_for_json(result.output_file),
                 "algorithm": result.algorithm,
                 "encrypted": result.encrypted,
+                "gain": result.gain,
             }
             self.show_json("hide", True, fields)
             return
@@ -226,6 +230,8 @@ class View:
         if not fits:
             self.out.line("Output:")
             self.out.line(path)
+        if result.gain < 1:
+            self.note(MADE_QUIETER.format(result.gain))
 
     def show_reveal(self, result: RevealResult) -> None:
         """Write the message to stdout and everything else to stderr, the protection line last."""

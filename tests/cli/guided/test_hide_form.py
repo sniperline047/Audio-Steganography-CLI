@@ -1,6 +1,7 @@
 """Tests for audiosteg/cli/guided/hide_form.py."""
 
 import os
+import random
 import re
 import shlex
 from collections.abc import Callable
@@ -530,6 +531,17 @@ def test_an_echo_is_hidden_and_the_command_does_the_same(
     assert command == "audiosteg hide input.wav -a echo -o input.stego.wav"
     assert run(*words_of(command)[1:], "--force", stdin=b"hidden").code == 0
     assert output.read_bytes() == written
+
+
+@pytest.mark.needs_signal
+def test_a_file_that_is_made_quieter_is_named(
+    guide: Any, encryption: Callable[[bool], None], make_wav: Callable[..., Path]
+) -> None:
+    encryption(False)
+    make_wav(frames=bytes(random.Random(1).choices([0, 255], k=500_000)))
+    result = guide(START, OWN_FILE, INPUT, message("hidden"), ECHO_NUMBER, (OUTPUT, ENTER))
+    assert result.code == 0
+    assert "the whole file was made quieter (82.7% of its level)." in result.text
 
 
 @pytest.mark.needs_signal

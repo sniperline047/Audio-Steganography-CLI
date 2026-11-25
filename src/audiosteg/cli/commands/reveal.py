@@ -11,6 +11,7 @@ from audiosteg.cli.passphrase import BYTE_ORDER_MARK, PassphraseSource
 from audiosteg.cli.results import RevealResult
 from audiosteg.cli.views import View
 from audiosteg.core import crypto
+from audiosteg.core.signal_algorithm import SignalAlgorithm
 from audiosteg.core.stego_file import read_header
 from audiosteg.core.wav_io import open_pcm_wav
 from audiosteg.errors import NoMessageError, NotEncryptedError, WrongPassphraseError
@@ -92,16 +93,27 @@ def read_message(hidden: HiddenMessage, passphrase: str | None) -> RevealResult:
     return RevealResult(hidden.file, hidden.algorithm, hidden.legacy, passphrase is not None, message)
 
 
+def add_keyed_hint(error: Exception, hidden: HiddenMessage) -> None:
+    """Say how to read a keyed message in a file that also holds one in its sound."""
+    if isinstance(ALGORITHMS.get(hidden.algorithm), SignalAlgorithm):
+        error.add_note(
+            f"If you expect a message of {KEYED_ALGORITHM}, which this file can hold too, "
+            f"add -a {KEYED_ALGORITHM}."
+        )
+
+
 def get_passphrase(hidden: HiddenMessage, passphrases: PassphraseSource, view: View) -> str | None:
     """Get the passphrase of an encrypted message, and refuse one that cannot protect a message."""
     if hidden.encrypted:
         crypto.check_available()
         return passphrases.read(view.note)
     if passphrases.wanted:
-        raise NotEncryptedError(
+        error = NotEncryptedError(
             "The hidden message is not encrypted, so the passphrase cannot protect it. It may not be the "
             "message you expect. To read it anyway, leave out the passphrase option."
         )
+        add_keyed_hint(error, hidden)
+        raise error
     return None
 
 
@@ -116,6 +128,10 @@ def reveal(args: argparse.Namespace, view: View) -> RevealResult:
         if hidden.legacy:
             others = " or ".join(key for key in LEGACY_ALGORITHMS if key != hidden.algorithm)
             error.add_note(f"{CHECK_THE_FILE} Or try another old algorithm: --legacy {others}.")
+        if isinstance(error, WrongPassphraseError):
+            add_keyed_hint(error, hidden)
+        elif args.algorithm is None and not hidden.legacy and undetectable_here():
+            error.add_note(" ".join([NO_MESSAGE_HINT, *not_checked(undetectable_here())]))
         if passphrase is not None and passphrase.startswith(BYTE_ORDER_MARK):
             error.add_note(
                 "The passphrase file starts with a byte order mark (BOM), which counts as part of the "

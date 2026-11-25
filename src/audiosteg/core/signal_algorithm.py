@@ -97,13 +97,22 @@ class SignalAlgorithm(ABC):
         return largest_container(frames // self.block_frames // 8)
 
     @abstractmethod
-    def make_change(self, sound: Numbers, first_frame: int, bits: Numbers) -> Numbers:
+    def prepare(self, first_frame: int, frames: int, bits: Numbers) -> Numbers:
         """
-        Return what to add to one channel, before it is multiplied by the level.
+        Return what the changes of all channels have in common, for a piece of the sound.
+
+        :param first_frame: The number of the first frame, always the start of a block
+        :param frames: How many frames the piece has
+        :param bits: Every bit that is hidden in the file, as 0 or 1
+        """
+
+    @abstractmethod
+    def make_change(self, sound: Numbers, shared: Numbers) -> Numbers:
+        """
+        Return what to add to one channel of a piece, before it is multiplied by the level.
 
         :param sound: The history and the sound to change. 0 is silence.
-        :param first_frame: The number of the first frame after the history, always the start of a block
-        :param bits: Every bit that is hidden in the file, as 0 or 1
+        :param shared: The result of prepare
         :return: One number for each frame after the history
         """
 

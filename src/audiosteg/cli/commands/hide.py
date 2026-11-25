@@ -24,7 +24,7 @@ from audiosteg.core import crypto
 from audiosteg.core.header import container_overhead
 from audiosteg.core.message_codec import message_to_bytes
 from audiosteg.core.signal_algorithm import SignalAlgorithm, check_library
-from audiosteg.core.stego_file import count_message_bytes, encode, message_fits
+from audiosteg.core.stego_file import count_message_bytes, hide_message, message_fits
 from audiosteg.core.wav_io import AudioSize, measure_input
 from audiosteg.errors import CapacityError, PassphraseRequiredError, UnsafeOutputError
 from audiosteg.utils.output_path import check_output_path, normalize_output_path
@@ -125,24 +125,26 @@ def advise(request: HideRequest) -> str:
         return advice
     length = len(message_to_bytes(request.message))
     seconds = find_seconds(length, algorithm, encrypted, size.frame_rate)
-    return f"With {request.algorithm}, it needs at least {seconds:.1f} s of sound like this. {advice}"
+    return (
+        f"With {request.algorithm}, this message needs at least {seconds:.1f} s of sound like this. {advice}"
+    )
 
 
 def hide(request: HideRequest) -> HideResult:
     """Hide a message."""
     try:
-        encode(
+        gain = hide_message(
             request.input_file,
             request.output_file,
             request.message,
             ALGORITHMS[request.algorithm],
-            passphrase=request.passphrase,
-            overwrite=request.overwrite,
+            request.passphrase,
+            request.overwrite,
         )
     except CapacityError as error:
         raise CapacityError(f"{error} {advise(request)}") from error
     return HideResult(
-        request.input_file, request.output_file, request.algorithm, request.passphrase is not None
+        request.input_file, request.output_file, request.algorithm, request.passphrase is not None, gain
     )
 
 

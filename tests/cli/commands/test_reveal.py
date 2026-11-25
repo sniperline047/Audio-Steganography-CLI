@@ -84,6 +84,48 @@ def test_a_terminal_without_unicode_still_shows_a_message(
     assert (result.code, result.seen) == (0, f"{shown} \\U0001f3b5\n{NOT_ENCRYPTED}")
 
 
+@pytest.mark.needs_crypto
+@pytest.mark.usefixtures("fast_scrypt", "no_numpy")
+@pytest.mark.parametrize("words", [["reveal"], ["verify", "-m", "x"]])
+def test_a_passphrase_that_finds_nothing_names_what_was_not_looked_for(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, words: list[str]
+) -> None:
+    make_wav()
+    (tmp_path / "key.txt").write_text("sesame")
+    options = [words[0], "input.wav", *words[1:], "--passphrase_file", "key.txt"]
+    errors = run(*options).errors
+    assert "because NumPy is missing" in errors
+    assert "--legacy basic, enhanced, or enhanced_flip" in errors
+    named = run(*options, "-a", "lsb_keyed").errors
+    assert "No hidden message was found with this passphrase." in named
+    assert "NumPy" not in named
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.needs_signal
+@pytest.mark.usefixtures("fast_scrypt")
+@pytest.mark.parametrize("echo_passphrase", [None, "other"])
+def test_a_keyed_message_behind_an_echo_message_has_a_hint_that_is_true(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, echo_passphrase: str | None
+) -> None:
+    echo, both = str(tmp_path / "echo.wav"), str(tmp_path / "both.wav")
+    source = str(make_wav(frames=noise_for("echo")))
+    encode(source, echo, "echo", ALGORITHMS["echo"], passphrase=echo_passphrase)
+    encode(echo, both, "hidden", ALGORITHMS["lsb_keyed"], passphrase="sesame")
+    (tmp_path / "key.txt").write_text("sesame")
+    result = run("reveal", "both.wav", "--passphrase_file", "key.txt")
+    assert result.code == 1
+    assert "add -a lsb_keyed.\n" in result.errors
+    again = run("reveal", "both.wav", "--passphrase_file", "key.txt", "-a", "lsb_keyed")
+    assert (again.code, again.output) == (0, "hidden")
+
+
+def test_no_such_hint_for_another_message(run: Any, hide: Callable[[str], Path], tmp_path: Path) -> None:
+    (tmp_path / "key.txt").write_text("sesame")
+    result = run("reveal", hide("x"), "--passphrase_file", "key.txt")
+    assert (result.code, "lsb_keyed" in result.errors) == (1, False)
+
+
 def test_what_cannot_be_detected_without_numpy_is_said(
     run: Any, make_wav: Callable[..., Path], no_numpy: None
 ) -> None:

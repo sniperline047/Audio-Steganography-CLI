@@ -44,7 +44,7 @@ Without `-m` and `--message_file`, the message is typed in a terminal, or read f
 
 If the output file exists, a terminal asks before replacing it; anywhere else, such as when stdin or stderr is not a terminal, `--force` is needed. The program refuses to write to the input file, the message or passphrase file, the included sample, or a symbolic link, even with `--force`. Only the audio is copied; tags and other metadata are not.
 
-`echo` needs the `signal` extra (`pip install ".[signal]"`). It holds very little, changes how the file sounds, and does not work with every sound: before anything is saved, `hide` reads the message back from its own result, and refuses the file if that fails. Then use another file or another algorithm. The included sample is too short for it. With `echo`, a message of 5 bytes needs at least 9.5 seconds at 44,100 Hz, and an encrypted one about 23. See [echo](file_format.md#echo).
+`echo` needs the `signal` extra (`pip install ".[signal]"`). It holds very little, changes how the file sounds, and does not work with every sound: before anything is saved, `hide` reads the message back from its own result, and refuses the file if that fails. Then use another file or another algorithm. A sound that would become too loud is made quieter as a whole, and `hide` says by how much. The included sample is too short for it. With `echo`, a message of 5 bytes needs at least 9.5 seconds at 44,100 Hz, and an encrypted one about 23. See [echo](file_format.md#echo).
 
 ## reveal
 
@@ -68,7 +68,7 @@ Only the message goes to stdout. Everything else, such as whether the message wa
 
 A message of `lsb_keyed` cannot be detected. If no other message is detected and there is a passphrase option, the passphrase is tried on `lsb_keyed`. With `-a lsb_keyed`, nothing else is tried, and a terminal asks for the passphrase. A wrong passphrase looks the same as a file without a message or an edited file, so the error is the same too.
 
-A message of `echo` is detected only where NumPy is installed, and only if no other algorithm finds one. Elsewhere, the program says that it could not look for one. Detecting it comes before a passphrase is tried on `lsb_keyed`, so a `lsb_keyed` message in a file with an older `echo` message needs `-a lsb_keyed`.
+A message of `echo` is detected only where NumPy is installed, and only if no other algorithm finds one. Elsewhere, the program says that it could not look for one. Detecting it comes before a passphrase is tried on `lsb_keyed`, so a `lsb_keyed` message in a file with an older `echo` message needs `-a lsb_keyed`, which the error suggests.
 
 A message of `lsb_matching` is the same as one of `lsb` to a reader, so it is always reported as `lsb`, even with `-a lsb_matching`.
 
@@ -303,7 +303,7 @@ The JSON document has `ok` and `command`, and:
 
 | Result | Other fields |
 | --- | --- |
-| `hide` | `input`, `output`, `algorithm`, `encrypted` |
+| `hide` | `input`, `output`, `algorithm`, `encrypted`, `gain` (below 1 if the whole file was made quieter, which only `echo` does) |
 | `reveal` | `file`, `algorithm`, `legacy`, `encrypted`, `message` |
 | `verify` | `file`, `algorithm`, `legacy`, `encrypted`, `exact_match`, `percentage`, `expected_length`, `found_length` |
 | `inspect` | `file`, `bits`, `channels`, `sample_rate`, `frames`, `seconds`, `cannot_hide` (a reason or `null`), `capacity` (a list of `algorithm`, `plain`, `encrypted`, `always_encrypted` (if it is `true`, `plain` is 0), and `at_most` (if it is `true`, the sound decides how much really fits)), `messages` (a list of `algorithm`, `encrypted`, `size`, `problem`; empty if none was detected), `not_checked` (the algorithms whose messages could not be looked for without NumPy) |

@@ -88,6 +88,10 @@ def check_capacity(
 ) -> None:
     """Make sure the message and its container fit in the audio."""
     if not message_fits(message_length, samples, algorithm, encrypted, channels):
+        if isinstance(algorithm, SignalAlgorithm) and not message_fits(
+            0, samples, algorithm, encrypted, channels
+        ):
+            raise CapacityError("The audio file is too short for this algorithm, even for an empty message.")
         raise CapacityError(
             f"The message is too large: it needs {message_length} bytes and the audio file "
             f"can hold {count_message_bytes(samples, algorithm, encrypted, channels)} bytes."
@@ -130,6 +134,18 @@ def encode(
     :param passphrase: The passphrase that encrypts the message, or None for no encryption
     :param overwrite: Whether an existing output file may be replaced
     """
+    hide_message(input_path, output_path, message, algorithm, passphrase, overwrite)
+
+
+def hide_message(
+    input_path: str,
+    output_path: str,
+    message: str,
+    algorithm: Algorithm | SignalAlgorithm,
+    passphrase: str | None,
+    overwrite: bool,
+) -> float:
+    """Do what encode does. Return what every sample was multiplied by: 1, or less to prevent clipping."""
     if isinstance(algorithm, LegacyAlgorithm):
         raise UnsupportedAlgorithmError("This algorithm can only read old files, not hide messages.")
     check_algorithm(algorithm)
@@ -146,15 +162,17 @@ def encode(
     samples = len(audio.frames) // audio.sample_width
     check_capacity(len(message_bytes), samples, algorithm, passphrase is not None, audio.channels)
 
+    gain = 1.0
     if isinstance(algorithm, SignalAlgorithm):
         container = build_container(message_bytes, passphrase_bytes)
-        signal_file.embed_container(audio, container, algorithm)
+        gain = signal_file.embed_container(audio, container, algorithm)
     elif algorithm.keyed and passphrase_bytes is not None:
         container, order = keyed.build_container(message_bytes, passphrase_bytes, algorithm, samples)
         embed_container(audio, container, algorithm, order)
     else:
         embed_container(audio, build_container(message_bytes, passphrase_bytes), algorithm, count())
     write_audio(input_path, output_path, audio, overwrite)
+    return gain
 
 
 def read_hidden_bytes(audio: wave.Wave_read, algorithm: Algorithm, size: int) -> bytes:

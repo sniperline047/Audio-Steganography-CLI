@@ -136,13 +136,17 @@ def find_positions(locator: Sequence[int], length: int) -> list[int]:
     ]
 
 
-def find_error(syndromes: Sequence[int], locator: Sequence[int], position: int) -> int:
-    """Return by how much the byte at a position is wrong (Forney's formula)."""
-    inverse = POWERS[(LONGEST - position) % LONGEST]
-    evaluator = multiply_polynomials(syndromes, locator)[: len(syndromes)]
-    derivative = [value if index % 2 else 0 for index, value in enumerate(locator)][1:]
-    slope = evaluate(derivative[::-1], inverse)
-    return multiply(POWERS[position], divide(evaluate(evaluator[::-1], inverse), slope))
+def find_errors(syndromes: Sequence[int], locator: Sequence[int], positions: Sequence[int]) -> list[int]:
+    """Return by how much the byte at each position is wrong (Forney's formula)."""
+    size = len(positions)
+    evaluator = multiply_polynomials(syndromes[:size], locator)[:size][::-1]
+    derivative = [value if index % 2 else 0 for index, value in enumerate(locator)][:0:-1]
+    errors = []
+    for position in positions:
+        inverse = POWERS[(LONGEST - position) % LONGEST]
+        share = divide(evaluate(evaluator, inverse), evaluate(derivative, inverse))
+        errors.append(multiply(POWERS[position], share))
+    return errors
 
 
 def correct(codeword: bytes, parity_size: int) -> tuple[bytes, int]:
@@ -164,6 +168,6 @@ def correct(codeword: bytes, parity_size: int) -> tuple[bytes, int]:
     if len(positions) != errors:
         raise TooManyErrorsError
     corrected = bytearray(codeword)
-    for position in positions:
-        corrected[-1 - position] ^= find_error(syndromes, locator, position)
+    for position, error in zip(positions, find_errors(syndromes, locator, positions), strict=True):
+        corrected[-1 - position] ^= error
     return bytes(corrected[: len(corrected) - parity_size]), errors

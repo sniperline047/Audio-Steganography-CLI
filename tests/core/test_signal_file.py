@@ -10,12 +10,17 @@ from dataclasses import replace
 from functools import cache
 from pathlib import Path
 from typing import Any
+from zlib import crc32
 
 import pytest
 from conftest import pack
 
-from audiosteg import decode, encode
+from audiosteg import Algorithm, decode, encode
 from audiosteg.algorithms.echo import ECHO
+from audiosteg.algorithms.lsb import LSB, LSB_2
+from audiosteg.algorithms.lsb_four import LSB_4
+from audiosteg.algorithms.lsb_matching import LSB_MATCHING
+from audiosteg.algorithms.lsb_parity import LSB_PARITY
 from audiosteg.core import signal_file
 from audiosteg.core.signal_file import embed_container, find_header, sound_in_memory
 from audiosteg.core.stego_file import read_header
@@ -92,7 +97,7 @@ def test_the_empty_message_and_the_exact_limit(make_samples: Callable[..., Path]
     encode(str(make_samples("input.wav", noise(SMALLEST, 16))), output, "", ECHO)
     assert decode(output) == ""
     short = str(make_samples("short.wav", noise(SMALLEST - 1, 16)))
-    with pytest.raises(CapacityError, match="needs 0 bytes and the audio file can hold 0"):
+    with pytest.raises(CapacityError, match="too short for this algorithm, even for an empty message"):
         encode(short, output, "", ECHO, overwrite=True)
     encode(str(make_samples("more.wav", noise(146 * 8 * BLOCK, 16))), output, "x" * 56, ECHO, overwrite=True)
     assert decode(output) == "x" * 56
@@ -150,7 +155,7 @@ def test_channels_that_cancel_each_other_are_refused(
     make_samples: Callable[..., Path], tmp_path: Path
 ) -> None:
     values = [value for number in noise(SMALLEST, 16) for value in (number, -number)]
-    with pytest.raises(UnsuitableAudioError):
+    with pytest.raises(UnsuitableAudioError, match="already hold .* or its channels may cancel each other"):
         encode(str(make_samples("input.wav", values, channels=2)), str(tmp_path / "o.wav"), "", ECHO)
 
 
@@ -325,18 +330,69 @@ def test_a_header_is_found_without_reading_a_large_file(
         tracemalloc.stop()
 
 
+@pytest.mark.parametrize("algorithm", [LSB, LSB_2, LSB_4, LSB_MATCHING, LSB_PARITY], ids=lambda a: a.name)
 def test_an_older_message_of_another_algorithm_is_not_left_behind(
-    make_samples: Callable[..., Path], tmp_path: Path
+    make_samples: Callable[..., Path], tmp_path: Path, algorithm: Algorithm
 ) -> None:
     first, second = str(tmp_path / "first.wav"), str(tmp_path / "second.wav")
     quiet = silence(2000) + noise(SMALLEST + 40 * 8 * BLOCK, 16)
-    for algorithm in ECHO.earlier:
-        encode(str(make_samples("input.wav", quiet)), first, "older", algorithm, overwrite=True)
-        untouched = replace(ECHO, earlier=())
-        encode(first, second, "x", untouched, overwrite=True)
-        assert read_header(second, algorithm) is not None
-        encode(first, second, "x", ECHO, overwrite=True)
-        assert decode(second) == "x"
+    encode(str(make_samples("input.wav", quiet)), first, "older", algorithm)
+    encode(first, second, "x", replace(ECHO, earlier=()))
+    assert read_header(second, algorithm) is not None
+    encode(first, second, "x", ECHO, overwrite=True)
+    assert decode(second) == "x"
+    assert [algorithm for algorithm in ECHO.earlier if read_header(second, algorithm)] == []
+
+
+@pytest.mark.parametrize("width", [1, 2, 3])
+def test_hiding_a_marker_never_shows_another(width: int) -> None:
+    nibbles = [int(digit, 16) for digit in b"ASTG".hex()]
+    parities = [int(digit) for byte in b"ASTG" for digit in f"{byte:08b}"]
+    assert sum(nibble & 1 for nibble in nibbles) % 2 != parities[0]
+    low_bytes = nibbles + [parity if index == 0 else 0 for parity in parities[1:] for index in range(8)]
+    frames = bytearray(byte for low in low_bytes for byte in (low, *bytes(width - 1)))
+    audio = AudioData(1, width, 8000, bytearray(frames))
+    assert signal_file.has_old_marker(audio, (LSB_4,)) and not signal_file.has_old_marker(
+        audio, (LSB_PARITY,)
+    )
+    flipped = AudioData(1, width, 8000, bytearray(frames))
+    flipped.frames[0] ^= 1
+    assert signal_file.has_old_marker(flipped, (LSB_PARITY,))
+    signal_file.hide_old_markers(audio, ECHO.earlier)
+    assert not signal_file.has_old_marker(audio, ECHO.earlier)
+    changed = [index for index, byte in enumerate(audio.frames) if byte != frames[index]]
+    assert changed == [0, width]
+
+
+def test_sound_without_an_older_marker_keeps_its_first_samples() -> None:
+    audio = AudioData(1, 2, 8000, bytearray(range(256)) * 8)
+    signal_file.hide_old_markers(audio, ECHO.earlier)
+    assert audio.frames == bytearray(range(256)) * 8
+
+
+@pytest.mark.parametrize("first_byte", [0, 26], ids=["header", "body"])
+def test_the_part_that_is_hardest_to_read_counts(hidden: Path, first_byte: int) -> None:
+    data = bytearray(hidden.read_bytes())
+    replace_frames(first_byte * 8 * BLOCK, 6 * 8 * BLOCK, 9)(data)
+    audio = AudioData(1, 2, 8000, data[44:])
+    container = b"ASTG\x01\0\0\0\0\x05Hello"
+    strain = signal_file.read_back(audio, container + crc32(container).to_bytes(4, "big"), ECHO)
+    assert strain is not None and strain >= 0.6
+
+
+def test_many_channels_are_mixed_in_pieces_of_a_good_size() -> None:
+    channels, frames = 500, 10_000
+    sizes: list[int] = []
+
+    def read(first: int, count: int) -> bytes:
+        sizes.append(count * channels)
+        return bytes([129]) * (count * channels)
+
+    sound = signal_file.Sound(channels, 1, frames, read)
+    assert sound.mix(0, frames).tolist() == [float(channels)] * frames
+    assert sum(sizes) == channels * frames
+    assert max(sizes) <= 1 << 20
+    assert len(sizes) == 5
 
 
 def test_a_body_that_ends_early_in_a_file_that_hides_it(

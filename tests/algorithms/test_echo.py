@@ -6,6 +6,7 @@ import zlib
 from cmath import exp, pi
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from conftest import pack
@@ -145,3 +146,21 @@ def test_the_echo_changes_smoothly_and_ends_after_the_last_block() -> None:
     assert frames == 4 * 1024 + 128
     pieces = [ECHO.loudness(first, min(1024, frames - first), bits) for first in range(0, frames, 1024)]
     assert np.concatenate(pieces) == pytest.approx(ones)
+
+
+def test_the_loudness_is_computed_once_for_all_channels(
+    make_samples: Callable[..., Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[int] = []
+    original = type(ECHO).prepare
+
+    def prepare(self: Any, first_frame: int, frames: int, bits: Any) -> Any:
+        calls.append(first_frame)
+        return original(self, first_frame, frames, bits)
+
+    monkeypatch.setattr(type(ECHO), "prepare", prepare)
+    for channels in (1, 4):
+        values = [value for value in noise(46 * 8 * BLOCK) for _ in range(channels)]
+        source = make_samples("input.wav", values, channels=channels)
+        encode(str(source), str(tmp_path / "output.wav"), "", ECHO, overwrite=True)
+    assert calls == 4 * list(range(0, 46 * 8 * BLOCK, 64 * BLOCK))
