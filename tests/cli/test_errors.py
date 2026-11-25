@@ -136,9 +136,9 @@ def test_errors_of_the_system(
     assert "\x1b" not in as_text.errors and "\u202e" not in as_text.errors
 
 
-def test_the_readme_lists_every_error_type() -> None:
-    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
-    listed = set(re.findall("`([a-z_]+)`", re.search("The error types are (.*)\n", readme)[1]))
+def test_the_documentation_lists_every_error_type() -> None:
+    documentation = (PROJECT_ROOT / "docs" / "commands.md").read_text(encoding="utf-8")
+    listed = set(re.findall("`([a-z_]+)`", re.search("The error types are (.*)\n", documentation)[1]))
     tested = {case[0] for case in ERRORS} | {"interrupted", "out_of_memory", "missing_library"}
     assert listed == tested | {error_type(UnsupportedAlgorithmError())}
 

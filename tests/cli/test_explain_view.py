@@ -27,9 +27,9 @@ def test_the_list(run: Any) -> None:
     assert fields == {**json.loads(run("algorithms", "--json").output), "command": "explain"}
 
 
-def test_the_whole_text_is_the_one_in_the_readme(run: Any) -> None:
-    readme = (PROJECT_ROOT / "README.md").read_text("utf-8")
-    example = readme.split("This is the output of `audiosteg explain lsb`:")[1].split("```")[1]
+def test_the_whole_text_is_the_one_in_the_documentation(run: Any) -> None:
+    documentation = (PROJECT_ROOT / "docs" / "commands.md").read_text("utf-8")
+    example = documentation.split("This is the output of `audiosteg explain lsb`:")[1].split("```")[1]
     result = run("explain", "lsb")
     assert (result.code, result.errors) == (0, "")
     assert result.output == example.removeprefix("\n")
