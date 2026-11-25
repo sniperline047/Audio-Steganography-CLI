@@ -100,11 +100,19 @@ class HideForm:
             "Which algorithm? If you are not sure, use the first.",
             [Choice(f"{key}: {ALGORITHMS[key].explanation}", value=key) for key in keys],
         )
+        if self.is_keyed():
+            crypto.check_available()
         return True
 
+    def is_keyed(self) -> bool:
+        """Say whether the chosen algorithm always encrypts."""
+        return ALGORITHMS[self.algorithm].keyed
+
     def ask_encryption(self) -> bool:
-        """Ask whether to encrypt the message, if this system can."""
-        self.encrypted = False
+        """Ask whether to encrypt the message, if this system can and the algorithm does not decide it."""
+        self.encrypted = self.is_keyed()
+        if self.encrypted:
+            return False
         try:
             crypto.check_available()
         except MissingLibraryError as error:

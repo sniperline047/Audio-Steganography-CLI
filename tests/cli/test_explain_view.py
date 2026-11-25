@@ -11,7 +11,7 @@ import pytest
 from conftest import ALL, PROJECT_ROOT
 
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
-from audiosteg.cli.explain_view import bit_spans, mark_changed, show_letter
+from audiosteg.cli.explain_view import show_letter
 from audiosteg.core.algorithm import Algorithm
 
 
@@ -65,22 +65,6 @@ def test_only_what_is_true_is_said_about_old_algorithms() -> None:
     assert "middle bits" not in " ".join(LEGACY_ALGORITHMS["basic"].replaced_because)
     for key in ("enhanced", "enhanced_flip"):
         assert "middle bits" in " ".join(LEGACY_ALGORITHMS[key].replaced_because)
-
-
-@pytest.mark.parametrize(
-    ("byte", "other", "groups"),
-    [
-        (0b00000000, 0b00000000, [("00000000", False)]),
-        (0b10110100, 0b10110101, [("1011010", False), ("0", True)]),
-        (0b10110111, 0b10110100, [("101101", False), ("11", True)]),
-        (0b11111111, 0b01111110, [("1", True), ("111111", False), ("1", True)]),
-        (0b11111111, 0b00000000, [("11111111", True)]),
-    ],
-)
-def test_changed_bits_are_marked(byte: int, other: int, groups: list[tuple[str, bool]]) -> None:
-    assert mark_changed(byte, other) == groups
-    shown = "".join(text for text, _ in bit_spans(byte, other))
-    assert shown == "".join(f"[{bits}]" if changed else bits for bits, changed in groups)
 
 
 @pytest.mark.parametrize(
@@ -176,6 +160,8 @@ def test_a_silent_file(run: Any, make_samples: Callable[..., Path]) -> None:
         "value_before": 0,
         "value_after": 0,
         "change": 0,
+        "position": 0,
+        "group": 1,
     }
     assert fields["samples"][1]["low_byte_before"] == "10000000"
     assert fields["samples"][1]["low_byte_after"] == "10000001"
@@ -191,7 +177,7 @@ def test_what_is_read_back_is_not_taken_for_granted(run: Any, monkeypatch: pytes
     wrong = Algorithm(
         "Wrong",
         8,
-        lambda byte, bits: int("".join(map(str, bits)), 2) + 1,
+        lambda byte, bits: int("".join(map(str, bits)), 2) + 1 & 255,
         lambda byte: tuple(int(bit) for bit in f"{byte:08b}"),
     )
     monkeypatch.setitem(ALGORITHMS, "wrong", wrong)
@@ -244,3 +230,78 @@ def test_samples_that_already_held_the_bits(run: Any, make_samples: Any) -> None
     advice = "These samples already held the bits, so nothing had to change. To see a change, try another"
     assert advice in run("explain", "lsb", "--file", "a.wav", "--letter", "\0").output
     assert advice not in run("explain", "lsb", "--file", "a.wav").output
+
+
+@pytest.mark.usefixtures("first_choices")
+def test_matching_shows_whole_samples(run: Any, make_samples: Callable[..., Path]) -> None:
+    make_samples("a.wav", [32767, 64, -32768, 256, 0, 1, 2, 5])
+    output = run("explain", "lsb_matching", "--letter", "U", "--file", "a.wav").output
+    assert output.split("put the bits into the samples\n")[1].split("\n\n")[0].splitlines() == [
+        "If the lowest bit is wrong, the whole sample moves by +1 or -1 at random, so more bits can change.",
+        "These are the bits of the lowest byte of each sample. Changed bits are in [brackets].",
+        "  1. hide 0: 1111111[1] -> 1111111[0]  value 32767 -> 32766    -1",
+        "  2. hide 1: 0[1000000] -> 0[0111111]  value 64 -> 63          -1",
+        "  3. hide 0: 00000000   -> 00000000    value -32768 -> -32768  no change",
+        "  4. hide 1: [00000000] -> [11111111]  value 256 -> 255        -1",
+        "  5. hide 0: 00000000   -> 00000000    value 0 -> 0            no change",
+        "  6. hide 1: 00000001   -> 00000001    value 1 -> 1            no change",
+        "  7. hide 0: 00000010   -> 00000010    value 2 -> 2            no change",
+        "  8. hide 1: 00000101   -> 00000101    value 5 -> 5            no change",
+    ]
+
+
+@pytest.mark.usefixtures("first_choices")
+def test_parity_shows_groups_and_the_chosen_sample(run: Any, make_samples: Callable[..., Path]) -> None:
+    make_samples("a.wav", [100, 1, 0, 1, 1, 0, 0, 0] + [0] * 56)
+    words = ["explain", "lsb_parity", "--letter", "@", "--file", "a.wav"]
+    output = run(*words).output
+    assert "64 samples of a.wav, from 0.000 s on (frame 0)." in output
+    shown = output.split("Each row shows the lowest bits of 8 samples. Changed bits are in [brackets].\n")[1]
+    assert shown.splitlines()[:3] == [
+        "  1. hide 0: [0]1011000 -> [1]1011000  parity 1 -> 0  sample 1: 100 -> 101  +1",
+        "  2. hide 1: [0]0000000 -> [1]0000000  parity 0 -> 1  sample 1: 0 -> 1  +1",
+        "  3. hide 0: 00000000   -> 00000000    parity 0 -> 0  no change",
+    ]
+    assert "2 of 64 samples changed, by at most 1 here." in output
+    fields = json.loads(run(*words, "--json").output)
+    assert (fields["samples_per_group"], len(fields["samples"]), len(fields["groups"])) == (8, 64, 8)
+    assert fields["groups"][1] == {
+        "group": 2,
+        "hidden_bits": "1",
+        "lowest_bits_before": "00000000",
+        "lowest_bits_after": "10000000",
+        "changed_sample": 1,
+    }
+    assert fields["groups"][2]["changed_sample"] is None
+    assert [row["group"] for row in fields["samples"]] == [number // 8 + 1 for number in range(64)]
+
+
+def test_keyed_shows_scattered_samples_and_a_demo_seed(run: Any) -> None:
+    result = run("explain", "lsb_keyed")
+    output = result.output
+    assert (result.code, result.errors) == (0, "")
+    assert "8 samples, scattered over the included tune.\n" in output
+    assert 'This is a demo: the seed "audiosteg demo" made the order. It never uses a passphrase' in output
+    assert "starts at the first sample" not in output
+    places = [int(text.replace(",", "")) for text in re.findall(r"sample ([\d,]+),", output)]
+    fields = json.loads(run("explain", "lsb_keyed", "--json").output)
+    assert places == [row["position"] for row in fields["samples"]]
+    assert len(set(places)) == 8 and places != sorted(places) and max(places) - min(places) > 50_000
+    assert (fields["demo_seed"], fields["needs_passphrase"]) == ("audiosteg demo", True)
+    assert fields["first_frame"] == min(places) // 2
+    assert '-m "Hello" -a lsb_keyed -p\n' in output
+    assert json.loads(run("explain", "lsb", "--json").output)["demo_seed"] is None
+
+
+def test_a_keyed_demo_in_a_silent_file(run: Any, make_samples: Callable[..., Path]) -> None:
+    make_samples("a.wav", [0] * 432)
+    output = run("explain", "lsb_keyed", "--file", "a.wav").output
+    assert "8 samples, scattered over a.wav.\nThe whole file is silent.\nThis is a demo" in output
+
+
+@pytest.mark.parametrize("key", ["lsb_4", "lsb_matching", "lsb_parity", "lsb_keyed"])
+def test_every_new_algorithm_is_explained_one_step_at_a_time(run: Any, key: str) -> None:
+    result = run("explain", key, "--letter", "🎵", "--step", terminals=ALL, stdin=b"\n" * 4)
+    assert (result.code, result.errors) == (0, "Press Enter to continue." * 4)
+    assert "Reading the same bits gives '🎵' again." in result.text
+    assert ALGORITHMS[key].name in result.text

@@ -2,50 +2,24 @@
 
 import unicodedata
 from collections.abc import Callable
-from typing import Any
 
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
-from audiosteg.analysis.walkthrough import SampleChange, Walkthrough, largest_possible_change
+from audiosteg.analysis.walkthrough import DEMO_SEED, Walkthrough, largest_possible_change
+from audiosteg.cli.change_view import change_fields, group_fields, show_groups, show_samples
 from audiosteg.cli.commands.hide import SAMPLE_FILE, SAMPLE_WORD
 from audiosteg.cli.views import View, clean_for_json, count_word, describe, display_path, format_time
 
 REPLACED = " (old files only)"
-BITS_IN_A_BYTE = 8
+FROM_THE_START = "The hide command itself starts at the first sample and puts a header before the message."
+DEMO = f'This is a demo: the seed "{DEMO_SEED}" made the order. It never uses a passphrase of yours.'
+SCATTERED = (
+    "The hide command itself makes the order from your passphrase and a random salt, "
+    "encrypts the message, and scatters a header with it."
+)
 ALREADY_HELD = (
     "These samples already held the bits, so nothing had to change. "
     "To see a change, try another character (--letter) or another file (--file)."
 )
-
-
-def mark_changed(byte: int, other: int) -> list[tuple[str, bool]]:
-    """Return the bits of a byte in groups, each with whether the other byte differs there."""
-    groups: list[tuple[str, bool]] = []
-    for shift in reversed(range(BITS_IN_A_BYTE)):
-        bit = str(byte >> shift & 1)
-        changed = bool((byte ^ other) >> shift & 1)
-        if groups and groups[-1][1] == changed:
-            groups[-1] = (groups[-1][0] + bit, changed)
-        else:
-            groups.append((bit, changed))
-    return groups
-
-
-def bit_spans(byte: int, other: int) -> list[tuple[str, str]]:
-    """Return the bits of a byte with the changed ones in brackets."""
-    return [
-        (f"[{bits}]", "bold black on yellow") if changed else (bits, "")
-        for bits, changed in mark_changed(byte, other)
-    ]
-
-
-def width_of(spans: list[tuple[str, str]]) -> int:
-    """Return how many characters the texts have together."""
-    return sum(len(text) for text, _ in spans)
-
-
-def join_bits(bits: tuple[int, ...]) -> str:
-    """Return bits as text."""
-    return "".join(map(str, bits))
 
 
 def show_letter(letter: str) -> str:
@@ -101,51 +75,33 @@ def show_character(view: View, walkthrough: Walkthrough) -> None:
     )
 
 
-def show_place(view: View, path: str, walkthrough: Walkthrough) -> None:
+def show_place(view: View, key: str, path: str, walkthrough: Walkthrough) -> None:
     """Show which samples are used."""
     name = "the included tune" if path == SAMPLE_FILE else display_path(path)
     sample_format = walkthrough.format
     count = len(walkthrough.changes)
     time = format_time(walkthrough.first_frame, sample_format.frame_rate)
     silence = ["The whole file is silent."] if walkthrough.silent else []
-    show_step(
-        view,
-        "Step 2: take real samples",
-        f"{count_word(count, 'sample')} of {name}, from {time} on (frame {walkthrough.first_frame:,}).",
-        *silence,
-        "The hide command itself starts at the first sample and puts a header before the message.",
-    )
-
-
-def change_word(change: SampleChange) -> str:
-    """Say how much a sample changed."""
-    return f"{change.change:+d}" if change.change else "no change"
-
-
-def show_changes(view: View, walkthrough: Walkthrough) -> None:
-    """Show the lowest byte of every sample before and after."""
-    changes = walkthrough.changes
-    show_step(
-        view,
-        "Step 3: put the bits into the samples",
-        "These are the bits of the lowest byte of each sample. Changed bits are in [brackets].",
-    )
-    before = [bit_spans(change.byte_before, change.byte_after) for change in changes]
-    after = [bit_spans(change.byte_after, change.byte_before) for change in changes]
-    widest = max(map(width_of, before))
-    numbers = len(str(len(changes)))
-    values = max(len(f"{change.value_before} -> {change.value_after}") for change in changes)
-    for change, old, new in zip(changes, before, after, strict=True):
-        padding = " " * (widest - width_of(old))
-        value = f"{change.value_before} -> {change.value_after}"
-        view.out.spans(
-            (f"  {change.number:>{numbers}}. hide {join_bits(change.hidden_bits)}: ", ""),
-            *old,
-            (f"{padding} -> ", ""),
-            *new,
-            (f"{padding}  value {value:<{values}}  {change_word(change)}", ""),
+    if ALGORITHMS[key].keyed:
+        where = [f"{count_word(count, 'sample')}, scattered over {name}.", *silence, DEMO, SCATTERED]
+    else:
+        place = (
+            f"{count_word(count, 'sample')} of {name}, from {time} on (frame {walkthrough.first_frame:,})."
         )
-    if not any(change.change for change in changes):
+        where = [place, *silence, FROM_THE_START]
+    show_step(view, "Step 2: take real samples", *where)
+
+
+def show_changes(view: View, key: str, walkthrough: Walkthrough) -> None:
+    """Show the lowest bits of the samples before and after."""
+    algorithm = ALGORITHMS[key]
+    how = [algorithm.how] if algorithm.how else []
+    show_step(view, "Step 3: put the bits into the samples", *how)
+    if algorithm.samples_per_group > 1:
+        show_groups(view, walkthrough.groups)
+    else:
+        show_samples(view, walkthrough.changes, scattered=algorithm.keyed)
+    if not any(change.change for change in walkthrough.changes):
         view.out.line(ALREADY_HELD)
 
 
@@ -170,24 +126,13 @@ def show_advice(view: View, key: str) -> None:
     for title, sentences in (("Strengths", algorithm.strengths), ("Weaknesses", algorithm.weaknesses)):
         if sentences:
             show_step(view, title, *[f"- {sentence}" for sentence in sentences])
+    passphrase = " -p" if algorithm.keyed else ""
     show_step(
         view,
         "Try it",
-        f'  audiosteg hide {SAMPLE_WORD} -m "Hello" -a {key}',
+        f'  audiosteg hide {SAMPLE_WORD} -m "Hello" -a {key}{passphrase}',
         f"  audiosteg compare {SAMPLE_WORD} {SAMPLE_WORD}.stego.wav --details",
     )
-
-
-def change_fields(change: SampleChange) -> dict[str, Any]:
-    """Return the JSON fields of one sample."""
-    return {
-        "hidden_bits": join_bits(change.hidden_bits),
-        "low_byte_before": f"{change.byte_before:08b}",
-        "low_byte_after": f"{change.byte_after:08b}",
-        "value_before": change.value_before,
-        "value_after": change.value_after,
-        "change": change.change,
-    }
 
 
 def show_walkthrough(
@@ -204,7 +149,10 @@ def show_walkthrough(
             "file": clean_for_json(path),
             "first_frame": walkthrough.first_frame,
             "silent": walkthrough.silent,
+            "how": algorithm.how,
+            "demo_seed": DEMO_SEED if algorithm.keyed else None,
             "samples": [change_fields(change) for change in walkthrough.changes],
+            "groups": [group_fields(group) for group in walkthrough.groups],
             "read_back": walkthrough.read_back,
             "largest_possible_change": largest_possible_change(algorithm),
             "strengths": list(algorithm.strengths),
@@ -214,8 +162,8 @@ def show_walkthrough(
         return
     steps: list[Callable[[], None]] = [
         lambda: show_character(view, walkthrough),
-        lambda: show_place(view, path, walkthrough),
-        lambda: show_changes(view, walkthrough),
+        lambda: show_place(view, key, path, walkthrough),
+        lambda: show_changes(view, key, walkthrough),
         lambda: show_result(view, key, walkthrough),
         lambda: show_advice(view, key),
     ]

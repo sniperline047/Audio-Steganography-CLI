@@ -17,6 +17,7 @@ SAME = "The same as a command: "
 
 
 @pytest.mark.parametrize(("number", "key"), list(enumerate([*ALGORITHMS, *LEGACY_ALGORITHMS])))
+@pytest.mark.usefixtures("first_choices")
 def test_every_algorithm(guide: Any, run: Any, number: int, key: str) -> None:
     letter = [(LETTER, ENTER)] if key in ALGORITHMS else []
     result = guide(EXPLAIN, (ALGORITHM, DOWN * number + ENTER), *letter, NO_COLOR="1")
@@ -64,11 +65,11 @@ def test_back_forgets_the_character(guide: Any) -> None:
         EXPLAIN,
         (ALGORITHM, ENTER),
         (LETTER, ESCAPE),
-        (ALGORITHM, DOWN * 2 + ENTER),
+        (ALGORITHM, DOWN * len(ALGORITHMS) + ENTER),
         EXPLAIN,
         (ALGORITHM, ENTER),
         (LETTER, ESCAPE),
-        (ALGORITHM, DOWN * 5 + ENTER),
+        (ALGORITHM, DOWN * (len(ALGORITHMS) + 3) + ENTER),
     )
     assert result.code == 0
     assert [line for line in result.text.splitlines() if SAME in line] == [f"{SAME}audiosteg explain basic"]
@@ -84,6 +85,6 @@ def test_leaving(guide: Any, key: str, code: int, before: list[Any]) -> None:
 def test_a_new_algorithm_is_offered(guide: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     new = Algorithm("New", 1, lambda byte, bits: byte & 254 | bits[0], lambda byte: (byte & 1,), "A new one.")
     monkeypatch.setitem(ALGORITHMS, "new_one", new)
-    result = guide(EXPLAIN, (ALGORITHM, DOWN * 2 + ENTER), (LETTER, ENTER))
+    result = guide(EXPLAIN, (ALGORITHM, DOWN * (len(ALGORITHMS) - 1) + ENTER), (LETTER, ENTER))
     assert "new_one: A new one." in result.text
     assert f"{SAME}audiosteg explain new_one\n" in result.text

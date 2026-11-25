@@ -37,6 +37,9 @@ def extract_bit(byte: int) -> tuple[int, ...]:
 
 
 LOWEST_BIT = Algorithm("Lowest bit", 1, embed_bit, extract_bit)
+TWO_BITS = Algorithm("Two bits", 2, embed_bit, extract_bit)
+GROUPS = Algorithm("Groups", 1, embed_bit, extract_bit, samples_per_group=3)
+KEYED = Algorithm("Keyed", 1, embed_bit, extract_bit, keyed=True)
 
 
 def hide(source: Path | str, output: Path | str, message: str = "hidden", overwrite: bool = False) -> None:
@@ -54,34 +57,70 @@ def carrier(length: int, message: bytes = b"", checksum: bytes | None = None) ->
 
 
 @pytest.mark.parametrize(
-    ("samples", "bits_per_byte", "encrypted", "capacity"),
+    ("samples", "algorithm", "encrypted", "capacity"),
     [
-        (112, 1, False, 0),
-        (119, 1, False, 0),
-        (120, 1, False, 1),
-        (56, 2, False, 0),
-        (60, 2, False, 1),
-        (1000, 2, False, 236),
-        (432, 1, True, 0),
-        (440, 1, True, 1),
-        (1000, 2, True, 196),
+        (112, LOWEST_BIT, False, 0),
+        (119, LOWEST_BIT, False, 0),
+        (120, LOWEST_BIT, False, 1),
+        (56, TWO_BITS, False, 0),
+        (60, TWO_BITS, False, 1),
+        (1000, TWO_BITS, False, 236),
+        (432, LOWEST_BIT, True, 0),
+        (440, LOWEST_BIT, True, 1),
+        (1000, TWO_BITS, True, 196),
+        (336, GROUPS, False, 0),
+        (359, GROUPS, False, 0),
+        (360, GROUPS, False, 1),
+        (1320, GROUPS, True, 1),
+        (432, KEYED, False, 0),
+        (440, KEYED, False, 1),
+        (440, KEYED, True, 1),
     ],
 )
-def test_capacity_limits(samples: int, bits_per_byte: int, encrypted: bool, capacity: int) -> None:
-    check_capacity(capacity, samples, bits_per_byte, encrypted)
+def test_capacity_limits(samples: int, algorithm: Algorithm, encrypted: bool, capacity: int) -> None:
+    check_capacity(capacity, samples, algorithm, encrypted)
     with pytest.raises(CapacityError, match=f"needs {capacity + 1} bytes .* hold {capacity} bytes"):
-        check_capacity(capacity + 1, samples, bits_per_byte, encrypted)
+        check_capacity(capacity + 1, samples, algorithm, encrypted)
 
 
 @pytest.mark.parametrize(
-    ("samples", "bits_per_byte", "encrypted"),
-    [(0, 1, False), (111, 1, False), (55, 2, False), (431, 1, True), (215, 2, True)],
+    ("samples", "algorithm", "encrypted"),
+    [
+        (0, LOWEST_BIT, False),
+        (111, LOWEST_BIT, False),
+        (55, TWO_BITS, False),
+        (431, LOWEST_BIT, True),
+        (215, TWO_BITS, True),
+        (335, GROUPS, False),
+        (431, KEYED, False),
+    ],
 )
 def test_audio_without_room_for_the_container_holds_nothing(
-    samples: int, bits_per_byte: int, encrypted: bool
+    samples: int, algorithm: Algorithm, encrypted: bool
 ) -> None:
     with pytest.raises(CapacityError, match="hold 0 bytes"):
-        check_capacity(0, samples, bits_per_byte, encrypted)
+        check_capacity(0, samples, algorithm, encrypted)
+
+
+def test_a_keyed_algorithm_needs_a_passphrase(make_wav: Callable[..., Path], tmp_path: Path) -> None:
+    source = make_wav()
+    with pytest.raises(PassphraseRequiredError, match="always encrypts"):
+        encode(str(source), str(tmp_path / "output.wav"), "hidden", KEYED)
+    with pytest.raises(PassphraseRequiredError, match="always encrypts"):
+        decode(str(source), KEYED)
+    assert os.listdir(tmp_path) == ["input.wav"]
+
+
+def test_an_algorithm_that_changes_the_size_of_a_group_is_refused(
+    make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    class Wrong(Algorithm):
+        def embed_group(self, samples: bytes, sample_width: int, bits: tuple[int, ...]) -> bytes:
+            return samples + b"x"
+
+    with pytest.raises(ValueError):
+        encode(str(make_wav()), str(tmp_path / "o.wav"), "m", Wrong("Wrong", 1, embed_bit, extract_bit))
+    assert os.listdir(tmp_path) == ["input.wav"]
 
 
 def test_a_message_can_be_hidden_in_a_file_that_already_holds_one(

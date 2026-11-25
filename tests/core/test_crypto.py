@@ -123,6 +123,23 @@ def test_an_unusable_passphrase_is_refused_without_showing_it(passphrase: str, r
     assert "\\udcff" not in "".join(traceback.format_exception_only(caught.value))
 
 
+def test_known_answer_subkeys() -> None:
+    prk = bytes.fromhex("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5")
+    info = bytes.fromhex("f0f1f2f3f4f5f6f7f8f9")
+    rfc_5869 = "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf"
+    assert crypto.derive_subkey(prk, info).hex() == rfc_5869
+
+
+@pytest.mark.needs_crypto
+def test_sealing_with_a_key(known_answer: Any, known_randomness: None) -> None:
+    sealed = crypto.seal(known_answer.message.encode(), known_answer.header, known_answer.key)
+    assert known_answer.salt + sealed == known_answer.body
+    assert crypto.unseal(sealed, known_answer.header, known_answer.key).decode() == known_answer.message
+    for changed in (sealed[:-1], b"\0" + sealed[1:]):
+        with pytest.raises(WrongPassphraseError):
+            crypto.unseal(changed, known_answer.header, known_answer.key)
+
+
 @pytest.mark.needs_crypto
 def test_this_system_can_encrypt() -> None:
     crypto.check_available()

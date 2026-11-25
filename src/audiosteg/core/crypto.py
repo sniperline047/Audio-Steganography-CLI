@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 import unicodedata
 from collections.abc import Iterator
@@ -86,6 +87,37 @@ def derive_key(passphrase: bytes, salt: bytes) -> bytes:
     return run_scrypt(passphrase, salt, n=SCRYPT_N, r=SCRYPT_R)
 
 
+def new_salt() -> bytes:
+    """Return the random salt of a new message."""
+    return secrets.token_bytes(SALT_SIZE)
+
+
+def derive_subkey(key: bytes, purpose: bytes) -> bytes:
+    """Make a key for one purpose, with HKDF-Expand of RFC 5869, SHA-256, and 32 bytes."""
+    return hmac.digest(key, purpose + b"\x01", "sha256")
+
+
+def seal(message: bytes, header: bytes, key: bytes) -> bytes:
+    """Encrypt a message with a key. Return the nonce, the encrypted message, and the tag."""
+    aes_gcm = load_aes_gcm()
+    nonce = secrets.token_bytes(NONCE_SIZE)
+    with explain_refusals():
+        return nonce + aes_gcm(key).encrypt(nonce, message, header)
+
+
+def unseal(sealed: bytes, header: bytes, key: bytes) -> bytes:
+    """Decrypt the result of seal. Any change to it or to the header is an error."""
+    aes_gcm = load_aes_gcm()
+    from cryptography.exceptions import InvalidTag
+
+    nonce, ciphertext = sealed[:NONCE_SIZE], sealed[NONCE_SIZE:]
+    try:
+        with explain_refusals():
+            return aes_gcm(key).decrypt(nonce, ciphertext, header)
+    except InvalidTag as error:
+        raise WrongPassphraseError("Wrong passphrase, or the message was changed.") from error
+
+
 def encrypt(message: bytes, header: bytes, passphrase: bytes) -> bytes:
     """
     Encrypt a message and protect its header against changes.
@@ -95,12 +127,9 @@ def encrypt(message: bytes, header: bytes, passphrase: bytes) -> bytes:
     :param passphrase: The bytes from passphrase_to_bytes
     :return: The salt, the nonce, the encrypted message, and the tag
     """
-    aes_gcm = load_aes_gcm()
-    salt = secrets.token_bytes(SALT_SIZE)
-    nonce = secrets.token_bytes(NONCE_SIZE)
-    key = derive_key(passphrase, salt)
-    with explain_refusals():
-        return salt + nonce + aes_gcm(key).encrypt(nonce, message, header)
+    load_aes_gcm()
+    salt = new_salt()
+    return salt + seal(message, header, derive_key(passphrase, salt))
 
 
 def decrypt(body: bytes, header: bytes, passphrase: bytes) -> bytes:
@@ -112,15 +141,5 @@ def decrypt(body: bytes, header: bytes, passphrase: bytes) -> bytes:
     :param passphrase: The bytes from passphrase_to_bytes
     :return: The message bytes
     """
-    aes_gcm = load_aes_gcm()
-    from cryptography.exceptions import InvalidTag
-
-    salt = body[:SALT_SIZE]
-    nonce = body[SALT_SIZE : SALT_SIZE + NONCE_SIZE]
-    ciphertext = body[SALT_SIZE + NONCE_SIZE :]
-    key = derive_key(passphrase, salt)
-    try:
-        with explain_refusals():
-            return aes_gcm(key).decrypt(nonce, ciphertext, header)
-    except InvalidTag as error:
-        raise WrongPassphraseError("Wrong passphrase, or the message was changed.") from error
+    load_aes_gcm()
+    return unseal(body[SALT_SIZE:], header, derive_key(passphrase, body[:SALT_SIZE]))

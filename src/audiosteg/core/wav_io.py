@@ -4,8 +4,9 @@ import os
 import stat
 import struct
 import wave
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
+from itertools import islice
 from typing import BinaryIO, NamedTuple
 
 from audiosteg.errors import UnsupportedFormatError
@@ -15,6 +16,7 @@ WAVE_FORMAT_IEEE_FLOAT = 3
 MAX_BYTES_PER_SECOND = 2**32 - 1
 UNKNOWN_DATA_SIZE = 2**32 - 1
 MAX_INPUT_SIZE = 2**30
+SCATTERED_BATCH = 2**18
 
 
 class AudioData(NamedTuple):
@@ -128,6 +130,31 @@ def read_first_bytes(audio: wave.Wave_read, count: int) -> bytes:
     frames_needed = -(-count // frame_size)
     audio.rewind()
     return audio.readframes(frames_needed)[:count]
+
+
+def read_low_bytes(audio: wave.Wave_read, samples: Iterable[int]) -> Iterator[int]:
+    """
+    Yield the lowest byte of each of these samples, up to the first that is missing.
+
+    Many samples at a time are read in the order of the file, which is much faster than jumping around.
+    """
+    remaining = iter(samples)
+    while batch := list(islice(remaining, SCATTERED_BATCH)):
+        found = {sample: read_low_byte(audio, sample) for sample in sorted(batch)}
+        for sample in batch:
+            low_byte = found[sample]
+            if low_byte is None:
+                return
+            yield low_byte
+
+
+def read_low_byte(audio: wave.Wave_read, sample: int) -> int | None:
+    """Return the lowest byte of one sample, or None if the file ends before it."""
+    channels, sample_width = audio.getnchannels(), audio.getsampwidth()
+    frame, channel = divmod(sample, channels)
+    audio.setpos(frame)
+    data = audio.readframes(1)
+    return data[channel * sample_width] if len(data) == channels * sample_width else None
 
 
 def write_audio(input_path: str, output_path: str, audio: AudioData, overwrite: bool) -> None:

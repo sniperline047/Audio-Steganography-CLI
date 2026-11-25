@@ -32,8 +32,8 @@ printf "Hello" | audiosteg hide song.wav
 | --- | --- |
 | `-m TEXT`, `--message TEXT` | The message. Other users of the computer and the shell history may see it. |
 | `--message_file FILE` | Read the message from a UTF-8 text file |
-| `-a`, `--algorithm` | `lsb` (default) or `lsb_2` |
-| `-p`, `--passphrase` | Ask for a passphrase, twice, and encrypt the message |
+| `-a`, `--algorithm` | `lsb` (default), `lsb_2`, `lsb_4`, `lsb_matching`, `lsb_parity`, or `lsb_keyed`. See [Algorithms](file_format.md). |
+| `-p`, `--passphrase` | Ask for a passphrase, twice, and encrypt the message. `lsb_keyed` always asks in a terminal. Anywhere else it needs `--passphrase_file`. |
 | `--passphrase_file FILE` | Read the passphrase from a file |
 | `-o`, `--output` | The new file. The default is the name of the input with `.stego.wav`, in the current folder. |
 | `--force` | Replace an existing output file |
@@ -57,12 +57,16 @@ audiosteg reveal old.wav --legacy basic
 
 | Option | Meaning |
 | --- | --- |
-| `-a`, `--algorithm` | `lsb` or `lsb_2`, instead of detecting it |
+| `-a`, `--algorithm` | The algorithm, instead of detecting it |
 | `--legacy` | `basic`, `enhanced`, or `enhanced_flip`, for files of older versions, which are not detected |
 | `-p`, `--passphrase` | Ask for the passphrase. A terminal asks without this option if the message is encrypted. |
 | `--passphrase_file FILE` | Read the passphrase from a file |
 
 Only the message goes to stdout. Everything else, such as whether the message was encrypted, goes to stderr. If you expect an encrypted message and the program says that it was not encrypted, do not trust the message. With a passphrase option, a message that is not encrypted is refused.
+
+A message of `lsb_keyed` cannot be detected. If no other message is detected and there is a passphrase option, the passphrase is tried on `lsb_keyed`. With `-a lsb_keyed`, nothing else is tried, and a terminal asks for the passphrase. A wrong passphrase looks the same as a file without a message, so the error is the same too.
+
+A message of `lsb_matching` is the same as one of `lsb` to a reader, so it is always reported as `lsb`, even with `-a lsb_matching`.
 
 In a file or a pipe, the message is written exactly, as UTF-8, with nothing added at the end. A terminal shows characters that could control it as escape codes such as `\x1b`, adds a newline, and shows the line about encryption last. If only stderr is a terminal, that line starts with an empty line, so that the two do not run together. Invisible joiners are also escaped, so some combined emoji appear as separate emoji and a code such as `\u200d`.
 
@@ -94,11 +98,15 @@ Sample rate: 22,050 Hz
 Duration: 4.2812 s (94,400 frames)
 Room with lsb: 23,586 bytes, or 23,546 encrypted
 Room with lsb_2: 47,186 bytes, or 47,146 encrypted
+Room with lsb_4: 94,386 bytes, or 94,346 encrypted
+Room with lsb_matching: 23,586 bytes, or 23,546 encrypted
+Room with lsb_parity: 2,936 bytes, or 2,896 encrypted
+Room with lsb_keyed: 23,546 bytes, always encrypted
 Hidden message: lsb, not encrypted, 5 bytes
-Only the header of the message was read, so damage further on is not detected.
+Only the header of the message was read, so damage further on is not detected. A message hidden with lsb_matching looks the same as one hidden with lsb.
 ```
 
-`none detected` does not mean that a file has no hidden message: files of older versions and messages of other tools cannot be detected. A header that is damaged or of an unknown version is reported. Because only the header is read, damage in the message itself is found by `reveal`, not here. The exit code is 0 in all these cases.
+`none detected` does not mean that a file has no hidden message: messages of `lsb_keyed`, files of older versions, and messages of other tools cannot be detected. A message of `lsb_matching` is shown as `lsb`. A header that is damaged or of an unknown version is reported. Because only the header is read, damage in the message itself is found by `reveal`, not here. The exit code is 0 in all these cases.
 
 ## compare
 
@@ -198,6 +206,8 @@ Try it
 | `--file FILE` | Take the samples from this file instead of the included tune |
 | `--step` | Wait for Enter after each step. It needs a terminal. |
 
+`lsb_parity` shows the lowest bits of each group of 8 samples, their parity, and the sample that was chosen. `lsb_matching` shows how whole samples move by +1 or -1. Both choose at random, so the output differs from run to run. `lsb_keyed` shows scattered samples, counted from 0 across all channels. Their order comes from a fixed demo seed that is shown, never from a passphrase.
+
 For an algorithm of older versions, it says why the algorithm was replaced, and the options are not allowed.
 
 ## algorithms
@@ -222,14 +232,16 @@ The JSON document has `ok` and `command`, and:
 | `hide` | `input`, `output`, `algorithm`, `encrypted` |
 | `reveal` | `file`, `algorithm`, `legacy`, `encrypted`, `message` |
 | `verify` | `file`, `algorithm`, `legacy`, `encrypted`, `exact_match`, `percentage`, `expected_length`, `found_length` |
-| `inspect` | `file`, `bits`, `channels`, `sample_rate`, `frames`, `seconds`, `cannot_hide` (a reason or `null`), `capacity` (a list of `algorithm`, `plain`, `encrypted`), `messages` (a list of `algorithm`, `encrypted`, `size`, `problem`; empty if none was detected) |
+| `inspect` | `file`, `bits`, `channels`, `sample_rate`, `frames`, `seconds`, `cannot_hide` (a reason or `null`), `capacity` (a list of `algorithm`, `plain`, `encrypted`, and `always_encrypted`; if that is `true`, `plain` is 0), `messages` (a list of `algorithm`, `encrypted`, `size`, `problem`; empty if none was detected) |
 | `compare` | `original`, `encoded`, `first_frame`, `frames`, `total_frames`, `identical`, `quality`, the numbers below, `difference` (`file`, which is absolute, `gain`, and `capped`, or `null`) |
-| `explain` | Without a name, like `algorithms`. With one, `key`, `name`, `bits_per_byte`, `explanation`, `legacy`, and for an old algorithm `replaced_because`, for others `letter`, `utf_8`, `file`, `first_frame`, `silent`, `samples`, `read_back`, `largest_possible_change`, `strengths`, `weaknesses` |
-| `algorithms` | `algorithms` and `legacy`: lists of `key`, `name`, `bits_per_byte`, `explanation` |
+| `explain` | Without a name, like `algorithms`. With one, `key`, `name`, `bits_per_byte`, `explanation`, `legacy`, and for an old algorithm `replaced_because`, for others `samples_per_group`, `needs_passphrase`, `reads_like`, `letter`, `utf_8`, `file`, `first_frame`, `silent`, `how`, `demo_seed`, `samples`, `groups`, `read_back`, `largest_possible_change`, `strengths`, `weaknesses` |
+| `algorithms` | `algorithms` and `legacy`: lists of `key`, `name`, `bits_per_byte`, `explanation`. In `algorithms` also `samples_per_group`, `needs_passphrase`, and `reads_like` (the algorithm that its messages are reported as, or `null`) |
 | `--version` | `version` (`command` is `null`) |
 | Error | `error`: `type`, `message`, `hint` (or `null`), `exit_code` |
 
 The numbers of `compare` are `snr_db` and `snr_note`, `psnr_db` and `psnr_note`, then `samples`, `changed_samples`, `changed_percentage`, `largest_change`, `largest_change_percentage`, then `first_changed_frame`, `last_changed_frame`, `changed_by_tenth`. `--show` limits them to its names, in the order `snr`, `psnr`, `changes`, `where`. `waveform` needs `--details` or `--show waveform`; it has 80 columns, or `--width`, or fewer for very short audio, whatever the terminal is. Its numbers are shares of the largest possible sample: 0 to 1, and up to almost 2 for the difference. A number that does not exist is `null`, and its note says why: `identical` or `silent_original`. `--play` and `--step` cannot be used with `--json`.
+
+`bits_per_byte` is the number of bits in each group of `samples_per_group` samples. In `explain`, every item of `samples` has `hidden_bits` (of its whole group), `low_byte_before`, `low_byte_after`, `value_before`, `value_after`, `change`, `position` (counted from 0 across all channels), and `group` (from 1). Every item of `groups` has `group`, `hidden_bits`, `lowest_bits_before`, `lowest_bits_after`, and `changed_sample` (its first changed sample, counted from 1 in the group, or `null`). `demo_seed` is `null` for algorithms without a passphrase. `first_frame` is the earliest frame used.
 
 `ok` says whether the command finished. If `verify` finds a difference, `ok` is `true`, `exact_match` is `false`, and the exit code is 1. Paths in these fields are as given, except `output` and the file of `difference`, which are absolute, and the input `sample`, which is shown as the path of the included file. Only `reveal` shows a message. A passphrase is never shown.
 
@@ -255,6 +267,7 @@ If the output is closed (for example, by a pipe such as `| head`), the code is 1
 - Ctrl-C leaves with code 130. Ctrl-D at the main menu leaves like Exit. Ctrl-D at any other question leaves with code 1; at a text question, only if nothing is typed yet.
 - An empty message and replacing a file must be confirmed: type `y` and Enter.
 - A message that does not fit is refused at once, and only algorithms that can hold it are offered.
+- `lsb_keyed` always asks for a passphrase. If no message is detected in a file, Reveal and Verify ask whether `lsb_keyed` or an older version hid one.
 - Compare asks whether to show three lines, everything, or what you choose. It then offers to play the sounds, if the system has a player.
 - After each action, it shows the command that does the same. The message and the passphrase are never part of it. A command is not shown if a file name or another answer has characters that a shell could change.
 

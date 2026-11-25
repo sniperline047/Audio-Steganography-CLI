@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from audiosteg import decode
+from audiosteg.algorithms.registry import ALGORITHMS as KNOWN
 
 DOWN, ENTER, ESCAPE, CTRL_C, CTRL_D = "\x1b[B", "\r", "\x1b", "\x03", "\x04"
 MENU = "What would you like to do?"
@@ -119,7 +120,7 @@ def test_a_failure_returns_to_the_menu_and_a_later_success_does_not_hide_it(
     result = guide(
         REVEAL,
         ("hidden message:", f"input.wav{ENTER}"),
-        ("older version hide", ENTER),
+        ("How may the message be hidden?", DOWN + ENTER),
         REVEAL,
         ("hidden message:", ESCAPE),
         HIDE,
@@ -155,7 +156,7 @@ def test_back_from_every_first_question_returns_to_the_menu(guide: Any, tmp_path
         COMPARE,
         ("Original (sample means the included tune) [sample]:", ESCAPE),
         EXPLAIN,
-        ("Which algorithm?", DOWN * 5 + ENTER),
+        ("Which algorithm?", DOWN * (len(KNOWN) + 3) + ENTER),
         EXPLAIN,
         ("Which algorithm?", ESCAPE),
         EXIT,

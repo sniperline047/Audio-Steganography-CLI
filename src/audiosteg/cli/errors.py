@@ -84,6 +84,7 @@ def next_step(error: BaseException) -> str | None:
     if isinstance(error, NoMessageError):
         return (
             "Check that this is the file that hide made, and that it was not converted or edited. "
+            "If it was hidden with lsb_keyed, add -p and the passphrase that hid it. "
             "If an older version made it, use --legacy basic, enhanced, or enhanced_flip."
         )
     if isinstance(error, MissingLibraryError):

@@ -94,7 +94,7 @@ def test_an_encrypted_message(run: Any, make_wav: Callable[..., Path], tmp_path:
     result = run("reveal", output, "--passphrase_file", key_file)
     assert (result.code, result.output) == (0, "hidden")
     assert result.errors.endswith(ENCRYPTED)
-    for words in ([], ["-p"]):
+    for words in (["-a", key], ["-p"]):
         typed = run("reveal", output, *words, hidden=("sésame 🎵",), terminals=ALL, NO_COLOR="1")
         assert typed.seen == f"Passphrase, not shown while you type: hidden\n{ENCRYPTED}"
 
@@ -233,3 +233,106 @@ def test_a_byte_order_mark_explains_a_wrong_passphrase(
     assert "byte order mark" in wrong.errors
     key_file.write_bytes(b"other")
     assert "byte order mark" not in run(*words, tmp_path / "without.wav").errors
+
+
+@pytest.fixture
+def keyed(make_wav: Callable[..., Path], tmp_path: Path, fast_scrypt: None) -> Path:
+    output = tmp_path / "keyed.wav"
+    encode(str(make_wav()), str(output), "hidden", ALGORITHMS["lsb_keyed"], passphrase="sesame")
+    return output
+
+
+@pytest.fixture
+def key_file(tmp_path: Path) -> Callable[[str], Path]:
+    def write(passphrase: str) -> Path:
+        path = tmp_path / "key.txt"
+        path.write_text(passphrase, encoding="utf-8")
+        path.chmod(0o600)
+        return path
+
+    return write
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize("words", [[], ["-a", "lsb_keyed"]])
+def test_a_keyed_message_is_found_with_its_passphrase(
+    run: Any, keyed: Path, key_file: Callable[[str], Path], words: list[str]
+) -> None:
+    result = run("reveal", keyed, *words, "--passphrase_file", key_file("sesame"))
+    assert (result.code, result.output, result.errors) == (0, "hidden", ENCRYPTED)
+    fields = json.loads(
+        run("reveal", keyed, *words, "--passphrase_file", key_file("sesame"), "--json").output
+    )
+    assert (fields["algorithm"], fields["legacy"], fields["encrypted"]) == ("lsb_keyed", False, True)
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize("words", [[], ["-a", "lsb_keyed"]])
+def test_a_wrong_passphrase_looks_the_same_as_no_message(
+    run: Any, make_wav: Callable[..., Path], keyed: Path, key_file: Callable[[str], Path], words: list[str]
+) -> None:
+    secret = key_file("WRONG_KEY")
+    results = [
+        run("reveal", path, *words, "--passphrase_file", secret)
+        for path in (keyed, make_wav(), make_wav("short.wav", bytes(100)))
+    ]
+    assert {(result.code, result.output) for result in results} == {(1, "")}
+    assert len({result.errors for result in results}) == 1
+    assert "No hidden message was found with this passphrase. Either the passphrase is wrong, or" in (
+        results[0].errors
+    )
+    assert "WRONG_KEY" not in results[0].errors
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.usefixtures("keyed")
+def test_a_keyed_message_without_a_passphrase(run: Any) -> None:
+    undetected = run("reveal", "keyed.wav", terminals=ALL)
+    assert (undetected.code, "Passphrase" in undetected.errors) == (1, False)
+    assert "add -p and the passphrase" in undetected.errors
+    named = run("reveal", "keyed.wav", "-a", "lsb_keyed")
+    assert (named.code, "A passphrase is needed." in named.errors) == (1, True)
+    asked = run("reveal", "keyed.wav", "-a", "lsb_keyed", hidden=("sesame",), terminals=ALL, NO_COLOR="1")
+    assert asked.seen == f"Passphrase, not shown while you type: hidden\n{ENCRYPTED}"
+
+
+@pytest.mark.needs_crypto
+def test_a_plain_message_is_still_refused_unless_keyed_is_named(
+    run: Any, keyed: Path, key_file: Callable[[str], Path], tmp_path: Path
+) -> None:
+    both = tmp_path / "both.wav"
+    encode(str(keyed), str(both), "", LSB)
+    secret = key_file("sesame")
+    refused = run("reveal", both, "--passphrase_file", secret)
+    assert (refused.code, "The hidden message is not encrypted" in refused.errors) == (1, True)
+    named = run("reveal", both, "-a", "lsb_keyed", "--passphrase_file", secret)
+    assert (named.code, "No hidden message was found with this passphrase" in named.errors) == (1, True)
+    assert run("reveal", both).output == ""
+
+
+@pytest.mark.parametrize("words", [["-p"], ["-a", "lsb_keyed"]])
+def test_nothing_is_asked_if_a_keyed_message_could_not_be_read(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, no_library: None, words: list[str]
+) -> None:
+    result = run("reveal", make_wav(), *words, terminals=ALL)
+    assert (result.code, "Error: Encryption needs an optional library." in result.errors) == (1, True)
+    (tmp_path / "text.wav").write_text("not audio " * 10)
+    assert "not a valid PCM WAV" in run("reveal", "text.wav", *words, terminals=ALL).errors
+
+
+def test_lsb_matching_is_reported_as_lsb(run: Any, make_wav: Callable[..., Path], tmp_path: Path) -> None:
+    output = tmp_path / "output.wav"
+    encode(str(make_wav()), str(output), "hidden", ALGORITHMS["lsb_matching"])
+    for words in ([], ["-a", "lsb"], ["-a", "lsb_matching"]):
+        fields = json.loads(run("reveal", output, *words, "--json").output)
+        assert (fields["algorithm"], fields["message"]) == ("lsb", "hidden")
+    found = json.loads(run("inspect", output, "--json").output)["messages"]
+    assert found == [{"algorithm": "lsb", "encrypted": False, "size": 6, "problem": None}]
+
+
+@pytest.mark.needs_crypto
+def test_a_byte_order_mark_explains_a_keyed_message_that_is_not_found(
+    run: Any, keyed: Path, key_file: Callable[[str], Path]
+) -> None:
+    result = run("reveal", keyed, "--passphrase_file", key_file("\ufeffsesame"))
+    assert (result.code, "byte order mark" in result.errors) == (1, True)

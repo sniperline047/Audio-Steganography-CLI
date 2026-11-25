@@ -13,11 +13,16 @@ from audiosteg.errors import DamagedMessageError, UnsupportedFormatError
 
 @dataclass(frozen=True)
 class Capacity:
-    """The size of the largest message that one algorithm can hide, in bytes."""
+    """
+    The size of the largest message that one algorithm can hide, in bytes.
+
+    :param always_encrypted: Whether the algorithm cannot hide a plain message, so that plain is 0
+    """
 
     algorithm: str
     plain: int
     encrypted: int
+    always_encrypted: bool = False
 
 
 @dataclass(frozen=True)
@@ -74,12 +79,15 @@ def inspect(path: str) -> Inspection:
     capacities = [
         Capacity(
             key,
-            count_message_bytes(samples, algorithm.bits_per_byte, encrypted=False),
-            count_message_bytes(samples, algorithm.bits_per_byte, encrypted=True),
+            0 if algorithm.keyed else count_message_bytes(samples, algorithm, encrypted=False),
+            count_message_bytes(samples, algorithm, encrypted=True),
+            algorithm.keyed,
         )
         for key, algorithm in ALGORITHMS.items()
     ]
-    found = [find_message(path, key, algorithm) for key, algorithm in ALGORITHMS.items()]
+    found = [
+        find_message(path, key, algorithm) for key, algorithm in ALGORITHMS.items() if algorithm.detectable
+    ]
     return Inspection(
         sample_format,
         frames,

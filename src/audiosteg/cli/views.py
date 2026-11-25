@@ -321,6 +321,18 @@ def describe(algorithms: Mapping[str, Algorithm | LegacyAlgorithm]) -> list[dict
             "name": algorithm.name,
             "bits_per_byte": algorithm.bits_per_byte,
             "explanation": algorithm.explanation,
+            **group_fields(algorithm),
         }
         for key, algorithm in algorithms.items()
     ]
+
+
+def group_fields(algorithm: Algorithm | LegacyAlgorithm) -> dict[str, Any]:
+    """Return the JSON fields that only an algorithm that can hide messages has."""
+    if isinstance(algorithm, LegacyAlgorithm):
+        return {}
+    return {
+        "samples_per_group": algorithm.samples_per_group,
+        "needs_passphrase": algorithm.keyed,
+        "reads_like": next((key for key, known in ALGORITHMS.items() if known is algorithm.reads_like), None),
+    }

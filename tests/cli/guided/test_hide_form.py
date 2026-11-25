@@ -11,6 +11,8 @@ import pytest
 
 from audiosteg import decode, encode
 from audiosteg.algorithms.lsb import LSB, LSB_2
+from audiosteg.algorithms.lsb_4 import LSB_4
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.commands import hide
 from audiosteg.cli.guided import hide_form
 from audiosteg.core import crypto
@@ -70,7 +72,7 @@ def test_back_from_every_question(guide: Any, make_wav: Callable[..., Path], tmp
         ("Message to hide:", ESCAPE),
         INPUT,
         message("one"),
-        ("Which algorithm?", back),
+        ("Which algorithm?", DOWN * len(ALGORITHMS) + ENTER),
         message("two"),
         ("Which algorithm?", DOWN + ENTER),
         (ENCRYPTION, back),
@@ -93,7 +95,7 @@ def test_back_from_every_question(guide: Any, make_wav: Callable[..., Path], tmp
         (OVERWRITE, f"y{ENTER}"),
     )
     assert result.code == 0
-    assert "match" not in result.text
+    assert "do not match" not in result.text
     assert decode(str(output), LSB_2, passphrase="pass_third") == "two"
     for passphrase in ("pass_first", "pass_second", "pass_third"):
         assert passphrase not in result.text
@@ -422,19 +424,19 @@ def test_a_message_that_is_too_large_is_refused_at_once(
         START,
         OWN_FILE,
         INPUT,
-        message("é" * 94),
-        message("é" * 93),
+        message("é" * 194),
+        message("é" * 193),
         FIRST_ALGORITHM,
         (OUTPUT, ENTER),
     )
     assert result.code == 0
-    assert "it needs 188 bytes and the audio file can hold 186 bytes" in result.text
-    assert "The message is too large for some algorithms. These can hold it: lsb_2." in result.text
+    assert "it needs 388 bytes and the audio file can hold 386 bytes" in result.text
+    assert "The message is too large for some algorithms. These can hold it: lsb_4." in result.text
     assert "lsb: Hides" not in result.text
-    assert decode(str(tmp_path / "input.stego.wav"), LSB_2) == "é" * 93
+    assert decode(str(tmp_path / "input.stego.wav"), LSB_4) == "é" * 193
 
 
-@pytest.mark.parametrize(("length", "advice"), [(86, "choose lsb_2"), (186, "type a shorter message")])
+@pytest.mark.parametrize(("length", "advice"), [(86, "choose lsb_2"), (386, "type a shorter message")])
 def test_a_message_that_encryption_makes_too_large_is_refused_at_once(
     guide: Any, encryption: Callable[[bool], None], make_wav: Callable[..., Path], length: int, advice: str
 ) -> None:
@@ -457,3 +459,60 @@ def test_a_file_that_is_too_small_for_any_message_is_explained(
     assert result.code == 130
     assert "it needs 0 bytes and the audio file can hold 0 bytes" in result.text
     assert "Hide an empty message?" not in result.text
+
+
+KEYED = ("Which algorithm?", DOWN * list(ALGORITHMS).index("lsb_keyed") + ENTER)
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.usefixtures("fast_scrypt")
+def test_a_keyed_algorithm_asks_for_a_passphrase_and_not_whether_to_encrypt(
+    guide: Any, run: Any, make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    make_wav()
+    secret = (("Passphrase:", f"sésame{ENTER}"), ("Repeat the passphrase:", f"sésame{ENTER}"))
+    result = guide(
+        START,
+        OWN_FILE,
+        INPUT,
+        message("hidden"),
+        KEYED,
+        ("Passphrase:", ESCAPE),
+        FIRST_ALGORITHM,
+        (ENCRYPTION, ESCAPE),
+        KEYED,
+        *secret,
+        (OUTPUT, ENTER),
+    )
+    assert result.code == 0
+    assert decode(str(tmp_path / "input.stego.wav"), passphrase="sésame") == "hidden"
+    command = COMMAND.search(result.text)[1]
+    assert command == "audiosteg hide input.wav -a lsb_keyed -o input.stego.wav -p"
+    again = run(
+        *words_of(command)[1:],
+        "--force",
+        stdin=b"hidden\n",
+        hidden=("key", "key"),
+        terminals=("stdin", "stdout", "stderr"),
+    )
+    assert again.code == 0
+    assert "sésame" not in result.text
+
+
+def test_a_keyed_algorithm_that_cannot_be_used_is_explained(
+    guide: Any, encryption: Callable[[bool], None], make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    encryption(False)
+    make_wav()
+    result = guide(START, OWN_FILE, INPUT, message("x"), KEYED, FIRST_ALGORITHM, (OUTPUT, ENTER))
+    assert "Error: Not installed." in result.text
+    assert decode(str(tmp_path / "input.stego.wav")) == "x"
+
+
+@pytest.mark.parametrize(("length", "offered"), [(46, True), (47, False)])
+def test_a_keyed_algorithm_is_offered_only_for_a_message_that_fits_encrypted(
+    guide: Any, make_wav: Callable[..., Path], length: int, offered: bool
+) -> None:
+    make_wav(frames=bytes(800))
+    result = guide(START, OWN_FILE, INPUT, message("x" * length), ("Which algorithm?", CTRL_C), leave=False)
+    assert ("lsb_keyed: " in result.text) is offered

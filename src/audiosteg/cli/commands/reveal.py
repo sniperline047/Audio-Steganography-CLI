@@ -4,13 +4,14 @@ import argparse
 from dataclasses import dataclass
 
 from audiosteg.algorithms.detection import decode, detect
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS, reading_key
 from audiosteg.cli.options import add_reading_options, file_path, passphrase_source
 from audiosteg.cli.passphrase import BYTE_ORDER_MARK, PassphraseSource
 from audiosteg.cli.results import RevealResult
 from audiosteg.cli.views import View
 from audiosteg.core import crypto
 from audiosteg.core.stego_file import read_header
+from audiosteg.core.wav_io import open_pcm_wav
 from audiosteg.errors import NoMessageError, NotEncryptedError, WrongPassphraseError
 
 HELP = "read a hidden message"
@@ -20,11 +21,12 @@ EXAMPLES = """examples:
   audiosteg reveal song.stego.wav --passphrase_file key.txt
   audiosteg reveal old.wav --legacy basic
 """
+KEYED_ALGORITHM = next(key for key, known in ALGORITHMS.items() if known.keyed)
 
 
 @dataclass(frozen=True)
 class HiddenMessage:
-    """Where a message is and how to read it."""
+    """Where a message is, or may be, and how to read it."""
 
     file: str
     algorithm: str
@@ -32,17 +34,23 @@ class HiddenMessage:
     encrypted: bool
 
 
-def find_message(file: str, algorithm: str | None = None, legacy: str | None = None) -> HiddenMessage:
+def find_message(
+    file: str, algorithm: str | None = None, legacy: str | None = None, has_passphrase: bool = False
+) -> HiddenMessage:
     """
     Find out how a message is hidden.
 
     :param file: Path to the encoded audio file
     :param algorithm: The name of the algorithm, or None to detect it
     :param legacy: The name of an algorithm of older versions, which are not detected
+    :param has_passphrase: Whether there is a passphrase to try if no message is detected
     :return: How to read the message
     """
     if legacy is not None:
         return HiddenMessage(file, legacy, legacy=True, encrypted=False)
+    if algorithm is not None and ALGORITHMS[algorithm].keyed:
+        with open_pcm_wav(file):
+            return HiddenMessage(file, algorithm, legacy=False, encrypted=True)
     if algorithm is not None:
         header = read_header(file, ALGORITHMS[algorithm])
         if header is None:
@@ -51,8 +59,10 @@ def find_message(file: str, algorithm: str | None = None, legacy: str | None = N
                 "To detect the algorithm, leave out -a. For a file of an older version, use --legacy."
             )
             raise error
-        return HiddenMessage(file, algorithm, legacy=False, encrypted=header.encrypted)
+        return HiddenMessage(file, reading_key(algorithm), legacy=False, encrypted=header.encrypted)
     detected = detect(file)
+    if detected is None and has_passphrase:
+        return HiddenMessage(file, KEYED_ALGORITHM, legacy=False, encrypted=True)
     if detected is None:
         raise NoMessageError("No hidden message was found.")
     keys = [key for key, known in ALGORITHMS.items() if known is detected[0]]
@@ -81,11 +91,12 @@ def get_passphrase(hidden: HiddenMessage, passphrases: PassphraseSource, view: V
 
 def reveal(args: argparse.Namespace, view: View) -> RevealResult:
     """Read the message that the command line describes."""
-    hidden = find_message(args.file, args.algorithm, args.legacy)
-    passphrase = get_passphrase(hidden, passphrase_source(args), view)
+    passphrases = passphrase_source(args)
+    hidden = find_message(args.file, args.algorithm, args.legacy, passphrases.wanted)
+    passphrase = get_passphrase(hidden, passphrases, view)
     try:
         return read_message(hidden, passphrase)
-    except WrongPassphraseError as error:
+    except (NoMessageError, WrongPassphraseError) as error:
         if passphrase is not None and passphrase.startswith(BYTE_ORDER_MARK):
             error.add_note(
                 "The passphrase file starts with a byte order mark (BOM), which counts as part of the "

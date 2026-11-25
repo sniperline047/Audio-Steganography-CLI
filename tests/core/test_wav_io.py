@@ -16,6 +16,7 @@ from audiosteg.core.wav_io import (
     open_pcm_wav,
     read_audio,
     read_first_bytes,
+    read_low_bytes,
     write_audio,
 )
 from audiosteg.errors import UnsupportedFormatError
@@ -233,3 +234,25 @@ def test_the_output_is_a_plain_pcm_file(tmp_path: Path, save: Callable[[bytes], 
     output = tmp_path / "output.wav"
     write_audio(save(build_wav()), str(output), AudioData(1, 2, 8000, bytearray(range(200))), overwrite=False)
     assert output.read_bytes() == build_wav()
+
+
+@pytest.mark.parametrize(("channels", "width"), [(1, 1), (1, 3), (2, 2), (3, 4)])
+@pytest.mark.parametrize("batch", [1, 2, 100])
+def test_scattered_samples_are_read_in_the_order_that_was_asked_for(
+    make_wav: Callable[..., Path], monkeypatch: pytest.MonkeyPatch, channels: int, width: int, batch: int
+) -> None:
+    monkeypatch.setattr(wav_io, "SCATTERED_BATCH", batch)
+    count = 6 * channels
+    frames = b"".join(bytes([index]) + b"x" * (width - 1) for index in range(count))
+    path = make_wav(frames=frames, channels=channels, sample_width=width)
+    asked = [count - 1, 0, 3, 1, 3, 5]
+    with open_pcm_wav(str(path)) as audio:
+        assert list(read_low_bytes(audio, asked)) == asked
+        assert list(read_low_bytes(audio, [])) == []
+
+
+def test_reading_scattered_samples_ends_at_the_first_that_is_missing(make_wav: Callable[..., Path]) -> None:
+    path = make_wav(frames=bytes(range(10)))
+    path.write_bytes(path.read_bytes()[:-2])
+    with open_pcm_wav(str(path)) as audio:
+        assert list(read_low_bytes(audio, [7, 1, 8, 2])) == [7, 1]
