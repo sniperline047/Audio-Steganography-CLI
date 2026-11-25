@@ -134,7 +134,7 @@ def test_the_block_size_changes_nothing(
     assert quality.changed_by_tenth == (2, 0, 0, 0, 1, 0, 0, 0, 0, 1)
 
 
-def test_the_readme_numbers_of_the_sample(
+def test_the_documentation_numbers_of_the_sample(
     run: Any, tmp_path: Path, read_frames: Callable[[Path], bytes]
 ) -> None:
     assert run("hide", "sample", "-m", "Hello").code == 0

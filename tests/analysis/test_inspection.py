@@ -29,7 +29,7 @@ from audiosteg.errors import UnsupportedFormatError
     ],
 )
 @pytest.mark.parametrize(("width", "channels"), [(1, 1), (3, 1), (4, 2)])
-def test_the_room_that_the_readme_promises(
+def test_the_room_that_the_documentation_promises(
     make_wav: Callable[..., Path],
     samples: int,
     lsb: tuple[int, int],

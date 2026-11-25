@@ -86,7 +86,7 @@ def no_real_player(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class KnownAnswer(NamedTuple):
-    """An encrypted container made by another program from the README."""
+    """An encrypted container made by another program from the documentation."""
 
     passphrase: str
     message: str
@@ -169,7 +169,7 @@ def make_wav(tmp_path: Path) -> Callable[..., Path]:
 
 
 def pack(values: list[int], bits: int) -> bytes:
-    """Return numbers as the README says that samples are stored, without the package."""
+    """Return numbers as the documentation says that samples are stored, without the package."""
     if bits == 8:
         return bytes(value + 128 for value in values)
     return b"".join(value.to_bytes(bits // 8, "little", signed=True) for value in values)
@@ -248,7 +248,7 @@ def no_library(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def embed() -> Callable[..., bytes]:
-    """Return a function that hides bytes in samples as the README says, without the package."""
+    """Return a function that hides bytes in samples as the documentation says, without the package."""
 
     def hide(hidden: bytes, size: int, sample_width: int = 1, cover: bytes | None = None) -> bytes:
         digits = "".join(f"{byte:08b}" for byte in hidden)
