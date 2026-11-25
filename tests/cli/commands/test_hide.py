@@ -60,7 +60,7 @@ def test_a_file_that_is_made_quieter_is_named(run: Any, make_wav: Callable[..., 
     make_wav(name="loud.wav", frames=bytes(random.Random(1).choices([0, 255], k=500_000)))
     loud = run("hide", "loud.wav", "-m", "Hello", "-a", "echo")
     assert loud.code == 0
-    note = "The result would have been too loud, so the whole file was made quieter (82.7% of its level).\n"
+    note = "The result would have been too loud, so the whole file was made quieter (82.6% of its level).\n"
     assert loud.errors == note
     fields = json.loads(run("hide", "loud.wav", "-m", "Hello", "-a", "echo", "--force", "--json").output)
     assert fields["gain"] == pytest.approx(0.827, abs=0.001)

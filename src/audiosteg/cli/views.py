@@ -4,6 +4,7 @@ import contextlib
 import json
 import os
 from collections.abc import Mapping
+from math import floor
 from typing import Any, TextIO
 
 from rich.cells import cell_len
@@ -25,9 +26,7 @@ DRAWING_CHARACTERS = "╭─╮│╰╯▀▄"
 DUMB_TERMINALS = ("dumb", "unknown")
 NOT_ENCRYPTED = "This message was not encrypted, so anyone could have written it."
 ENCRYPTED = "This message was encrypted."
-MADE_QUIETER = (
-    "The result would have been too loud, so the whole file was made quieter ({:.1%} of its level)."
-)
+MADE_QUIETER = "The result would have been too loud, so the whole file was made quieter ({} of its level)."
 COLUMN_GAP = 2
 PANEL_FRAME = 6
 FEWEST_DIGITS, MOST_DIGITS = 3, 9
@@ -96,6 +95,11 @@ def format_percentage(accuracy: AccuracyResult) -> str:
     """Return a percentage with two decimals. Only an exact match is shown as 100.00%."""
     percentage = accuracy.percentage if accuracy.exact_match else min(accuracy.percentage, 99.99)
     return f"{percentage:.2f}%"
+
+
+def format_gain(gain: float) -> str:
+    """Return a gain as a percentage, rounded down so that only an unchanged sound has 100%."""
+    return f"{floor(gain * 1000) / 1000:.1%}"
 
 
 class Screen:
@@ -231,7 +235,7 @@ class View:
             self.out.line("Output:")
             self.out.line(path)
         if result.gain < 1:
-            self.note(MADE_QUIETER.format(result.gain))
+            self.note(MADE_QUIETER.format(format_gain(result.gain)))
 
     def show_reveal(self, result: RevealResult) -> None:
         """Write the message to stdout and everything else to stderr, the protection line last."""

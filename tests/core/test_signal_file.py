@@ -92,6 +92,19 @@ def test_an_encrypted_round_trip(make_samples: Callable[..., Path], tmp_path: Pa
         decode(output, passphrase="wrong")
 
 
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize("message", ["", "hidden"])
+def test_only_encryption_can_make_a_sound_too_short(
+    make_samples: Callable[..., Path], tmp_path: Path, message: str
+) -> None:
+    source, output = str(make_samples("input.wav", noise(60 * 8 * BLOCK, 16))), tmp_path / "output.wav"
+    encode(source, str(output), message, ECHO)
+    output.unlink()
+    with pytest.raises(CapacityError, match="even for an empty encrypted message"):
+        encode(source, str(output), message, ECHO, passphrase="sesame")
+    assert not output.exists()
+
+
 def test_the_empty_message_and_the_exact_limit(make_samples: Callable[..., Path], tmp_path: Path) -> None:
     output = str(tmp_path / "output.wav")
     encode(str(make_samples("input.wav", noise(SMALLEST, 16))), output, "", ECHO)

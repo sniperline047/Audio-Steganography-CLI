@@ -533,6 +533,19 @@ def test_an_echo_is_hidden_and_the_command_does_the_same(
     assert output.read_bytes() == written
 
 
+def test_a_sound_that_is_too_short_for_echoes_is_not_called_a_large_message(
+    guide: Any, make_wav: Callable[..., Path]
+) -> None:
+    result = guide(START, SAMPLE, message("Hi"), ("Which algorithm?", CTRL_C), leave=False)
+    assert "The sound is too short for echo." in result.text
+    assert "too large" not in result.text
+    assert "echo: " not in result.text
+    make_wav(frames=noise_for("echo"))
+    result = guide(START, OWN_FILE, INPUT, message("x" * 600), ("Which algorithm?", CTRL_C), leave=False)
+    assert "The message is too large for some algorithms. These can hold it: lsb, " in result.text
+    assert "too short" not in result.text
+
+
 @pytest.mark.needs_signal
 def test_a_file_that_is_made_quieter_is_named(
     guide: Any, encryption: Callable[[bool], None], make_wav: Callable[..., Path]
@@ -541,7 +554,7 @@ def test_a_file_that_is_made_quieter_is_named(
     make_wav(frames=bytes(random.Random(1).choices([0, 255], k=500_000)))
     result = guide(START, OWN_FILE, INPUT, message("hidden"), ECHO_NUMBER, (OUTPUT, ENTER))
     assert result.code == 0
-    assert "the whole file was made quieter (82.7% of its level)." in result.text
+    assert "the whole file was made quieter (82.6% of its level)." in result.text
 
 
 @pytest.mark.needs_signal

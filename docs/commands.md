@@ -344,7 +344,8 @@ If the output is closed (for example, by a pipe such as `| head`), the code is 1
 - An empty message and replacing a file must be confirmed: type `y` and Enter.
 - A message that does not fit is refused at once, and only algorithms that can hold it are offered.
 - `lsb_keyed` always asks for a passphrase. If no message is detected in a file, Reveal and Verify offer another file, `lsb_keyed`, or an older version. After a passphrase that finds nothing, try another or go back.
-- `echo` is offered if the file is long enough. Without NumPy, the menus say `needs NumPy` next to it, and choosing it says how to install it.
+- If a passphrase does not open an `echo` message, try another or look for a `lsb_keyed` message in the same file.
+- `echo` is offered if the file is long enough. If not, the program says that the sound is too short. Without NumPy, the menus say `needs NumPy` next to it, and choosing it says how to install it.
 - Compare asks whether to show three lines, everything, or what you choose. It then offers to play the sounds, if the system has a player.
 - After each action, it shows the command that does the same. The message and the passphrase are never part of it. A command is not shown if a file name or another answer has characters that a shell could change.
 

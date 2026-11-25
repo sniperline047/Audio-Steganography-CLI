@@ -20,7 +20,7 @@ from audiosteg.cli.passphrase import ask_new_passphrase
 from audiosteg.cli.views import display_path
 from audiosteg.core import crypto
 from audiosteg.core.message_codec import message_to_bytes
-from audiosteg.core.signal_algorithm import check_library
+from audiosteg.core.signal_algorithm import SignalAlgorithm, check_library
 from audiosteg.core.wav_io import AudioSize, measure_input
 from audiosteg.errors import CapacityError, MissingLibraryError
 from audiosteg.utils.text import escape_text
@@ -91,13 +91,25 @@ class HideForm:
         """Return the names of the algorithms that can hold the message."""
         return fitting_algorithms(self.message, self.size, encrypted)
 
+    def too_short(self) -> list[str]:
+        """Return the names of the algorithms that need a longer sound for any message."""
+        usable = fitting_algorithms("", self.size, encrypted=False)
+        return [
+            key
+            for key, known in ALGORITHMS.items()
+            if isinstance(known, SignalAlgorithm) and key not in usable
+        ]
+
     def ask_algorithm(self) -> bool:
         """Ask for one of the algorithms that can hold the message."""
         keys = self.fitting(encrypted=False)
-        if len(keys) < len(ALGORITHMS):
+        short = self.too_short()
+        if len(keys) + len(short) < len(ALGORITHMS):
             self.prompter.view.note(
                 f"The message is too large for some algorithms. These can hold it: {', '.join(keys)}."
             )
+        elif short:
+            self.prompter.view.note(f"The sound is too short for {', '.join(short)}.")
         self.algorithm = self.prompter.choose(
             "Which algorithm? If you are not sure, use the first.",
             [Choice(algorithm_label(key), value=key) for key in keys],

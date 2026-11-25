@@ -70,7 +70,7 @@ def test_sound_that_is_made_quieter_is_named(run: Any, make_samples: Callable[..
     chooser = random.Random(1)
     make_samples("loud.wav", [chooser.choice([-32768, 32767]) for _ in range(10_000)])
     output = run("explain", "echo", "--file", "loud.wav").output
-    assert "so everything was made quieter (83%).\n" in output
+    assert "so everything was made quieter (83.3%).\n" in output
 
 
 @pytest.mark.parametrize(

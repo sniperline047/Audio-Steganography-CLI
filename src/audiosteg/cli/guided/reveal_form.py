@@ -3,7 +3,7 @@
 from questionary import Choice
 
 from audiosteg.algorithms.detection import undetectable_here
-from audiosteg.algorithms.registry import LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
 from audiosteg.cli.commands.reveal import (
     KEYED_ALGORITHM,
     HiddenMessage,
@@ -16,9 +16,11 @@ from audiosteg.cli.guided.labels import algorithm_label, old_label
 from audiosteg.cli.guided.prompter import GoBack, Prompter, Step
 from audiosteg.cli.results import RevealResult
 from audiosteg.core import crypto
-from audiosteg.errors import NoMessageError
+from audiosteg.core.signal_algorithm import SignalAlgorithm
+from audiosteg.errors import NoMessageError, WrongPassphraseError
 
 ANOTHER_FILE = ""
+TRY_ANOTHER = "Try another passphrase"
 
 
 class RevealForm:
@@ -84,7 +86,21 @@ class RevealForm:
                 self.prompter.view.show_error(error, None, 1)
                 for sentence in not_checked(undetectable_here()):
                     self.prompter.view.note(sentence)
-                self.prompter.choose("What next?", [Choice("Try another passphrase")])
+                self.prompter.choose("What next?", [Choice(TRY_ANOTHER)])
+            except WrongPassphraseError as error:
+                if not isinstance(ALGORITHMS.get(self.hidden.algorithm), SignalAlgorithm):
+                    raise
+                self.prompter.view.show_error(error, None, 1)
+                self.ask_other_message()
+
+    def ask_other_message(self) -> None:
+        """Ask whether the passphrase is meant for a keyed message, which the sound can hold too."""
+        keyed = f"Look for a message of {KEYED_ALGORITHM} in this file"
+        key = self.prompter.choose(
+            "What next?", [Choice(TRY_ANOTHER, value=""), Choice(keyed, value=KEYED_ALGORITHM)]
+        )
+        if key == KEYED_ALGORITHM:
+            self.hidden, self.detected = find_message(self.file, algorithm=key), False
 
     def read(self) -> RevealResult | None:
         """Return the message, or None if no question was answered."""

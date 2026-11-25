@@ -14,7 +14,7 @@ from audiosteg.cli.explain_view import (
     show_steps,
     source_name,
 )
-from audiosteg.cli.views import View, clean_for_json, count_word, describe, format_time
+from audiosteg.cli.views import View, clean_for_json, count_word, describe, format_gain, format_time
 from audiosteg.cli.waveform_view import blocks_for, draw_waveform
 
 PICTURE_SCALE = 1000
@@ -59,7 +59,7 @@ def show_echoes(view: View, walkthrough: EchoWalkthrough, algorithm: EchoHiding)
     """Show which echo each block gets."""
     rate = walkthrough.format.frame_rate
     quieter = (
-        [f"The result was too loud, so everything was made quieter ({walkthrough.gain:.0%})."]
+        [f"The result was too loud, so everything was made quieter ({format_gain(walkthrough.gain)})."]
         if walkthrough.gain < 1
         else []
     )

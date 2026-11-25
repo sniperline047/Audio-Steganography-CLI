@@ -91,7 +91,8 @@ def check_capacity(
         if isinstance(algorithm, SignalAlgorithm) and not message_fits(
             0, samples, algorithm, encrypted, channels
         ):
-            raise CapacityError("The audio file is too short for this algorithm, even for an empty message.")
+            kind = "empty encrypted message" if encrypted else "empty message"
+            raise CapacityError(f"The audio file is too short for this algorithm, even for an {kind}.")
         raise CapacityError(
             f"The message is too large: it needs {message_length} bytes and the audio file "
             f"can hold {count_message_bytes(samples, algorithm, encrypted, channels)} bytes."
