@@ -1,4 +1,4 @@
-"""Tests for audiosteg/algorithms/lsb_4.py."""
+"""Tests for audiosteg/algorithms/lsb_four.py."""
 
 import random
 from collections.abc import Callable
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from audiosteg import decode, encode
-from audiosteg.algorithms.lsb_4 import LSB_4
+from audiosteg.algorithms.lsb_four import LSB_4
 from audiosteg.errors import CapacityError, DamagedMessageError, StegoError
 
 CONTAINER = bytes.fromhex("4153544701000000000348c3a9a411cc3b")

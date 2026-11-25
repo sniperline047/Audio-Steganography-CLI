@@ -11,7 +11,7 @@
 | `lsb_parity` | `LSB_PARITY` | 1 in each group of 8 samples | 1 |
 | `lsb_keyed` | `LSB_KEYED` | 1 (lowest bit) | 1 |
 
-`LSB` and `LSB_2` are in `algorithms/lsb.py`, each other one in a file with its name. The samples of all channels are used in the order in which they are stored, except by `LSB_KEYED`. All of them change only the lowest byte of a sample, except `LSB_MATCHING`.
+`LSB` and `LSB_2` are in `algorithms/lsb.py`, `LSB_4` in `algorithms/lsb_four.py`, and each other one in a file with its name. The samples of all channels are used in the order in which they are stored, except by `LSB_KEYED`. All of them change only the lowest byte of a sample, except `LSB_MATCHING`.
 
 `LSB_MATCHING` adds or subtracts 1 at random if the lowest bit of a sample is wrong. It counts the whole sample as one number (unsigned for 8 bits, signed and little-endian for more), so higher bytes can change too. The smallest number only moves up, and the largest only down. The lowest bits are the same as with `LSB`, so **a reader cannot tell them apart**: `inspect` and `reveal` call such a message `lsb`.
 

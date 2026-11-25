@@ -43,7 +43,7 @@ Audio-Steganography-CLI/
 │   │   ├── detection.py    Detection and decode
 │   │   ├── legacy.py       Reading files from older versions
 │   │   ├── lsb.py          lsb and lsb_2
-│   │   ├── lsb_4.py        Four bits per sample
+│   │   ├── lsb_four.py     Four bits per sample
 │   │   ├── lsb_keyed.py    Scattered by a passphrase
 │   │   ├── lsb_matching.py Whole samples by +1 or -1
 │   │   ├── lsb_parity.py   One bit per 8 samples

@@ -11,7 +11,7 @@ import pytest
 
 from audiosteg import decode, encode
 from audiosteg.algorithms.lsb import LSB, LSB_2
-from audiosteg.algorithms.lsb_4 import LSB_4
+from audiosteg.algorithms.lsb_four import LSB_4
 from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.commands import hide
 from audiosteg.cli.guided import hide_form

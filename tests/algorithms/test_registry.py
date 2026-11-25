@@ -12,7 +12,7 @@ from conftest import EVERY_KEY, needed_passphrase
 from audiosteg import Algorithm, decode, encode
 from audiosteg.algorithms.legacy import BASIC_LSB, ENHANCED_LSB, ENHANCED_LSB_FLIP
 from audiosteg.algorithms.lsb import LSB, LSB_2
-from audiosteg.algorithms.lsb_4 import LSB_4
+from audiosteg.algorithms.lsb_four import LSB_4
 from audiosteg.algorithms.lsb_keyed import LSB_KEYED
 from audiosteg.algorithms.lsb_matching import LSB_MATCHING
 from audiosteg.algorithms.lsb_parity import LSB_PARITY
