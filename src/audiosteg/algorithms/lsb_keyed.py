@@ -8,7 +8,7 @@ LSB_KEYED = Algorithm(
     bits_per_byte=1,
     embed_bits=embed_one_bit,
     extract_bits=extract_one_bit,
-    explanation="Encrypts the message and scatters its bits with a passphrase. inspect cannot find it.",
+    explanation="Encrypted and scattered with a passphrase.",
     strengths=(
         "Nothing in the file says that there is a message, so inspect finds none.",
         "The message is always encrypted, and a change to it is noticed.",

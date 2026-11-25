@@ -364,3 +364,20 @@ def test_the_advice_to_add_a_passphrase_is_not_given_with_one(
         asks = {"hidden": ("sesame",), "terminals": ALL} if options == ["-p"] else {}
         result = run("reveal", make_wav(), *words, *options, **asks)
         assert (result.code, HINT in result.errors, "Check that this" in result.errors) == (1, False, True)
+
+
+@pytest.mark.parametrize(
+    ("key", "others"),
+    [
+        ("basic", "enhanced_flip or enhanced"),
+        ("enhanced_flip", "basic or enhanced"),
+        ("enhanced", "basic or enhanced_flip"),
+    ],
+)
+def test_another_old_algorithm_is_advised_after_one_that_finds_nothing(
+    run: Any, make_wav: Callable[..., Path], key: str, others: str
+) -> None:
+    result = run("reveal", make_wav(frames=b"\xff" * 800), "--legacy", key)
+    assert result.code == 1
+    assert result.errors.endswith(f"Or try another old algorithm: --legacy {others}.\n")
+    assert "use --legacy" not in result.errors

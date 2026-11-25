@@ -5,7 +5,7 @@ from questionary import Choice
 from audiosteg.algorithms.registry import LEGACY_ALGORITHMS
 from audiosteg.cli.commands.reveal import KEYED_ALGORITHM, HiddenMessage, find_message, read_message
 from audiosteg.cli.guided.equivalent import command_line, path_word
-from audiosteg.cli.guided.labels import algorithm_label
+from audiosteg.cli.guided.labels import algorithm_label, old_label
 from audiosteg.cli.guided.prompter import GoBack, Prompter, Step
 from audiosteg.cli.results import RevealResult
 from audiosteg.core import crypto
@@ -52,10 +52,7 @@ class RevealForm:
             [
                 Choice("Not sure: choose another file", value=ANOTHER_FILE),
                 Choice(algorithm_label(KEYED_ALGORITHM), value=KEYED_ALGORITHM),
-                *[
-                    Choice(f"{name} (old files only): {known.explanation}", value=name)
-                    for name, known in LEGACY_ALGORITHMS.items()
-                ],
+                *[Choice(old_label(name), value=name) for name in LEGACY_ALGORITHMS],
             ],
         )
         if key == ANOTHER_FILE:

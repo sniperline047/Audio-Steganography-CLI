@@ -2,10 +2,10 @@
 
 import pytest
 
-from audiosteg.algorithms.registry import ALGORITHMS
-from audiosteg.cli.guided.labels import algorithm_label
+from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.cli.guided.labels import algorithm_label, old_label
 
-MISSING = " (needs encryption, which is not available here)"
+MISSING = " (cannot encrypt here)"
 
 
 @pytest.mark.parametrize("key", ALGORITHMS)
@@ -18,3 +18,8 @@ def test_only_a_keyed_algorithm_is_marked_without_the_library(no_library: None, 
 @pytest.mark.parametrize("key", ALGORITHMS)
 def test_nothing_is_marked_with_the_library(key: str) -> None:
     assert algorithm_label(key) == f"{key}: {ALGORITHMS[key].explanation}"
+
+
+def test_every_label_fits_in_80_columns_after_the_pointer(no_library: None) -> None:
+    labels = [*map(algorithm_label, ALGORITHMS), *map(old_label, LEGACY_ALGORITHMS)]
+    assert {label: len(label) for label in labels if len(f" > {label}") >= 80} == {}

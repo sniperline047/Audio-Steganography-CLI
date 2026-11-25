@@ -1,10 +1,11 @@
 """How algorithms are named in the menus of the guided mode."""
 
-from audiosteg.algorithms.registry import ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
 from audiosteg.core import crypto
 from audiosteg.errors import MissingLibraryError
 
-NOT_AVAILABLE = " (needs encryption, which is not available here)"
+OLD = " (old files)"
+NOT_AVAILABLE = " (cannot encrypt here)"
 
 
 def can_encrypt() -> bool:
@@ -21,3 +22,8 @@ def algorithm_label(key: str) -> str:
     algorithm = ALGORITHMS[key]
     missing = NOT_AVAILABLE if algorithm.keyed and not can_encrypt() else ""
     return f"{key}{missing}: {algorithm.explanation}"
+
+
+def old_label(key: str) -> str:
+    """Return the name and the explanation of an algorithm of older versions."""
+    return f"{key}{OLD}: {LEGACY_ALGORITHMS[key].explanation}"

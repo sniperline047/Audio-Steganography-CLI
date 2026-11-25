@@ -6,6 +6,7 @@ from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
 from audiosteg.cli.commands.explain import DEFAULT_LETTER, one_character
 from audiosteg.cli.errors import UsageError
 from audiosteg.cli.guided.equivalent import command_line
+from audiosteg.cli.guided.labels import old_label
 from audiosteg.cli.guided.prompter import Prompter, Step
 
 
@@ -20,13 +21,11 @@ class ExplainForm:
 
     def ask_algorithm(self) -> bool:
         """Ask for one of the algorithms, old ones last."""
-        known = [(key, algorithm.explanation) for key, algorithm in ALGORITHMS.items()]
-        old = [(key, algorithm.explanation) for key, algorithm in LEGACY_ALGORITHMS.items()]
         self.algorithm = self.prompter.choose(
             "Which algorithm?",
             [
-                *[Choice(f"{key}: {text}", value=key) for key, text in known],
-                *[Choice(f"{key} (old files only): {text}", value=key) for key, text in old],
+                *[Choice(f"{key}: {ALGORITHMS[key].explanation}", value=key) for key in ALGORITHMS],
+                *[Choice(old_label(key), value=key) for key in LEGACY_ALGORITHMS],
             ],
         )
         return True

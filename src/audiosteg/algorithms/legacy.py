@@ -39,7 +39,7 @@ ENHANCED_LSB_FLIP = LegacyAlgorithm(
     name="Enhanced LSB Steganography with Bit Flipping",
     bits_per_byte=2,
     extract_bits=extract_middle_bits,
-    explanation="Reads 2 middle bits from every byte (with bit flipping).",
+    explanation="Reads 2 middle bits of every byte (bit flipping).",
     replaced_because=(EVERY_BYTE, MIDDLE_BITS, NO_MARKER, NO_ENCRYPTION),
 )
 

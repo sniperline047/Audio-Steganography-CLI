@@ -38,7 +38,7 @@ LSB_PARITY = LsbParity(
     bits_per_byte=1,
     embed_bits=embed_one_bit,
     extract_bits=extract_one_bit,
-    explanation="Hides 1 bit in each group of 8 samples. Spreads the changes out, but has little room.",
+    explanation="Hides 1 bit in every 8 samples. Spread out, but little room.",
     strengths=(
         "At most 1 of 8 samples changes, and on average about 1 of 16.",
         "Any sample of a group can carry the change, so a random one is chosen.",

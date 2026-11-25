@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from audiosteg.algorithms.detection import decode, detect
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS, reading_key
-from audiosteg.cli.errors import NO_MESSAGE_HINT
+from audiosteg.cli.errors import CHECK_THE_FILE, NO_MESSAGE_HINT
 from audiosteg.cli.options import add_reading_options, file_path, passphrase_source
 from audiosteg.cli.passphrase import BYTE_ORDER_MARK, PassphraseSource
 from audiosteg.cli.results import RevealResult
@@ -101,6 +101,9 @@ def reveal(args: argparse.Namespace, view: View) -> RevealResult:
     try:
         return read_message(hidden, passphrase)
     except (NoMessageError, WrongPassphraseError) as error:
+        if hidden.legacy:
+            others = " or ".join(key for key in LEGACY_ALGORITHMS if key != hidden.algorithm)
+            error.add_note(f"{CHECK_THE_FILE} Or try another old algorithm: --legacy {others}.")
         if passphrase is not None and passphrase.startswith(BYTE_ORDER_MARK):
             error.add_note(
                 "The passphrase file starts with a byte order mark (BOM), which counts as part of the "

@@ -29,7 +29,7 @@ def test_every_algorithm(guide: Any, run: Any, number: int, key: str) -> None:
 def test_every_algorithm_is_named_old_ones_last(guide: Any) -> None:
     menu = guide(EXPLAIN, (ALGORITHM, ESCAPE)).text
     names = [f"{key}: {value.explanation}" for key, value in ALGORITHMS.items()]
-    names += [f"{key} (old files only): {value.explanation}" for key, value in LEGACY_ALGORITHMS.items()]
+    names += [f"{key} (old files): {value.explanation}" for key, value in LEGACY_ALGORITHMS.items()]
     positions = [menu.index(name) for name in names]
     assert positions == sorted(positions)
 

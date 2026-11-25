@@ -47,7 +47,7 @@ LSB_MATCHING = LsbMatching(
     bits_per_byte=1,
     embed_bits=embed_one_bit,
     extract_bits=extract_one_bit,
-    explanation="Hides 1 bit in each sample by adding or subtracting 1. It is read as lsb.",
+    explanation="Adds or subtracts 1 to hide 1 bit in a sample. Read as lsb.",
     strengths=(
         "The change is the smallest that a sample can have.",
         "It avoids the pattern that replacing the lowest bit leaves in the values of the samples.",

@@ -45,7 +45,7 @@ LSB_2 = Algorithm(
     bits_per_byte=2,
     embed_bits=embed_two_bits,
     extract_bits=extract_two_bits,
-    explanation="Hides 2 bits in each sample. Double the capacity, a little more noise.",
+    explanation="Hides 2 bits in each sample. Double the room, a little more noise.",
     strengths=(
         "It uses half as many samples as LSB for the same message.",
         "The change is still small in 16-bit audio.",
