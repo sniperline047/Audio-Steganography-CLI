@@ -2,7 +2,7 @@
 
 [Back to the README](../README.md)
 
-The Python API needs only the standard library.
+The Python API needs only the standard library, except for encryption, which needs the `crypto` extra.
 
 ```python
 from audiosteg import NoMessageError, decode, encode

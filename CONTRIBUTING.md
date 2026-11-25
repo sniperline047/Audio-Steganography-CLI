@@ -28,7 +28,7 @@ On Windows, activate the environment with `.venv\Scripts\activate`.
 
 Mark a test that needs the `crypto` extra with `@pytest.mark.needs_crypto`. It is skipped when the library is missing, unless the environment variable `AUDIOSTEG_REQUIRE_CRYPTO` is set. The automated checks run the tests with and without the extra, and set that variable when the extra is installed. They run on Linux and Windows for every pull request, and on macOS once a week or when started by hand.
 
-Test coverage must stay at 90% or more. There is one test file per code file, in the same folder under `tests/` as under `src/audiosteg/`. Some tests compare the examples in `docs/` with the real output.
+Test coverage must stay at 90% or more. A code file has at most one test file, in the same folder under `tests/` as under `src/audiosteg/`. Some tests compare the examples in `docs/` with the real output.
 
 ## Project layout
 

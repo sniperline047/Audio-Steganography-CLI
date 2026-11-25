@@ -275,7 +275,6 @@ The numbered menu of earlier versions is gone, so scripts that typed its numbers
 
 ## Audio files
 
-- Python 3.11 or newer
 - An uncompressed integer PCM WAV file (8, 16, 24, or 32-bit). The limit for encoding is 1 GiB. Streamed files with no stated audio size and files with padded samples are not supported. A truncated file (shorter than its header says) cannot be used for encoding; it can still be decoded if the whole message is there.
 
 Some PCM files use the "extensible" WAV header. Python 3.11 cannot read that header; Python 3.12 and newer can.

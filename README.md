@@ -16,7 +16,7 @@
 
 > *"I solemnly swear that I am up to no good."*
 
-Say that to the Marauder's Map and blank parchment turns into a secret map of Hogwarts. This project does something similar with sound: to everyone else it's a little tune, but you know it's hiding a message.
+Say that to the Marauder's Map and blank parchment turns into a secret map of Hogwarts. This project does something similar with sound: to most ears it's a little tune, but you know it's hiding a message.
 
 ```bash
 audiosteg hide sample -m "I solemnly swear that I am up to no good." -o map.wav
@@ -65,20 +65,20 @@ If your terminal can't find `audiosteg`, run `uv tool update-shell` and open a n
 ### With pip
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install ".[crypto]"
 audiosteg --version
 ```
 
-On Windows, use `.venv\Scripts\activate` for the second line. With pip, activate the environment again in every new terminal.
+On Windows, use `py -m venv .venv` and `.venv\Scripts\activate` for the first two lines. With pip, activate the environment again in every new terminal.
 
 <details>
 <summary><b>Good to know</b></summary>
 
 - `[crypto]` adds encryption through the [cryptography](https://cryptography.io/) library. If it won't install, for example on a Mac with an Intel processor, use `.` instead of `".[crypto]"`. Everything except passphrases still works.
-- To try it without installing: `uv run --extra crypto audiosteg`.
-- `python -m audiosteg` does the same as `audiosteg`.
+- To try it without installing, from the project folder: `uv run --extra crypto audiosteg`.
+- With pip, `python -m audiosteg` does the same as `audiosteg`.
 
 </details>
 
@@ -127,7 +127,7 @@ Know what you want? Skip the menu. Each command does one job and exits.
 audiosteg hide sample -m "I solemnly swear that I am up to no good." -o map.wav
 ```
 
-`map.wav` is a new file. The original is never changed.
+`map.wav` is a new file in the folder you are in. The original is never changed.
 
 ### 2. Reveal it
 
@@ -139,6 +139,8 @@ audiosteg reveal map.wav
 I solemnly swear that I am up to no good.
 ```
 
+The program also reminds you that the message was not encrypted.
+
 ### 3. Lock it with a passphrase
 
 Now anyone who tries your map without the passphrase is turned away:
@@ -149,6 +151,8 @@ audiosteg reveal locked.wav
 ```
 
 Both commands ask for the passphrase and don't show it while you type. `mischief-managed` is fun for practice, but pick a long one of your own for anything else: the whole internet knows that one. A lost passphrase can't be recovered.
+
+The passphrase hides what the message says, not that there is one. Anyone can still find it with `inspect`, remove it, or replace it with another.
 
 ### 4. Check it arrived unchanged
 
