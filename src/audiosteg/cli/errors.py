@@ -13,6 +13,10 @@ class CancelledError(Exception):
     """The person decided not to continue."""
 
 
+class PlayerError(StegoError):
+    """Sound cannot be played."""
+
+
 class OutputClosedError(Exception):
     """Nobody can see the program's output anymore."""
 

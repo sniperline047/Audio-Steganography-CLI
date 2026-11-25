@@ -1,5 +1,6 @@
 """Shared fixtures."""
 
+import atexit
 import contextlib
 import hashlib
 import importlib.util
@@ -8,9 +9,11 @@ import os
 import random
 import re
 import select
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import wave
 from asyncio import get_running_loop
@@ -28,11 +31,58 @@ from prompt_toolkit.output.vt100 import Vt100_Output
 from questionary import Question
 
 from audiosteg.cli import passphrase as passphrase_module
+from audiosteg.cli import player
 from audiosteg.cli.commands.hide import SAMPLE_FILE
 from audiosteg.cli.main import main
 from audiosteg.core import crypto
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+SOUND_GUARD = """
+import os, sys
+PLAYERS = {"afplay", "aplay", "paplay", "ffplay"}
+STARTS = {"subprocess.Popen", "os.posix_spawn", "os.exec", "os.system"}
+
+def words_of(value):
+    if isinstance(value, (str, bytes, os.PathLike)):
+        return os.fsdecode(value).split()
+    return [word for part in value for word in words_of(part)] if isinstance(value, (list, tuple)) else []
+
+def refuse_sound(event, args):
+    names = {os.path.splitext(os.path.basename(word))[0] for part in args[:2] for word in words_of(part)} \
+        if event in STARTS else set()
+    if names & PLAYERS:
+        play_nothing()
+
+def play_nothing(*args, **options):
+    raise AssertionError("A test tried to play sound.")
+
+sys.addaudithook(refuse_sound)
+try:
+    import winsound
+except ImportError:
+    pass
+else:
+    winsound.PlaySound = winsound.Beep = winsound.MessageBeep = play_nothing
+"""
+
+
+def pytest_configure() -> None:
+    """Make starting a real player an error, in this process and in every Python process it starts."""
+    folder = tempfile.mkdtemp(prefix="audiosteg_tests_")
+    atexit.register(shutil.rmtree, folder, ignore_errors=True)
+    Path(folder, "sitecustomize.py").write_text(SOUND_GUARD)
+    paths = [folder, os.environ.get("PYTHONPATH", "")]
+    os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, paths))
+    exec(SOUND_GUARD, {})
+
+
+@pytest.fixture(autouse=True)
+def no_real_player(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every test run on a system without a player."""
+    monkeypatch.setattr(player, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(player, "MAC_PLAYERS", ())
+    monkeypatch.setattr(player, "LINUX_FOLDERS", ())
 
 
 class KnownAnswer(NamedTuple):
@@ -116,6 +166,47 @@ def make_wav(tmp_path: Path) -> Callable[..., Path]:
         return path
 
     return make
+
+
+def pack(values: list[int], bits: int) -> bytes:
+    """Return numbers as the README says that samples are stored, without the package."""
+    if bits == 8:
+        return bytes(value + 128 for value in values)
+    return b"".join(value.to_bytes(bits // 8, "little", signed=True) for value in values)
+
+
+@pytest.fixture
+def make_samples(make_wav: Callable[..., Path]) -> Callable[..., Path]:
+    """Return a function that creates a WAV file from numbers, where 0 is silence."""
+
+    def make(name: str, values: list[int], bits: int = 16, channels: int = 1, frame_rate: int = 8000) -> Path:
+        return make_wav(name, pack(values, bits), channels, bits // 8, frame_rate)
+
+    return make
+
+
+@pytest.fixture
+def make_pair(make_samples: Callable[..., Path]) -> Callable[..., tuple[str, str]]:
+    """Return a function that creates a.wav and b.wav from two lists of numbers."""
+
+    def make(original: list[int], encoded: list[int], bits: int = 16, **options: int) -> tuple[str, str]:
+        first = make_samples("a.wav", original, bits, **options)
+        return str(first), str(make_samples("b.wav", encoded, bits, **options))
+
+    return make
+
+
+@pytest.fixture
+def sounds(monkeypatch: pytest.MonkeyPatch) -> list[tuple[bytes, float]]:
+    """Return what would be played: the bytes of every file, and how long it is. Nothing is played."""
+    played: list[tuple[bytes, float]] = []
+
+    def record(path: str, seconds: float) -> None:
+        played.append((Path(path).read_bytes(), seconds))
+
+    monkeypatch.setattr(player, "can_play", lambda: True)
+    monkeypatch.setattr(player, "play", record)
+    return played
 
 
 @pytest.fixture
@@ -390,7 +481,9 @@ def run_process(tmp_path: Path) -> Callable[..., Result]:
 TERMINAL_PROGRAM = """
 import fcntl, sys, termios
 fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+from audiosteg.cli import player
 from audiosteg.cli.main import main
+player.MAC_PLAYERS = player.LINUX_FOLDERS = ()
 code = main(sys.argv[1:])
 print("Typing is", "shown" if termios.tcgetattr(0)[3] & termios.ECHO else "hidden")
 sys.stdin.readline()

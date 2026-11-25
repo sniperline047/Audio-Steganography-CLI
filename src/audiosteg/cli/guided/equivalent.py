@@ -23,6 +23,11 @@ def command_line(*words: str) -> str | None:
     return subprocess.list2cmdline(words) if os.name == "nt" else shlex.join(words)
 
 
+def option_safe(path: str) -> str:
+    """Return a path that cannot be mistaken for an option."""
+    return os.path.join(".", path) if path.startswith("-") else path
+
+
 def path_word(path: str) -> str:
     """Return a path that cannot be mistaken for an option or for the sample."""
-    return os.path.join(".", path) if path.startswith("-") or path == SAMPLE_WORD else path
+    return os.path.join(".", path) if path == SAMPLE_WORD else option_safe(path)

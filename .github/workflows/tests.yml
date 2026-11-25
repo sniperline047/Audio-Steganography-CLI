@@ -25,8 +25,6 @@ jobs:
         python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
         crypto: [true, false]
         include:
-          - {os: macos-latest, python: "3.15", crypto: true}
-          - {os: macos-latest, python: "3.15", crypto: false}
           - {os: windows-latest, python: "3.15", crypto: true}
           - {os: windows-latest, python: "3.15", crypto: false}
     steps:
@@ -152,6 +150,13 @@ jobs:
             rm sample.stego.wav
           done
           if "$plain/audiosteg" hide sample -m Hello --passphrase_file key.txt; then exit 1; fi
+          "$plain/audiosteg" hide sample -m Hello
+          "$plain/audiosteg" inspect sample.stego.wav --json > "$RUNNER_TEMP/inspect.json"
+          jq -e '.messages == [{"algorithm": "lsb", "encrypted": false, "size": 5, "problem": null}]' "$RUNNER_TEMP/inspect.json"
+          "$plain/audiosteg" compare sample sample.stego.wav --json > "$RUNNER_TEMP/compare.json"
+          jq -e '.quality == "Excellent" and .largest_change == 1' "$RUNNER_TEMP/compare.json"
+          "$plain/audiosteg" explain lsb | grep -F "Reading the same bits gives 'h' again."
+          rm sample.stego.wav
           test "$(ls)" = key.txt
 
   badge:

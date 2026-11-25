@@ -59,13 +59,16 @@ Without a command, this starts the [guided mode](#guided-mode).
 audiosteg hide sample -m "Hello"
 audiosteg reveal sample.stego.wav
 audiosteg verify sample.stego.wav -m "Hello"
+audiosteg inspect sample.stego.wav
+audiosteg compare sample sample.stego.wav
+audiosteg explain lsb
 audiosteg algorithms
 audiosteg --version
 ```
 
 Add `--help` to any command to see its options and examples. Help is always text, even with `--json`.
 
-The word `sample` as the input of `hide` means the tune that is included in the package. To use a file named `sample`, write `./sample`.
+The word `sample` as the input of `hide`, `inspect`, `compare`, or `explain --file` means the tune that is included in the package. To use a file named `sample`, write `./sample`.
 
 ### hide
 
@@ -126,6 +129,178 @@ audiosteg verify song.stego.wav -m "Meet me at noon"
 
 The score is the number of matching character positions divided by the longer message length, so missing and extra characters lower it. The exit code is 1 if the messages are not exactly the same.
 
+### inspect
+
+Describes a WAV file: its format, how much each algorithm can hide in it, and whether it holds a message. It never reads or shows a message and never asks for a passphrase.
+
+```bash
+audiosteg hide sample -m "Hello"
+audiosteg inspect sample.stego.wav
+```
+
+```
+What this file holds
+File: sample.stego.wav
+Format: 16-bit PCM WAV
+Channels: 2 (stereo)
+Sample rate: 22,050 Hz
+Duration: 4.2812 s (94,400 frames)
+Room with lsb: 23,586 bytes, or 23,546 encrypted
+Room with lsb_2: 47,186 bytes, or 47,146 encrypted
+Hidden message: lsb, not encrypted, 5 bytes
+Only the header of the message was read, so damage further on is not detected.
+```
+
+`none detected` does not mean that a file has no hidden message: files of older versions and messages of other tools cannot be detected. A header that is damaged or of an unknown version is reported. Because only the header is read, damage in the message itself is found by `reveal`, not here. The exit code is 0 in all these cases.
+
+### compare
+
+Measures how much a copy differs from the original. Both files need the same format and length.
+
+```bash
+audiosteg compare sample sample.stego.wav
+```
+
+```
+Sounds the same? Very likely. The change is far quieter than the sound, but only listening can tell.
+Quality:         Excellent (SNR: 106.2 dB)
+Changed:         78 of 188,800 samples (0.04%), from 0.000 s to 0.00345 s
+To see every number, add --details. To listen, add --play.
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--details` | Every metric and the waveforms, each with an explanation |
+| `--show NAMES` | Only these, separated by commas or with several `--show`: `snr`, `psnr`, `changes`, `where`, `waveform` |
+| `--from`, `--to` | Only this part, in seconds. It also limits what is saved and played. The result then names the part. |
+| `--width COLUMNS` | The width of the waveforms, from 20 to 500. A terminal never gets more than fits. |
+| `--play [WHAT]` | Listen to `original`, `encoded`, or `difference`. Without a value, all three in this order. |
+| `--gain N` | Amplify the difference `N` times (1 or more). The default is as much as is safe. |
+| `--save_difference FILE` | Write the amplified difference to a WAV file |
+| `--force` | Replace an existing difference file |
+
+`--play` never takes a file name as its value. For files named `original`, `encoded`, or `difference` after it, write `./original`.
+
+The difference is the encoded audio minus the original. Its largest sample is at least 12 dB below the maximum (-12 dBFS), also with `--gain`, and a larger gain is capped. The program says how much it amplified or reduced the difference:
+
+```
+Difference saved: difference.wav
+  It was amplified 8,230 times. Its loudest sample is at least 12 dB below the maximum.
+```
+
+A difference file follows the same rules as the output of `hide`: it never replaces an input, the included sample, or a link. If there is no difference, nothing is written.
+
+Sound is played only with `--play`, by a player that the system already has: `afplay` on macOS, Windows itself, or `aplay`, `paplay`, or `ffplay` in `/usr/bin` or `/usr/local/bin` on Linux. It plays private temporary files, which are removed afterwards. Ctrl-C stops the sound and the program. If the program is asked to end while it plays (SIGTERM or SIGHUP), it stops the sound, removes the file, and exits with 143 or 129.
+
+#### What the metrics mean
+
+With `--details` (here with `--width 60`):
+
+```
+SNR: 106.2 dB
+  How much stronger the sound is than the change. Higher is better. In words: Excellent.
+PSNR: 124.1 dB
+  How much stronger the loudest possible sound is than the change. Higher is better.
+Changed samples: 78 of 188,800 samples (0.04%)
+  A sample is one number of one channel. Fewer changes are harder to notice.
+Largest change: 1 step (less than 0.01% of the largest possible sample)
+  How far one sample moved. One step is the smallest change there is.
+Where: from 0.000 s to 0.00345 s
+  The time of the first and the last changed sample.
+Changed samples in each tenth: 78, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  The compared audio, cut into ten equal parts.
+Waveform: original
+: .    |:.     | .    |:.     |..    |:.     |..    |:.
+||||||:|||||:|.||||||:|||||:|.||||||||||||:|.||||||||||||.|.
+||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+  The loudest sample at each moment, 0.000 s to 4.2812 s.
+Waveform: encoded
+: .    |:.     | .    |:.     |..    |:.     |..    |:.
+||||||:|||||:|.||||||:|||||:|.||||||||||||:|.||||||||||||.|.
+||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+  The same for the encoded file, at the same scale.
+Waveform: difference
+|
+|
+|
+|
+  The largest change at each moment, enlarged to fill the height.
+```
+
+A sample is a whole number where 0 is silence. 8-bit samples are stored from 0 to 255, so 128 is subtracted first. `s` is a sample of the original, `d` is the change of that sample, and all channels count together.
+
+| Metric | Definition | Limits |
+| --- | --- | --- |
+| SNR | `10 * log10(sum(s^2) / sum(d^2))` dB | An average. A short loud change in a long file can hide in it. There is no SNR if the original is silent. |
+| PSNR | `10 * log10(p^2 / mean(d^2))` dB, where `p` is 128, 32768, 8388608, or 2147483648 for 8, 16, 24, or 32 bits | It ignores how loud the audio really is, so quiet audio looks better than it sounds. |
+| Changed samples | How many `d` are not 0 | Many tiny changes can be harder to hear than one large change. |
+| Largest change | The largest `d` without its sign, also as a percentage of `p`. From one extreme to the other, it is almost 200%. | One step is louder in 8-bit audio than in 16-bit audio. |
+| Where | The time of the first changed sample, the end of the last one, and the number of changed samples in each tenth of the audio | A time covers one frame, which is one sample of each channel. |
+| Waveform | The largest sample (or change) in each column, without its sign | Very short sounds look as wide as a column. |
+
+The words come from the SNR: Excellent from 70 dB, Good from 50 dB, Fair from 30 dB, and Poor below that or if a silent original changed. Files without any change are Identical. **These limits are this project's choice, not a hearing standard.** They do not consider which sounds cover which others, and no number here can prove what a person hears. If one change passes 1% of the largest possible sample, the summary says that it could be a click. Shown decibels and percentages are rounded down. Shown times have as many digits as `--from` and `--to` need to find the same frame again, up to nine, which is enough for any real audio. If nothing changed, there is no noise and so no SNR and no PSNR.
+
+### explain
+
+Lists the algorithms, or shows how one of them hides a character in real samples. Every number is computed with the real algorithm. No file is changed.
+
+```bash
+audiosteg explain
+audiosteg explain lsb
+audiosteg explain lsb_2 --letter A --file song.wav
+```
+
+This is the output of `audiosteg explain lsb`:
+
+```
+LSB (1 bit per sample)
+Hides 1 bit in each sample. Best sound quality.
+
+Step 1: turn the character into bits
+The character 'h' is 1 byte in UTF-8:
+  0x68 = 01101000
+
+Step 2: take real samples
+8 samples of the included tune, from 0.01175 s on (frame 259).
+The hide command itself starts at the first sample and puts a header before the message.
+
+Step 3: put the bits into the samples
+These are the bits of the lowest byte of each sample. Changed bits are in [brackets].
+  1. hide 0: 0010010[1] -> 0010010[0]  value 12581 -> 12580  -1
+  2. hide 1: 1000110[0] -> 1000110[1]  value 9100 -> 9101    +1
+  3. hide 1: 1001010[0] -> 1001010[1]  value 12436 -> 12437  +1
+  4. hide 0: 1111000[1] -> 1111000[0]  value 8945 -> 8944    -1
+  5. hide 1: 01000101   -> 01000101    value 12101 -> 12101  no change
+  6. hide 0: 1110111[1] -> 1110111[0]  value 8687 -> 8686    -1
+  7. hide 0: 01001000   -> 01001000    value 11592 -> 11592  no change
+  8. hide 0: 1000111[1] -> 1000111[0]  value 8335 -> 8334    -1
+
+Step 4: read the bits back
+Reading the same bits gives 'h' again.
+6 of 8 samples changed, by at most 1 here. This algorithm can change a sample by at most 1, out of 32,768.
+
+Strengths
+- The change is the smallest that a sample can have.
+- The idea is easy to understand and fast.
+Weaknesses
+- It holds less than LSB_2.
+- Editing, compressing, or converting the audio destroys the message.
+- Anyone who looks at the lowest bits can find the message.
+Try it
+  audiosteg hide sample -m "Hello" -a lsb
+  audiosteg compare sample sample.stego.wav --details
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--letter CHARACTER` | The character to hide. The default is `h`. |
+| `--file FILE` | Take the samples from this file instead of the included tune |
+| `--step` | Wait for Enter after each step. It needs a terminal. |
+
+For an algorithm of older versions, it says why the algorithm was replaced, and the options are not allowed.
+
 ### algorithms
 
 Lists the names that `-a` and `--legacy` accept.
@@ -148,11 +323,16 @@ The JSON document has `ok` and `command`, and:
 | `hide` | `input`, `output`, `algorithm`, `encrypted` |
 | `reveal` | `file`, `algorithm`, `legacy`, `encrypted`, `message` |
 | `verify` | `file`, `algorithm`, `legacy`, `encrypted`, `exact_match`, `percentage`, `expected_length`, `found_length` |
+| `inspect` | `file`, `bits`, `channels`, `sample_rate`, `frames`, `seconds`, `cannot_hide` (a reason or `null`), `capacity` (a list of `algorithm`, `plain`, `encrypted`), `messages` (a list of `algorithm`, `encrypted`, `size`, `problem`; empty if none was detected) |
+| `compare` | `original`, `encoded`, `first_frame`, `frames`, `total_frames`, `identical`, `quality`, the numbers below, `difference` (`file`, which is absolute, `gain`, and `capped`, or `null`) |
+| `explain` | Without a name, like `algorithms`. With one, `key`, `name`, `bits_per_byte`, `explanation`, `legacy`, and for an old algorithm `replaced_because`, for others `letter`, `utf_8`, `file`, `first_frame`, `silent`, `samples`, `read_back`, `largest_possible_change`, `strengths`, `weaknesses` |
 | `algorithms` | `algorithms` and `legacy`: lists of `key`, `name`, `bits_per_byte`, `explanation` |
 | `--version` | `version` (`command` is `null`) |
 | Error | `error`: `type`, `message`, `hint` (or `null`), `exit_code` |
 
-`ok` says whether the command finished. If `verify` finds a difference, `ok` is `true`, `exact_match` is `false`, and the exit code is 1. Paths in these fields are as given, except `output`, which is absolute, and the input `sample`, which is shown as the path of the included file. Only `reveal` shows a message. A passphrase is never shown.
+The numbers of `compare` are `snr_db` and `snr_note`, `psnr_db` and `psnr_note`, then `samples`, `changed_samples`, `changed_percentage`, `largest_change`, `largest_change_percentage`, then `first_changed_frame`, `last_changed_frame`, `changed_by_tenth`. `--show` limits them to its names, in the order `snr`, `psnr`, `changes`, `where`. `waveform` needs `--details` or `--show waveform`; it has 80 columns, or `--width`, or fewer for very short audio, whatever the terminal is. Its numbers are shares of the largest possible sample: 0 to 1, and up to almost 2 for the difference. A number that does not exist is `null`, and its note says why: `identical` or `silent_original`. `--play` and `--step` cannot be used with `--json`.
+
+`ok` says whether the command finished. If `verify` finds a difference, `ok` is `true`, `exact_match` is `false`, and the exit code is 1. Paths in these fields are as given, except `output` and the file of `difference`, which are absolute, and the input `sample`, which is shown as the path of the included file. Only `reveal` shows a message. A passphrase is never shown.
 
 The error types are `usage`, `cancelled`, `interrupted`, `input_ended`, `out_of_memory`, `file`, `file_exists`, `file_not_found`, `invalid_value`, `capacity`, `damaged_message`, `invalid_message`, `missing_library`, `no_message`, `not_encrypted`, `passphrase_required`, `unsafe_output`, `unsupported_algorithm`, `unsupported_format`, and `wrong_passphrase`.
 
@@ -169,14 +349,15 @@ If the output is closed (for example, by a pipe such as `| head`), the code is 1
 
 ## Guided mode
 
-`audiosteg` without a command shows a menu to hide, reveal, and verify messages and to learn about the algorithms. It asks for everything it needs:
+`audiosteg` without a command shows a menu to hide, reveal, and verify messages, to inspect and compare files, and to explain and list the algorithms. It asks for everything it needs:
 
 - The arrow keys and Enter choose from a menu. Enter at a text question accepts the default in brackets.
 - Back, or the Esc key, returns to the question before.
 - Ctrl-C leaves with code 130. Ctrl-D at the main menu leaves like Exit. Ctrl-D at any other question leaves with code 1; at a text question, only if nothing is typed yet.
 - An empty message and replacing a file must be confirmed: type `y` and Enter.
 - A message that does not fit is refused at once, and only algorithms that can hold it are offered.
-- After each action, it shows the command that does the same. The message and the passphrase are never part of it. A command is not shown if a file name has characters that a shell could change.
+- Compare asks whether to show three lines, everything, or what you choose. It then offers to play the sounds, if the system has a player.
+- After each action, it shows the command that does the same. The message and the passphrase are never part of it. A command is not shown if a file name or another answer has characters that a shell could change.
 
 Spaces around a typed path are removed, and `~` means your home folder. The exit code is 1 if an action failed. The guided mode needs a terminal for stdin, stdout, and stderr; without one, the program shows the help and exits with code 2.
 
@@ -335,20 +516,32 @@ Audio-Steganography-CLI/
 │   │   ├── legacy.py       Reading files from older versions
 │   │   ├── lsb.py          The two algorithms
 │   │   └── registry.py     The names of the algorithms
+│   ├── analysis/
+│   │   ├── difference.py   The amplified difference
+│   │   ├── inspection.py   What a file is and holds
+│   │   ├── quality.py      The metrics
+│   │   ├── samples.py      Samples as numbers, block by block
+│   │   ├── walkthrough.py  One character in real samples
+│   │   └── waveform.py     The numbers behind a waveform
 │   ├── cli/
 │   │   ├── commands/       One file per command
 │   │   ├── accuracy.py     Message comparison
+│   │   ├── compare_view.py Text and JSON of compare
+│   │   ├── explain_view.py Text and JSON of explain
 │   │   ├── guided/         Guided mode: menu, forms, questions
 │   │   ├── errors.py       Plain explanations of errors
+│   │   ├── inspect_view.py Text and JSON of inspect
 │   │   ├── logo.py         The logo
 │   │   ├── main.py         Program entry point
 │   │   ├── message_input.py Messages from options, files, and pipes
 │   │   ├── options.py      Options that commands share
 │   │   ├── parser.py       The command line
 │   │   ├── passphrase.py   Passphrases from prompts and files
+│   │   ├── player.py       Playing sound
 │   │   ├── questions.py    Questions of the commands
 │   │   ├── results.py      What the commands found or did
-│   │   └── views.py        Text and JSON output
+│   │   ├── views.py        Text and JSON output
+│   │   └── waveform_view.py Drawing a waveform
 │   ├── core/
 │   │   ├── algorithm.py    The Algorithm type
 │   │   ├── crypto.py       Optional encryption
@@ -370,7 +563,7 @@ Audio-Steganography-CLI/
 └── requirements_dev.txt
 ```
 
-Imports point one way: `cli` uses `algorithms`, `algorithms` uses `core`, and `core` uses `utils`. A folder may also use any folder further along that chain, but never one before it.
+Imports point one way: `cli` uses `analysis`, `analysis` uses `algorithms`, `algorithms` uses `core`, and `core` uses `utils`. A folder may also use any folder further along that chain, but never one before it.
 
 `src/audiosteg/data/sample.wav` is an original tune. Run `python scripts/generate_sample_audio.py` to create it again.
 
@@ -406,10 +599,12 @@ pip install -e .
        embed_bits=embed_bits,
        extract_bits=extract_bits,
        explanation="Explains the idea in one line.",
+       strengths=("Says what it is good at.",),
+       weaknesses=("Says what it is bad at.",),
    )
    ```
 
-   The functions get only the lowest byte of each sample. `bits_per_byte` must be 1, 2, 4, or 8.
+   The functions get only the lowest byte of each sample. `bits_per_byte` must be 1, 2, 4, or 8. `strengths` and `weaknesses` are optional and shown by `explain`, which computes everything else with the two functions.
 
 2. Import it in `src/audiosteg/algorithms/registry.py` and add one line to `ALGORITHMS`, with the name for the command line:
 
@@ -457,7 +652,7 @@ python -m build
 
 On Windows, activate the environment with `.venv\Scripts\activate`.
 
-Mark a test that needs the `crypto` extra with `@pytest.mark.needs_crypto`. It is skipped when the library is missing, unless the environment variable `AUDIOSTEG_REQUIRE_CRYPTO` is set. The automated checks run the tests with and without the extra, and set that variable when the extra is installed.
+Mark a test that needs the `crypto` extra with `@pytest.mark.needs_crypto`. It is skipped when the library is missing, unless the environment variable `AUDIOSTEG_REQUIRE_CRYPTO` is set. The automated checks run the tests with and without the extra, and set that variable when the extra is installed. They run on Linux and Windows for every pull request, and on macOS once a week or when started by hand.
 
 ## Contributing
 

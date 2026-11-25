@@ -11,7 +11,9 @@ from audiosteg import decode
 
 DOWN, ENTER, ESCAPE, CTRL_C, CTRL_D = "\x1b[B", "\r", "\x1b", "\x03", "\x04"
 MENU = "What would you like to do?"
-HIDE, REVEAL, VERIFY, ALGORITHMS, EXIT = ((MENU, DOWN * number + ENTER) for number in range(5))
+HIDE, REVEAL, VERIFY, INSPECT, COMPARE, EXPLAIN, ALGORITHMS, EXIT = (
+    (MENU, DOWN * number + ENTER) for number in range(8)
+)
 
 
 @pytest.mark.needs_crypto
@@ -34,6 +36,19 @@ def test_a_real_terminal_from_start_to_end(terminal: Any, tmp_path: Path) -> Non
         ("Repeat the passphrase:", f"sesame{ENTER}"),
         ("Output file [", ENTER),
         ("audiosteg hide sample -a lsb_2 -o sample.stego.wav -p", ""),
+        INSPECT,
+        ("WAV file (sample means the included tune) [sample.stego.wav]", ENTER),
+        ("lsb_2, encrypted, 6 bytes", ""),
+        COMPARE,
+        ("Original (sample means the included tune) [sample]", ENTER),
+        ("Copy with the hidden message [sample.stego.wav]", ENTER),
+        ("How much do you want to see?", DOWN + ENTER),
+        ("Waveform: difference", ""),
+        ("audiosteg compare sample sample.stego.wav --details", ""),
+        EXPLAIN,
+        ("Which algorithm?", DOWN + ENTER),
+        ("Character to hide [h]", ENTER),
+        ("audiosteg explain lsb_2", ""),
         REVEAL,
         ("hidden message [", ENTER),
         ("Passphrase:", f"sesame{ENTER}"),
@@ -135,6 +150,14 @@ def test_back_from_every_first_question_returns_to_the_menu(guide: Any, tmp_path
         ("hidden message:", ESCAPE),
         VERIFY,
         ("hidden message:", ESCAPE),
+        INSPECT,
+        ("WAV file (sample means the included tune) [sample]:", ESCAPE),
+        COMPARE,
+        ("Original (sample means the included tune) [sample]:", ESCAPE),
+        EXPLAIN,
+        ("Which algorithm?", DOWN * 5 + ENTER),
+        EXPLAIN,
+        ("Which algorithm?", ESCAPE),
         EXIT,
         leave=False,
     )
@@ -153,3 +176,39 @@ def test_a_reader_that_left(run: Any, name: str) -> None:
     prompts = () if name == "stdout" else ((MENU, CTRL_D),)
     result = run(terminals=("stdin", "stdout", "stderr"), broken=(name,), prompts=prompts)
     assert result.code == (1 if name == "stdout" else 0)
+
+
+def test_the_last_files_are_offered_and_never_mean_the_sample(
+    guide: Any, make_wav: Callable[..., Path], tmp_path: Path, no_library: None
+) -> None:
+    make_wav()
+    result = guide(
+        HIDE,
+        ("Which audio file?", DOWN + ENTER),
+        ("Path of the WAV file:", f"input.wav{ENTER}"),
+        ("Message to hide:", f"x{ENTER}"),
+        ("Which algorithm?", ENTER),
+        ("Output file", f"sample{ENTER}"),
+        INSPECT,
+        (f"[{os.path.join('.', 'sample')}]:", ENTER),
+        COMPARE,
+        ("Original (sample means the included tune) [input.wav]:", ENTER),
+        (f"Copy with the hidden message [{os.path.join('.', 'sample')}]:", ENTER),
+        ("How much", ENTER),
+        EXIT,
+        leave=False,
+    )
+    assert result.code == 0
+    inside = os.path.join(".", "sample")
+    assert f"The same as a command: audiosteg inspect {inside}\n" in result.text
+    assert f"The same as a command: audiosteg compare input.wav {inside}\n" in result.text
+    assert "Hidden message" in result.text and "lsb, not encrypted, 1 byte" in result.text
+
+
+def test_an_error_after_the_questions_returns_to_the_menu(guide: Any, make_wav: Callable[..., Path]) -> None:
+    result = guide(
+        INSPECT, ("WAV file", f"missing.wav{ENTER}"), INSPECT, ("WAV file", ENTER), EXIT, leave=False
+    )
+    assert result.code == 1
+    assert "does not exist: missing.wav" in result.text
+    assert result.text.count("The same as a command:") == 1
