@@ -124,6 +124,11 @@ def test_an_echo_is_a_peak_in_the_cepstrum_at_its_delay() -> None:
         assert cepstrum[delay] == pytest.approx(0.5, abs=0.15)
 
 
+def test_the_strengths_and_delays_are_the_documented_ones() -> None:
+    assert ECHO.levels == (0.2, 0.3, 0.4, 0.5)
+    assert (ECHO.delays, ECHO.block_frames, ECHO.fade_frames) == ((25, 50), 1024, 256)
+
+
 def test_silence_has_no_bits() -> None:
     import numpy as np
 
