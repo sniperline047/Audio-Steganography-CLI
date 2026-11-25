@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import noise_for
 
 from audiosteg import decode, encode
 from audiosteg.algorithms.lsb import LSB, LSB_2
@@ -72,7 +73,7 @@ def test_back_from_every_question(guide: Any, make_wav: Callable[..., Path], tmp
         ("Message to hide:", ESCAPE),
         INPUT,
         message("one"),
-        ("Which algorithm?", DOWN * len(ALGORITHMS) + ENTER),
+        ("Which algorithm?", DOWN * (len(ALGORITHMS) - 1) + ENTER),
         message("two"),
         ("Which algorithm?", DOWN + ENTER),
         (ENCRYPTION, back),
@@ -507,6 +508,54 @@ def test_a_keyed_algorithm_that_cannot_be_used_is_explained(
     result = guide(START, OWN_FILE, INPUT, message("x"), KEYED, FIRST_ALGORITHM, (OUTPUT, ENTER))
     assert "Error: Not installed." in result.text
     assert "lsb_keyed (cannot encrypt here): " in result.text
+    assert decode(str(tmp_path / "input.stego.wav")) == "x"
+
+
+ECHO_NUMBER = ("Which algorithm?", DOWN * list(ALGORITHMS).index("echo") + ENTER)
+
+
+@pytest.mark.needs_signal
+def test_an_echo_is_hidden_and_the_command_does_the_same(
+    guide: Any, run: Any, encryption: Callable[[bool], None], make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    encryption(False)
+    make_wav(frames=noise_for("echo"))
+    result = guide(START, OWN_FILE, INPUT, message("hidden"), ECHO_NUMBER, (OUTPUT, ENTER))
+    assert result.code == 0
+    assert "too large for some algorithms" not in result.text
+    output = tmp_path / "input.stego.wav"
+    assert decode(str(output)) == "hidden"
+    written = output.read_bytes()
+    command = COMMAND.search(result.text)[1]
+    assert command == "audiosteg hide input.wav -a echo -o input.stego.wav"
+    assert run(*words_of(command)[1:], "--force", stdin=b"hidden").code == 0
+    assert output.read_bytes() == written
+
+
+@pytest.mark.needs_signal
+def test_a_sound_that_cannot_carry_echoes_is_explained(
+    guide: Any, encryption: Callable[[bool], None], make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    encryption(False)
+    make_wav(frames=bytes([128]) * 500_000)
+    result = guide(START, OWN_FILE, INPUT, message("hidden"), ECHO_NUMBER, (OUTPUT, ENTER))
+    assert result.code == 1
+    assert "Error: The message could not be read back from this sound, so nothing was saved." in result.text
+    assert not (tmp_path / "input.stego.wav").exists()
+
+
+def test_an_echo_without_numpy_is_explained(
+    guide: Any,
+    encryption: Callable[[bool], None],
+    no_numpy: None,
+    make_wav: Callable[..., Path],
+    tmp_path: Path,
+) -> None:
+    encryption(False)
+    make_wav(frames=noise_for("echo"))
+    result = guide(START, OWN_FILE, INPUT, message("x"), ECHO_NUMBER, FIRST_ALGORITHM, (OUTPUT, ENTER))
+    assert 'To install it, run: pip install ".[signal]"' in result.text
+    assert "echo (needs NumPy): " in result.text
     assert decode(str(tmp_path / "input.stego.wav")) == "x"
 
 

@@ -15,7 +15,7 @@ Thanks for helping! Start with the [README](README.md) to see what the project d
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements_dev.txt -e ".[crypto]"
+pip install -r requirements_dev.txt -e ".[crypto,signal]"
 ruff check .
 ruff format --check .
 mypy
@@ -26,7 +26,7 @@ python -m build
 
 On Windows, activate the environment with `.venv\Scripts\activate`.
 
-Mark a test that needs the `crypto` extra with `@pytest.mark.needs_crypto`. It is skipped when the library is missing, unless the environment variable `AUDIOSTEG_REQUIRE_CRYPTO` is set. The automated checks run the tests with and without the extra, and set that variable when the extra is installed. They run on Linux and Windows for every pull request, and on macOS once a week or when started by hand.
+Mark a test that needs the `crypto` extra with `@pytest.mark.needs_crypto`, and one that needs the `signal` extra (NumPy) with `@pytest.mark.needs_signal`. It is skipped when the library is missing, unless the environment variable `AUDIOSTEG_REQUIRE_CRYPTO` or `AUDIOSTEG_REQUIRE_SIGNAL` is set. The automated checks run the tests with both extras and without any, and set these variables when the extras are installed. Each extra alone is tried with the built package. They run on Linux and Windows for every pull request, and on macOS once a week or when started by hand.
 
 Test coverage must stay at 90% or more. A code file has at most one test file, in the same folder under `tests/` as under `src/audiosteg/`. Some tests compare the examples in `docs/` with the real output.
 
@@ -41,6 +41,7 @@ Audio-Steganography-CLI/
 ├── src/audiosteg/
 │   ├── algorithms/
 │   │   ├── detection.py    Detection and decode
+│   │   ├── echo.py         Short echoes in blocks of sound
 │   │   ├── legacy.py       Reading files from older versions
 │   │   ├── lsb.py          lsb and lsb_2
 │   │   ├── lsb_four.py     Four bits per sample
@@ -50,6 +51,7 @@ Audio-Steganography-CLI/
 │   │   └── registry.py     The names of the algorithms
 │   ├── analysis/
 │   │   ├── difference.py   The amplified difference
+│   │   ├── echo_walkthrough.py One character as echoes
 │   │   ├── inspection.py   What a file is and holds
 │   │   ├── quality.py      The metrics
 │   │   ├── samples.py      Samples as numbers, block by block
@@ -60,6 +62,7 @@ Audio-Steganography-CLI/
 │   │   ├── accuracy.py     Message comparison
 │   │   ├── change_view.py  Changed samples of explain
 │   │   ├── compare_view.py Text and JSON of compare
+│   │   ├── echo_view.py    Text and JSON of explain echo
 │   │   ├── explain_view.py Text and JSON of explain
 │   │   ├── guided/         Guided mode: menu, forms, questions
 │   │   ├── errors.py       Plain explanations of errors
@@ -81,7 +84,12 @@ Audio-Steganography-CLI/
 │   │   ├── header.py       The container around a message
 │   │   ├── keyed.py        Containers scattered by a key
 │   │   ├── message_codec.py Message and bit conversion
+│   │   ├── protection.py   Error correction around a container
+│   │   ├── reed_solomon.py Correcting wrong bytes
 │   │   ├── scatter.py      A random order of numbers
+│   │   ├── signal_algorithm.py The SignalAlgorithm type
+│   │   ├── signal_file.py  Hiding and reading in blocks of sound
+│   │   ├── signal_samples.py Samples as numbers with NumPy
 │   │   ├── stego_file.py   Hiding and reading with one algorithm
 │   │   └── wav_io.py       WAV reading and writing
 │   ├── data/
@@ -162,5 +170,16 @@ Random choices use `secrets` through a field that tests can replace, such as `ch
 - `reads_like=LSB` says that another algorithm reads the messages, so that they are not detected twice.
 
 The commands, the guided mode, detection, the capacity check, and the file handling need no changes.
+
+### Add an algorithm for whole blocks of sound
+
+An algorithm that has to see the sound as numbers is a subclass of `SignalAlgorithm` (in `core/signal_algorithm.py`) instead. It gets the error correction, the samples of every format, the read-back before saving, and the commands for free:
+
+- `make_change(sound, first_frame, bits)` gets one channel as floating point numbers, with `history_frames` earlier frames at its start, and returns what to add to every frame after them. The engine calls it with a few whole blocks at a time, multiplies the result by the level, and takes care of loud sounds. The result must depend only on the arguments, because it is called twice for each piece.
+- `find_signs(blocks)` gets one row for each block, with all channels added together, and returns two numbers for each: how much it looks like a hidden 0 and like a hidden 1.
+- `block_frames` is how many frames carry a bit, `tail_frames` how many change after the last block, and `levels` are the strengths to try, the weakest first.
+- `earlier` names the algorithms that are detected before it.
+
+`echo.py` is an example. Only such a module may use NumPy, and only through `load_numpy()` inside a function, so that everything else works without it. `explain` needs its own walkthrough and view, like `echo_walkthrough.py` and `echo_view.py`, and one branch in `cli/commands/explain.py`.
 
 Detection tries the algorithms in order and stops at the first message. If the input audio already holds a message from an algorithm earlier in the list, that old message can be found instead of the new one. To avoid this, pass the algorithm to `decode`, or use `-a`.

@@ -32,7 +32,7 @@ printf "Hello" | audiosteg hide song.wav
 | --- | --- |
 | `-m TEXT`, `--message TEXT` | The message. Other users of the computer and the shell history may see it. |
 | `--message_file FILE` | Read the message from a UTF-8 text file |
-| `-a`, `--algorithm` | `lsb` (default), `lsb_2`, `lsb_4`, `lsb_matching`, `lsb_parity`, or `lsb_keyed`. See [Algorithms](file_format.md). |
+| `-a`, `--algorithm` | `lsb` (default), `lsb_2`, `lsb_4`, `lsb_matching`, `lsb_parity`, `lsb_keyed`, or `echo`. See [Algorithms](file_format.md). |
 | `-p`, `--passphrase` | Ask for a passphrase, twice, and encrypt the message. `lsb_keyed` always asks in a terminal. Anywhere else it needs `--passphrase_file`. |
 | `--passphrase_file FILE` | Read the passphrase from a file |
 | `-o`, `--output` | The new file. The default is the name of the input with `.stego.wav`, in the current folder. |
@@ -43,6 +43,8 @@ An option with a value can also be written as one word, such as `--message=-text
 Without `-m` and `--message_file`, the message is typed in a terminal, or read from a pipe. Files and pipes are hidden exactly as they are, including a newline at the end. `echo` adds such a newline; `printf` does not. Many terminals limit how long a typed line can be, so use a file for a long message.
 
 If the output file exists, a terminal asks before replacing it; anywhere else, such as when stdin or stderr is not a terminal, `--force` is needed. The program refuses to write to the input file, the message or passphrase file, the included sample, or a symbolic link, even with `--force`. Only the audio is copied; tags and other metadata are not.
+
+`echo` needs the `signal` extra (`pip install ".[signal]"`). It holds very little, changes how the file sounds, and does not work with every sound: before anything is saved, `hide` reads the message back from its own result, and refuses the file if that fails. Then use another file or another algorithm. The included sample is too short for it. With `echo`, a message of 5 bytes needs at least 9.5 seconds at 44,100 Hz, and an encrypted one about 23. See [echo](file_format.md#echo).
 
 ## reveal
 
@@ -65,6 +67,8 @@ audiosteg reveal old.wav --legacy basic
 Only the message goes to stdout. Everything else, such as whether the message was encrypted, goes to stderr. If you expect an encrypted message and the program says that it was not encrypted, do not trust the message. With a passphrase option, a message that is not encrypted is refused.
 
 A message of `lsb_keyed` cannot be detected. If no other message is detected and there is a passphrase option, the passphrase is tried on `lsb_keyed`. With `-a lsb_keyed`, nothing else is tried, and a terminal asks for the passphrase. A wrong passphrase looks the same as a file without a message or an edited file, so the error is the same too.
+
+A message of `echo` is detected only where NumPy is installed, and only if no other algorithm finds one. Elsewhere, the program says that it could not look for one. Detecting it comes before a passphrase is tried on `lsb_keyed`, so a `lsb_keyed` message in a file with an older `echo` message needs `-a lsb_keyed`.
 
 A message of `lsb_matching` is the same as one of `lsb` to a reader, so it is always reported as `lsb`, even with `-a lsb_matching`.
 
@@ -102,11 +106,14 @@ Room with lsb_4: 94,386 bytes, or 94,346 encrypted
 Room with lsb_matching: 23,586 bytes, or 23,546 encrypted
 Room with lsb_parity: 2,936 bytes, or 2,896 encrypted
 Room with lsb_keyed: 23,546 bytes, always encrypted
+Room with echo: none, the sound is too short
 Hidden message: lsb, not encrypted, 5 bytes
 Only the header of the message was read, so damage further on is not detected. A message hidden with lsb_matching looks the same as one hidden with lsb.
 ```
 
-`none detected` does not mean that a file has no hidden message: messages of `lsb_keyed`, files of older versions, and messages of other tools cannot be detected. A message of `lsb_matching` is shown as `lsb`. A header that is damaged or of an unknown version is reported. Because only the header is read, damage in the message itself is found by `reveal`, not here. The exit code is 0 in all these cases.
+The room of `echo` is what may fit. The sound decides whether it really does, so it is no promise.
+
+`none detected` does not mean that a file has no hidden message: messages of `lsb_keyed`, files of older versions, and messages of other tools cannot be detected. A message of `lsb_matching` is shown as `lsb`. Without NumPy, messages of `echo` are not looked for, and the program says so if it finds no other message. A header that is damaged or of an unknown version is reported. Because only the header is read, damage in the message itself is found by `reveal`, not here. The exit code is 0 in all these cases.
 
 ## compare
 
@@ -208,6 +215,73 @@ Try it
 
 `lsb_parity` shows the lowest bits of each group of 8 samples, their parity, and the sample that was chosen. `lsb_matching` shows how whole samples move by +1 or -1. Both choose at random, so the output differs from run to run. `lsb_keyed` shows scattered samples, counted from 0 across all channels. Their order comes from a fixed demo seed that is shown, never from a passphrase.
 
+`echo` hides the character in blocks of sound. It shows the delay of each echo, and the numbers that the message is read from. The picture is the cepstrum of the block with the clearest echo, before and after. The weakest echo that gives every bit is used, or the strongest if none does, so bits can be shown as wrong. Real messages have error correction, which a single character does not. The last digits of the numbers can differ a little between computers. This is the output of `audiosteg explain echo`:
+
+```
+Echo (1 bit per block of 1,024 frames)
+Hides 1 bit in each block as a short echo. Audible.
+
+Step 1: turn the character into bits
+The character 'h' is 1 byte in UTF-8:
+  0x68 = 01101000
+
+Step 2: take real sound
+8 blocks of 1,024 frames of the included tune, from 0.01175 s on (frame 259).
+One block is 46.44 ms long and carries one bit.
+The hide command itself starts at the first frame, and adds a header and error correction to the message.
+
+Step 3: add an echo to each block
+Each block gets a quiet echo of itself. A short delay means 0, and a longer one means 1.
+  1. hide 0: echo after 25 frames (1.13 ms)
+  2. hide 1: echo after 50 frames (2.27 ms)
+  3. hide 1: echo after 50 frames (2.27 ms)
+  4. hide 0: echo after 25 frames (1.13 ms)
+  5. hide 1: echo after 50 frames (2.27 ms)
+  6. hide 0: echo after 25 frames (1.13 ms)
+  7. hide 0: echo after 25 frames (1.13 ms)
+  8. hide 0: echo after 25 frames (1.13 ms)
+The echo is 40% as strong as the sound. Between blocks it changes smoothly.
+
+Step 4: look for the echoes
+An echo makes waves in the spectrum, the list of how loud each pitch is. The cepstrum shows these waves: it is high at the delay of the echo.
+The cepstrum of block 2 before, at delays from 15 to 60 frames:
+  |                                              
+  |                                              
+  |     .                         .   |          
+  |...::| :|. ...:.          . .::|:..||..::     
+             ^25                      ^50
+The cepstrum of block 2 after, at delays from 15 to 60 frames:
+  |                                   |          
+  |                                   |          
+  |     .                         .   |          
+  |  .:.| :|.  .....        .. .::|..:||...:     
+             ^25                      ^50
+The higher of the two numbers decides the bit:
+  1. at 25:  0.278   at 50:  0.256   read 0, right
+  2. at 25: -0.056   at 50:  0.716   read 1, right
+  3. at 25: -0.282   at 50:  0.480   read 1, right
+  4. at 25:  0.166   at 50: -0.377   read 0, right
+  5. at 25: -0.235   at 50:  0.083   read 1, right
+  6. at 25:  0.198   at 50: -0.256   read 0, right
+  7. at 25:  0.102   at 50: -0.343   read 0, right
+  8. at 25:  0.147   at 50: -0.331   read 0, right
+8 of 8 bits read right, which gives 'h'.
+Every bit was read right. In a whole message, error correction repairs some wrong bits.
+
+Strengths
+- The bits are in the sound itself and not in the lowest bits of the samples.
+- Error correction repairs some bits that are read wrong.
+Weaknesses
+- The echo can be heard, like a small room or a slightly metallic sound.
+- It holds very little: a minute of CD audio holds about 140 bytes.
+- It does not work with every sound, such as silence or pure tones.
+- Anyone who looks for echoes can find the message.
+Try it
+  audiosteg hide song.wav -m "Hello" -a echo
+  audiosteg compare song.wav song.stego.wav --details
+The file song.wav is one of yours. At 44,100 frames a second, this message needs 9.5 s of it, so the tune sample is too short.
+```
+
 For an algorithm of older versions, it says why the algorithm was replaced, and the options are not allowed.
 
 ## algorithms
@@ -232,10 +306,10 @@ The JSON document has `ok` and `command`, and:
 | `hide` | `input`, `output`, `algorithm`, `encrypted` |
 | `reveal` | `file`, `algorithm`, `legacy`, `encrypted`, `message` |
 | `verify` | `file`, `algorithm`, `legacy`, `encrypted`, `exact_match`, `percentage`, `expected_length`, `found_length` |
-| `inspect` | `file`, `bits`, `channels`, `sample_rate`, `frames`, `seconds`, `cannot_hide` (a reason or `null`), `capacity` (a list of `algorithm`, `plain`, `encrypted`, and `always_encrypted`; if that is `true`, `plain` is 0), `messages` (a list of `algorithm`, `encrypted`, `size`, `problem`; empty if none was detected) |
+| `inspect` | `file`, `bits`, `channels`, `sample_rate`, `frames`, `seconds`, `cannot_hide` (a reason or `null`), `capacity` (a list of `algorithm`, `plain`, `encrypted`, `always_encrypted` (if it is `true`, `plain` is 0), and `at_most` (if it is `true`, the sound decides how much really fits)), `messages` (a list of `algorithm`, `encrypted`, `size`, `problem`; empty if none was detected), `not_checked` (the algorithms whose messages could not be looked for without NumPy) |
 | `compare` | `original`, `encoded`, `first_frame`, `frames`, `total_frames`, `identical`, `quality`, the numbers below, `difference` (`file`, which is absolute, `gain`, and `capped`, or `null`) |
-| `explain` | Without a name, like `algorithms`. With one, `key`, `name`, `bits_per_byte`, `explanation`, `legacy`, and for an old algorithm `replaced_because`, for others `samples_per_group`, `needs_passphrase`, `reads_like`, `letter`, `utf_8`, `file`, `first_frame`, `silent`, `how`, `demo_seed`, `samples`, `groups`, `read_back`, `largest_possible_change`, `strengths`, `weaknesses` |
-| `algorithms` | `algorithms` and `legacy`: lists of `key`, `name`, `bits_per_byte`, `explanation`. In `algorithms` also `samples_per_group`, `needs_passphrase`, and `reads_like` (the algorithm that its messages are reported as, or `null`) |
+| `explain` | Without a name, like `algorithms`. With one, `key`, `name`, `bits_per_byte`, `explanation`, `legacy`, and for an old algorithm `replaced_because`, for others `samples_per_group`, `needs_passphrase`, `reads_like`, `frames_per_bit`, `letter`, `utf_8`, `file`, `first_frame`, `silent`, `how`, `demo_seed`, `samples`, `groups`, `read_back`, `largest_possible_change`, `strengths`, `weaknesses`. For `echo` also `delays`, `level`, `gain`, `blocks` |
+| `algorithms` | `algorithms` and `legacy`: lists of `key`, `name`, `bits_per_byte`, `explanation`. In `algorithms` also `samples_per_group`, `needs_passphrase`, `reads_like` (the algorithm that its messages are reported as, or `null`), and `frames_per_bit` (`null` unless whole blocks of sound carry the bits) |
 | `--version` | `version` (`command` is `null`) |
 | Error | `error`: `type`, `message`, `hint` (or `null`), `exit_code` |
 
@@ -243,9 +317,11 @@ The numbers of `compare` are `snr_db` and `snr_note`, `psnr_db` and `psnr_note`,
 
 `bits_per_byte` is the number of bits in each group of `samples_per_group` samples. In `explain`, every item of `samples` has `hidden_bits` (of its whole group), `low_byte_before`, `low_byte_after`, `value_before`, `value_after`, `change`, `position` (counted from 0 across all channels), and `group` (from 1). `groups` is empty unless the groups carry a parity (`lsb_parity`). Every item has `group`, `hidden_bits`, `lowest_bits_before`, `lowest_bits_after`, and `changed_sample` (its first changed sample, counted from 1 in the group, or `null`). `demo_seed` is `null` for algorithms without a passphrase. `first_frame` is the earliest frame used.
 
+With `echo`, `samples_per_group` counts the samples of one channel, `samples` and `groups` are empty, and `demo_seed` and `largest_possible_change` are `null`. `read_back` is `null` if the bits that are read are no character. `delays` are the delays for 0 and 1 in frames, `level` is how strong the echo is, and `gain` is below 1 if everything was made quieter. Every item of `blocks` has `block` (from 1), `hidden_bit`, `delay`, `peaks_before` and `peaks_after` (the cepstrum at both delays), and `read_bit`.
+
 `ok` says whether the command finished. If `verify` finds a difference, `ok` is `true`, `exact_match` is `false`, and the exit code is 1. Paths in these fields are as given, except `output` and the file of `difference`, which are absolute, and the input `sample`, which is shown as the path of the included file. Only `reveal` shows a message. A passphrase is never shown.
 
-The error types are `usage`, `cancelled`, `interrupted`, `input_ended`, `out_of_memory`, `file`, `file_exists`, `file_not_found`, `invalid_value`, `capacity`, `damaged_message`, `invalid_message`, `missing_library`, `no_message`, `not_encrypted`, `passphrase_required`, `unsafe_output`, `unsupported_algorithm`, `unsupported_format`, and `wrong_passphrase`.
+The error types are `usage`, `cancelled`, `interrupted`, `input_ended`, `out_of_memory`, `file`, `file_exists`, `file_not_found`, `invalid_value`, `capacity`, `damaged_message`, `invalid_message`, `missing_library`, `no_message`, `not_encrypted`, `passphrase_required`, `unsafe_output`, `unsuitable_audio`, `unsupported_algorithm`, `unsupported_format`, and `wrong_passphrase`.
 
 ## Exit codes
 
@@ -268,6 +344,7 @@ If the output is closed (for example, by a pipe such as `| head`), the code is 1
 - An empty message and replacing a file must be confirmed: type `y` and Enter.
 - A message that does not fit is refused at once, and only algorithms that can hold it are offered.
 - `lsb_keyed` always asks for a passphrase. If no message is detected in a file, Reveal and Verify offer another file, `lsb_keyed`, or an older version. After a passphrase that finds nothing, try another or go back.
+- `echo` is offered if the file is long enough. Without NumPy, the menus say `needs NumPy` next to it, and choosing it says how to install it.
 - Compare asks whether to show three lines, everything, or what you choose. It then offers to play the sounds, if the system has a player.
 - After each action, it shows the command that does the same. The message and the passphrase are never part of it. A command is not shown if a file name or another answer has characters that a shell could change.
 

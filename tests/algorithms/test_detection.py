@@ -1,14 +1,17 @@
 """Tests for audiosteg/algorithms/detection.py."""
 
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import noise_for
 
 from audiosteg import Algorithm, decode, encode
 from audiosteg.algorithms import detection
-from audiosteg.algorithms.detection import detect
+from audiosteg.algorithms.detection import detect, undetectable_here
+from audiosteg.algorithms.echo import ECHO
 from audiosteg.algorithms.legacy import BASIC_LSB, ENHANCED_LSB, ENHANCED_LSB_FLIP
 from audiosteg.algorithms.lsb import LSB, LSB_2
 from audiosteg.algorithms.lsb_four import LSB_4
@@ -266,6 +269,41 @@ def test_an_old_lsb_4_message_can_stay_visible_below_a_keyed_one(
     with pytest.raises(NotEncryptedError):
         decode(new, passphrase="sesame")
     assert decode(new, LSB_KEYED, passphrase="sesame") == "hidden"
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.needs_signal
+def test_an_echo_message_is_found_before_a_keyed_one_is_tried(
+    make_wav: Callable[..., Path], tmp_path: Path, fast_scrypt: None
+) -> None:
+    echo, both = str(tmp_path / "echo.wav"), str(tmp_path / "both.wav")
+    encode(str(make_wav(frames=noise_for("echo"))), echo, "echo", ECHO)
+    encode(echo, both, "hidden", LSB_KEYED, passphrase="sesame")
+    assert decode(both) == "echo"
+    with pytest.raises(NotEncryptedError):
+        decode(both, passphrase="sesame")
+    assert decode(both, LSB_KEYED, passphrase="sesame") == "hidden"
+
+
+@pytest.mark.needs_signal
+def test_numpy_is_needed_only_after_the_others_found_nothing(
+    make_wav: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, echo, plain = make_wav(frames=noise_for("echo")), tmp_path / "echo.wav", tmp_path / "plain.wav"
+    encode(str(source), str(echo), "hidden", ECHO)
+    encode(str(source), str(plain), "hidden", LSB)
+    assert detect(str(echo)) == (ECHO, Header(False, 6))
+    assert undetectable_here() == ()
+    monkeypatch.setitem(sys.modules, "numpy", None)
+    assert decode(str(plain)) == "hidden"
+    assert detect(str(echo)) is None
+    assert undetectable_here() == ("echo",)
+    with pytest.raises(NoMessageError):
+        decode(str(echo))
+    with pytest.raises(MissingLibraryError, match="signal"):
+        decode(str(echo), ECHO)
+    with pytest.raises(MissingLibraryError, match="signal"):
+        encode(str(source), str(tmp_path / "new.wav"), "x", ECHO)
 
 
 def test_there_is_one_keyed_algorithm_to_try() -> None:

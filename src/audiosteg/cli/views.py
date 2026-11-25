@@ -18,6 +18,7 @@ from audiosteg.cli.errors import OutputClosedError, UsageError, error_type, expl
 from audiosteg.cli.logo import MINIMUM_WIDTH, draw_logo, plain_title
 from audiosteg.cli.results import HideResult, RevealResult, VerifyResult
 from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
+from audiosteg.core.signal_algorithm import SignalAlgorithm
 from audiosteg.utils.text import escape_text
 
 DRAWING_CHARACTERS = "╭─╮│╰╯▀▄"
@@ -313,7 +314,9 @@ def reveal_fields(result: RevealResult) -> dict[str, Any]:
     }
 
 
-def describe(algorithms: Mapping[str, Algorithm | LegacyAlgorithm]) -> list[dict[str, Any]]:
+def describe(
+    algorithms: Mapping[str, Algorithm | SignalAlgorithm] | Mapping[str, LegacyAlgorithm],
+) -> list[dict[str, Any]]:
     """Return the JSON fields that describe algorithms."""
     return [
         {
@@ -327,7 +330,7 @@ def describe(algorithms: Mapping[str, Algorithm | LegacyAlgorithm]) -> list[dict
     ]
 
 
-def group_fields(algorithm: Algorithm | LegacyAlgorithm) -> dict[str, Any]:
+def group_fields(algorithm: Algorithm | SignalAlgorithm | LegacyAlgorithm) -> dict[str, Any]:
     """Return the JSON fields that only an algorithm that can hide messages has."""
     if isinstance(algorithm, LegacyAlgorithm):
         return {}
@@ -335,4 +338,5 @@ def group_fields(algorithm: Algorithm | LegacyAlgorithm) -> dict[str, Any]:
         "samples_per_group": algorithm.samples_per_group,
         "needs_passphrase": algorithm.keyed,
         "reads_like": next((key for key, known in ALGORITHMS.items() if known is algorithm.reads_like), None),
+        "frames_per_bit": algorithm.block_frames if isinstance(algorithm, SignalAlgorithm) else None,
     }

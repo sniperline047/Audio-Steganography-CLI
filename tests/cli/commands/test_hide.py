@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import ALL, EVERY_KEY, NO_SIGINT, needed_passphrase
+from conftest import ALL, EVERY_KEY, NO_SIGINT, PLAIN_KEYS, marked, needed_passphrase, noise_for
 
-from audiosteg import decode, encode
+from audiosteg import Algorithm, decode, encode
 from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.commands import hide
 from audiosteg.cli.commands.hide import HideRequest, check_not_sample, check_output, default_output
@@ -20,6 +20,9 @@ from audiosteg.errors import UnsafeOutputError
 
 needs_sigint = pytest.mark.skipif(NO_SIGINT, reason="Ctrl-C cannot be sent to one process here")
 every_algorithm = pytest.mark.parametrize("key", EVERY_KEY)
+every_algorithm_for_the_sample = pytest.mark.parametrize(
+    "key", [marked(key) for key, known in ALGORITHMS.items() if isinstance(known, Algorithm)]
+)
 
 
 @pytest.fixture
@@ -32,7 +35,49 @@ def key_file(tmp_path: Path) -> Path:
     return path
 
 
-@every_algorithm
+@pytest.mark.needs_signal
+def test_a_sound_that_is_too_short_for_echoes_is_explained(run: Any, tmp_path: Path) -> None:
+    result = run("hide", "sample", "-m", "Hello", "-a", "echo")
+    assert (result.code, result.output) == (1, "")
+    assert result.errors == (
+        "Error: The message is too large: it needs 5 bytes and the audio file can hold 0 bytes. "
+        "With echo, it needs at least 18.9 s of sound like this. "
+        "Use the algorithm lsb, which can hold it, or a longer audio file.\n"
+    )
+    assert os.listdir(tmp_path) == []
+
+
+@pytest.mark.needs_signal
+def test_a_sound_that_cannot_carry_echoes_is_explained(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    make_wav(frames=bytes([128]) * 500_000)
+    result = run("hide", "input.wav", "-m", "Hello", "-a", "echo")
+    assert (result.code, result.output) == (1, "")
+    assert result.errors == (
+        "Error: The message could not be read back from this sound, so nothing was saved. "
+        "The sound may be too quiet or too simple, such as silence or pure tones.\n"
+        "Use another audio file, or an algorithm that works with every sound, such as lsb.\n"
+    )
+    assert os.listdir(tmp_path) == ["input.wav"]
+
+
+def test_a_missing_numpy_is_explained_before_anything_is_asked(
+    run: Any, no_numpy: None, tmp_path: Path
+) -> None:
+    result = run("hide", "sample", "-a", "echo", "-p", terminals=ALL, NO_COLOR="1")
+    assert result.code == 1
+    assert result.seen == (
+        "Error: This algorithm needs an optional library (NumPy). "
+        'To install it, run: pip install ".[signal]"\n'
+        "Without it, the other algorithms can be used.\n"
+    )
+    as_json = json.loads(run("hide", "sample", "-a", "echo", "--json").output)
+    assert as_json["error"]["type"] == "missing_library"
+    assert os.listdir(tmp_path) == []
+
+
+@every_algorithm_for_the_sample
 @pytest.mark.usefixtures("fast_scrypt")
 def test_the_sample_and_the_current_folder_are_used(run: Any, tmp_path: Path, key: str) -> None:
     sample = Path(hide.SAMPLE_FILE).read_bytes()
@@ -47,12 +92,13 @@ def test_the_sample_and_the_current_folder_are_used(run: Any, tmp_path: Path, ke
     assert Path(hide.SAMPLE_FILE).read_bytes() == sample
 
 
-@pytest.mark.parametrize("key", [key for key, known in ALGORITHMS.items() if not known.keyed])
+@pytest.mark.parametrize("key", PLAIN_KEYS)
 @pytest.mark.usefixtures("first_choices")
 def test_each_name_uses_its_own_algorithm(
     run: Any, make_wav: Callable[..., Path], tmp_path: Path, key: str
 ) -> None:
-    source, expected, output = make_wav(), tmp_path / "expected.wav", tmp_path / "output.wav"
+    source, expected = make_wav(frames=noise_for(key)), tmp_path / "expected.wav"
+    output = tmp_path / "output.wav"
     encode(str(source), str(expected), "hidden", ALGORITHMS[key])
     assert run("hide", source, "-m", "hidden", "-a", key, "-o", output).code == 0
     assert output.read_bytes() == expected.read_bytes()

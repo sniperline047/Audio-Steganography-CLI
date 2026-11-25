@@ -7,13 +7,24 @@ from audiosteg.core import stego_file
 from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
 from audiosteg.core.crypto import passphrase_to_bytes
 from audiosteg.core.header import Header
+from audiosteg.core.signal_algorithm import SignalAlgorithm, has_numpy
 from audiosteg.errors import NoMessageError, NotEncryptedError
 
 
-def detect(path: str) -> tuple[Algorithm, Header] | None:
+def can_detect(algorithm: Algorithm | SignalAlgorithm) -> bool:
+    """Say whether messages of an algorithm can be detected here without a passphrase."""
+    return algorithm.detectable and (not isinstance(algorithm, SignalAlgorithm) or has_numpy())
+
+
+def undetectable_here() -> tuple[str, ...]:
+    """Return the names of the algorithms whose messages could be detected if NumPy was installed."""
+    return tuple(key for key, known in ALGORITHMS.items() if known.detectable and not can_detect(known))
+
+
+def detect(path: str) -> tuple[Algorithm | SignalAlgorithm, Header] | None:
     """Return the first algorithm that finds a message without a passphrase, with its header, or None."""
     for algorithm in ALGORITHMS.values():
-        if not algorithm.detectable:
+        if not can_detect(algorithm):
             continue
         header = stego_file.read_header(path, algorithm)
         if header is not None:
@@ -22,7 +33,10 @@ def detect(path: str) -> tuple[Algorithm, Header] | None:
 
 
 def decode(
-    path: str, algorithm: Algorithm | LegacyAlgorithm | None = None, *, passphrase: str | None = None
+    path: str,
+    algorithm: Algorithm | SignalAlgorithm | LegacyAlgorithm | None = None,
+    *,
+    passphrase: str | None = None,
 ) -> str:
     """
     Read a hidden message from a WAV file.

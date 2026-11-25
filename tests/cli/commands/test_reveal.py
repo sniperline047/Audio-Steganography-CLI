@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import ALL
+from conftest import ALL, EVERY_KEY, noise_for
 
 from audiosteg import encode
 from audiosteg.algorithms.lsb import LSB
@@ -84,12 +84,24 @@ def test_a_terminal_without_unicode_still_shows_a_message(
     assert (result.code, result.seen) == (0, f"{shown} \\U0001f3b5\n{NOT_ENCRYPTED}")
 
 
+def test_what_cannot_be_detected_without_numpy_is_said(
+    run: Any, make_wav: Callable[..., Path], no_numpy: None
+) -> None:
+    make_wav()
+    result = run("reveal", "input.wav")
+    assert (result.code, result.output) == (1, "")
+    assert "Messages of echo cannot be detected here, because NumPy is missing." in result.errors
+    named = run("reveal", "input.wav", "-a", "echo", "--json")
+    assert json.loads(named.output)["error"]["type"] == "missing_library"
+
+
 @pytest.mark.needs_crypto
 @pytest.mark.usefixtures("fast_scrypt")
-@pytest.mark.parametrize("key", ALGORITHMS)
+@pytest.mark.parametrize("key", EVERY_KEY)
 def test_an_encrypted_message(run: Any, make_wav: Callable[..., Path], tmp_path: Path, key: str) -> None:
     output, key_file = tmp_path / "output.wav", tmp_path / "key.txt"
-    encode(str(make_wav()), str(output), "hidden", ALGORITHMS[key], passphrase="sésame 🎵")
+    source = make_wav(frames=noise_for(key))
+    encode(str(source), str(output), "hidden", ALGORITHMS[key], passphrase="sésame 🎵")
     key_file.write_bytes("sésame 🎵\n".encode())
     result = run("reveal", output, "--passphrase_file", key_file)
     assert (result.code, result.output) == (0, "hidden")

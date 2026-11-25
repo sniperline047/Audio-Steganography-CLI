@@ -3,7 +3,7 @@
 import argparse
 from dataclasses import dataclass
 
-from audiosteg.algorithms.detection import decode, detect
+from audiosteg.algorithms.detection import decode, detect, undetectable_here
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS, reading_key
 from audiosteg.cli.errors import CHECK_THE_FILE, NO_MESSAGE_HINT
 from audiosteg.cli.options import add_reading_options, file_path, passphrase_source
@@ -23,6 +23,16 @@ EXAMPLES = """examples:
   audiosteg reveal old.wav --legacy basic
 """
 KEYED_ALGORITHM = next(key for key, known in ALGORITHMS.items() if known.keyed)
+
+
+def not_checked(keys: tuple[str, ...]) -> list[str]:
+    """Return a sentence about the algorithms whose messages could not be looked for, if there are any."""
+    if not keys:
+        return []
+    return [
+        f"Messages of {' and '.join(keys)} cannot be detected here, because NumPy is missing. "
+        'To install it, run: pip install ".[signal]"'
+    ]
 
 
 @dataclass(frozen=True)
@@ -68,6 +78,8 @@ def find_message(
         error = NoMessageError("No hidden message was found.")
         error.add_note(NO_MESSAGE_HINT)
         error.add_note(f"If it was hidden with {KEYED_ALGORITHM}, add -p and the passphrase that hid it.")
+        for sentence in not_checked(undetectable_here()):
+            error.add_note(sentence)
         raise error
     keys = [key for key, known in ALGORITHMS.items() if known is detected[0]]
     return HiddenMessage(file, keys[0], legacy=False, encrypted=detected[1].encrypted)

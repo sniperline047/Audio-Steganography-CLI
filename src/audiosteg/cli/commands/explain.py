@@ -4,12 +4,14 @@ import argparse
 import sys
 from collections.abc import Callable
 
+from audiosteg.algorithms.echo import EchoHiding
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
 from audiosteg.cli.commands.hide import SAMPLE_WORD, find_input
 from audiosteg.cli.errors import UsageError
 from audiosteg.cli.options import file_path
 from audiosteg.cli.questions import ask_line
 from audiosteg.cli.views import View
+from audiosteg.core.algorithm import Algorithm
 
 HELP = "explain how an algorithm hides a character"
 EXAMPLES = """examples:
@@ -54,6 +56,22 @@ def wait_for_enter() -> None:
     ask_line(CONTINUE)
 
 
+def explain_hiding(view: View, key: str, letter: str, path: str, pause: Callable[[], None] | None) -> None:
+    """Hide a character in memory, in the way of the algorithm, and show how."""
+    algorithm = ALGORITHMS[key]
+    if isinstance(algorithm, Algorithm):
+        from audiosteg.analysis.walkthrough import walk_through
+        from audiosteg.cli.explain_view import show_walkthrough
+
+        show_walkthrough(view, key, path, walk_through(path, letter, algorithm), algorithm, pause)
+    elif isinstance(algorithm, EchoHiding):
+        from audiosteg.analysis.echo_walkthrough import walk_through_echo
+        from audiosteg.cli.echo_view import show_echo_walkthrough
+
+        walkthrough = walk_through_echo(path, letter, algorithm)
+        show_echo_walkthrough(view, key, path, walkthrough, algorithm, pause)
+
+
 def explain(
     view: View,
     key: str | None,
@@ -69,17 +87,14 @@ def explain(
     :param word: The path of a WAV file, or the word sample
     :param pause: Function that is called between the steps
     """
-    from audiosteg.cli.explain_view import show_legacy, show_list, show_walkthrough
+    from audiosteg.cli.explain_view import show_legacy, show_list
 
     if key is None:
         show_list(view)
     elif key in LEGACY_ALGORITHMS:
         show_legacy(view, key)
     else:
-        from audiosteg.analysis.walkthrough import walk_through
-
-        path = find_input(word)
-        show_walkthrough(view, key, path, walk_through(path, letter, ALGORITHMS[key]), pause)
+        explain_hiding(view, key, letter, find_input(word), pause)
 
 
 def run(args: argparse.Namespace, view: View) -> int:

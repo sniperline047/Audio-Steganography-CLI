@@ -6,8 +6,9 @@ from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
 from audiosteg.cli.commands.explain import DEFAULT_LETTER, one_character
 from audiosteg.cli.errors import UsageError
 from audiosteg.cli.guided.equivalent import command_line
-from audiosteg.cli.guided.labels import old_label
+from audiosteg.cli.guided.labels import explain_label, old_label
 from audiosteg.cli.guided.prompter import Prompter, Step
+from audiosteg.core.signal_algorithm import check_library
 
 
 class ExplainForm:
@@ -24,10 +25,12 @@ class ExplainForm:
         self.algorithm = self.prompter.choose(
             "Which algorithm?",
             [
-                *[Choice(f"{key}: {ALGORITHMS[key].explanation}", value=key) for key in ALGORITHMS],
+                *[Choice(explain_label(key), value=key) for key in ALGORITHMS],
                 *[Choice(old_label(key), value=key) for key in LEGACY_ALGORITHMS],
             ],
         )
+        if self.algorithm in ALGORITHMS:
+            check_library(ALGORITHMS[self.algorithm])
         return True
 
     def ask_letter(self) -> bool:

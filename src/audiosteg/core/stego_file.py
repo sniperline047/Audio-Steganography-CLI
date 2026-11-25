@@ -4,7 +4,7 @@ import wave
 from collections.abc import Iterable
 from itertools import count
 
-from audiosteg.core import crypto, keyed
+from audiosteg.core import crypto, keyed, signal_file
 from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
 from audiosteg.core.header import (
     HEADER_SIZE,
@@ -22,6 +22,7 @@ from audiosteg.core.message_codec import (
     extract_groups,
     message_to_bytes,
 )
+from audiosteg.core.signal_algorithm import SignalAlgorithm, check_library
 from audiosteg.core.wav_io import (
     AudioData,
     count_sample_bytes,
@@ -42,37 +43,58 @@ from audiosteg.utils.output_path import check_output_path, normalize_output_path
 
 def check_algorithm(algorithm: object) -> None:
     """Refuse anything that is not an algorithm, such as its name."""
-    if not isinstance(algorithm, Algorithm):
+    if not isinstance(algorithm, (Algorithm, SignalAlgorithm)):
         raise TypeError(f"The algorithm must be an Algorithm, not {type(algorithm).__name__}.")
 
 
-def is_encrypted(algorithm: Algorithm, encrypted: bool) -> bool:
+def is_encrypted(algorithm: Algorithm | SignalAlgorithm, encrypted: bool) -> bool:
     """Say whether a message is encrypted, which an algorithm can demand."""
     return encrypted or algorithm.keyed
 
 
-def count_message_bytes(samples: int, algorithm: Algorithm, encrypted: bool) -> int:
-    """Return the size of the largest message that fits in this many samples."""
+def count_container_bytes(samples: int, algorithm: Algorithm | SignalAlgorithm, channels: int) -> int:
+    """Return the size of the largest container that fits in this many samples."""
+    if isinstance(algorithm, SignalAlgorithm):
+        return algorithm.largest_container(samples // channels)
+    return algorithm.count_bytes(samples)
+
+
+def count_message_bytes(
+    samples: int, algorithm: Algorithm | SignalAlgorithm, encrypted: bool, channels: int = 1
+) -> int:
+    """Return the size of the largest message that fits in this many samples, counting every channel."""
     overhead = container_overhead(is_encrypted(algorithm, encrypted))
-    return max(algorithm.count_bytes(samples) - overhead, 0)
+    return max(count_container_bytes(samples, algorithm, channels) - overhead, 0)
 
 
-def message_fits(message_length: int, samples: int, algorithm: Algorithm, encrypted: bool) -> bool:
-    """Say whether a message and its container fit in this many samples."""
+def message_fits(
+    message_length: int,
+    samples: int,
+    algorithm: Algorithm | SignalAlgorithm,
+    encrypted: bool,
+    channels: int = 1,
+) -> bool:
+    """Say whether a message and its container fit in this many samples, counting every channel."""
     overhead = container_overhead(is_encrypted(algorithm, encrypted))
-    return message_length + overhead <= algorithm.count_bytes(samples)
+    return message_length + overhead <= count_container_bytes(samples, algorithm, channels)
 
 
-def check_capacity(message_length: int, samples: int, algorithm: Algorithm, encrypted: bool) -> None:
+def check_capacity(
+    message_length: int,
+    samples: int,
+    algorithm: Algorithm | SignalAlgorithm,
+    encrypted: bool,
+    channels: int = 1,
+) -> None:
     """Make sure the message and its container fit in the audio."""
-    if not message_fits(message_length, samples, algorithm, encrypted):
+    if not message_fits(message_length, samples, algorithm, encrypted, channels):
         raise CapacityError(
             f"The message is too large: it needs {message_length} bytes and the audio file "
-            f"can hold {count_message_bytes(samples, algorithm, encrypted)} bytes."
+            f"can hold {count_message_bytes(samples, algorithm, encrypted, channels)} bytes."
         )
 
 
-def check_key(algorithm: Algorithm, passphrase: str | None) -> None:
+def check_key(algorithm: Algorithm | SignalAlgorithm, passphrase: str | None) -> None:
     """Make sure that a keyed algorithm gets a passphrase."""
     if algorithm.keyed and passphrase is None:
         raise PassphraseRequiredError("This algorithm always encrypts the message. A passphrase is needed.")
@@ -93,7 +115,7 @@ def encode(
     input_path: str,
     output_path: str,
     message: str,
-    algorithm: Algorithm,
+    algorithm: Algorithm | SignalAlgorithm,
     *,
     passphrase: str | None = None,
     overwrite: bool = False,
@@ -112,6 +134,7 @@ def encode(
         raise UnsupportedAlgorithmError("This algorithm can only read old files, not hide messages.")
     check_algorithm(algorithm)
     check_key(algorithm, passphrase)
+    check_library(algorithm)
     passphrase_bytes = None
     if passphrase is not None:
         passphrase_bytes = crypto.passphrase_to_bytes(passphrase)
@@ -121,14 +144,16 @@ def encode(
     check_output_path(input_path, output_path, overwrite)
     audio = read_audio(input_path)
     samples = len(audio.frames) // audio.sample_width
-    check_capacity(len(message_bytes), samples, algorithm, passphrase is not None)
+    check_capacity(len(message_bytes), samples, algorithm, passphrase is not None, audio.channels)
 
-    order: Iterable[int] = count()
-    if algorithm.keyed and passphrase_bytes is not None:
-        container, order = keyed.build_container(message_bytes, passphrase_bytes, algorithm, samples)
-    else:
+    if isinstance(algorithm, SignalAlgorithm):
         container = build_container(message_bytes, passphrase_bytes)
-    embed_container(audio, container, algorithm, order)
+        signal_file.embed_container(audio, container, algorithm)
+    elif algorithm.keyed and passphrase_bytes is not None:
+        container, order = keyed.build_container(message_bytes, passphrase_bytes, algorithm, samples)
+        embed_container(audio, container, algorithm, order)
+    else:
+        embed_container(audio, build_container(message_bytes, passphrase_bytes), algorithm, count())
     write_audio(input_path, output_path, audio, overwrite)
 
 
@@ -140,8 +165,11 @@ def read_hidden_bytes(audio: wave.Wave_read, algorithm: Algorithm, size: int) ->
     return bits_to_bytes(extract_groups(sample_bytes[::sample_width], algorithm))
 
 
-def find_header(audio: wave.Wave_read, path: str, algorithm: Algorithm) -> Header | None:
+def find_header(audio: wave.Wave_read, path: str, algorithm: Algorithm | SignalAlgorithm) -> Header | None:
     """Read the container header, and refuse a length that does not fit in the audio."""
+    if isinstance(algorithm, SignalAlgorithm):
+        found = signal_file.find_header(signal_file.sound_in_file(audio, path), algorithm)
+        return None if found is None else found[0]
     header = parse_header(read_hidden_bytes(audio, algorithm, HEADER_SIZE))
     if header is None:
         return None
@@ -151,13 +179,23 @@ def find_header(audio: wave.Wave_read, path: str, algorithm: Algorithm) -> Heade
     return header
 
 
-def read_header(path: str, algorithm: Algorithm) -> Header | None:
+def read_header(path: str, algorithm: Algorithm | SignalAlgorithm) -> Header | None:
     """Return the header of a hidden message, or None if this algorithm finds no message."""
     with open_pcm_wav(path) as audio:
         return find_header(audio, path, algorithm)
 
 
-def decode(path: str, algorithm: Algorithm, *, passphrase: str | None = None) -> str:
+def read_container(
+    audio: wave.Wave_read, path: str, algorithm: Algorithm | SignalAlgorithm, header: Header
+) -> bytes:
+    """Read the whole container that a header describes, or as much of it as there is."""
+    if isinstance(algorithm, SignalAlgorithm):
+        sound = signal_file.sound_in_file(audio, path)
+        return signal_file.read_container(sound, algorithm, header).data
+    return read_hidden_bytes(audio, algorithm, header.container_size)
+
+
+def decode(path: str, algorithm: Algorithm | SignalAlgorithm, *, passphrase: str | None = None) -> str:
     """
     Read a hidden message from a WAV file.
 
@@ -170,14 +208,14 @@ def decode(path: str, algorithm: Algorithm, *, passphrase: str | None = None) ->
     check_key(algorithm, passphrase)
     passphrase_bytes = None if passphrase is None else crypto.passphrase_to_bytes(passphrase)
     with open_pcm_wav(path) as audio:
-        if algorithm.keyed and passphrase_bytes is not None:
+        if isinstance(algorithm, Algorithm) and algorithm.keyed and passphrase_bytes is not None:
             samples = count_sample_bytes(audio, path) // audio.getsampwidth()
             return bytes_to_message(keyed.read_message(audio, samples, passphrase_bytes, algorithm))
         header = find_header(audio, path, algorithm)
         if header is None:
             raise NoMessageError("No hidden message was found. Check the file and the algorithm.")
         check_passphrase_use(header, passphrase)
-        container = read_hidden_bytes(audio, algorithm, header.container_size)
+        container = read_container(audio, path, algorithm, header)
 
     if len(container) < header.container_size:
         raise DamagedMessageError("The audio file ends before the hidden message does.")

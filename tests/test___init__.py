@@ -27,8 +27,8 @@ def test_the_public_names() -> None:
     assert namespace.keys() - {"__builtins__"} == {
         "Algorithm", "CapacityError", "DamagedMessageError", "InvalidMessageError",
         "MissingLibraryError", "NoMessageError", "NotEncryptedError", "PassphraseRequiredError",
-        "StegoError", "UnsafeOutputError", "UnsupportedAlgorithmError", "UnsupportedFormatError",
-        "WrongPassphraseError", "decode", "encode",
+        "StegoError", "UnsafeOutputError", "UnsuitableAudioError", "UnsupportedAlgorithmError",
+        "UnsupportedFormatError", "WrongPassphraseError", "decode", "encode",
     }  # fmt: skip
 
 
@@ -54,8 +54,9 @@ def test_the_public_functions_keep_their_arguments() -> None:
 def test_importing_the_package_does_not_import_the_libraries_of_the_command_line() -> None:
     code = (
         "import audiosteg, sys; "
-        "assert not {'rich', 'questionary', 'prompt_toolkit'} & sys.modules.keys(); "
-        "import audiosteg.cli.main; assert not {'questionary', 'prompt_toolkit'} & sys.modules.keys()"
+        "assert not {'rich', 'questionary', 'prompt_toolkit', 'numpy'} & sys.modules.keys(); "
+        "import audiosteg.cli.main; "
+        "assert not {'questionary', 'prompt_toolkit', 'numpy'} & sys.modules.keys()"
     )
     subprocess.run([sys.executable, "-c", code], check=True, timeout=60)
 

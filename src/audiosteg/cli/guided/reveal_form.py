@@ -2,8 +2,15 @@
 
 from questionary import Choice
 
+from audiosteg.algorithms.detection import undetectable_here
 from audiosteg.algorithms.registry import LEGACY_ALGORITHMS
-from audiosteg.cli.commands.reveal import KEYED_ALGORITHM, HiddenMessage, find_message, read_message
+from audiosteg.cli.commands.reveal import (
+    KEYED_ALGORITHM,
+    HiddenMessage,
+    find_message,
+    not_checked,
+    read_message,
+)
 from audiosteg.cli.guided.equivalent import command_line, path_word
 from audiosteg.cli.guided.labels import algorithm_label, old_label
 from audiosteg.cli.guided.prompter import GoBack, Prompter, Step
@@ -44,9 +51,8 @@ class RevealForm:
         """Ask how a message may be hidden if none was detected."""
         if self.detected:
             return False
-        self.prompter.view.note(
-            f"No message was detected. {KEYED_ALGORITHM} or an older version may have made this file."
-        )
+        maybe = f"No message was detected. {KEYED_ALGORITHM} or an older version may have made this file."
+        self.prompter.view.note(" ".join([maybe, *not_checked(undetectable_here())]))
         key = self.prompter.choose(
             "How may the message be hidden?",
             [

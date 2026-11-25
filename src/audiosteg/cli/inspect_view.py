@@ -3,6 +3,7 @@
 from audiosteg.algorithms.registry import ALGORITHMS, reading_key
 from audiosteg.analysis.inspection import Capacity, FoundMessage, Inspection
 from audiosteg.analysis.samples import seconds
+from audiosteg.cli.commands.reveal import not_checked
 from audiosteg.cli.views import Rows, View, clean_for_json, count_word, display_path, format_time
 
 CHANNEL_NAMES = {1: "1 (mono)", 2: "2 (stereo)"}
@@ -21,8 +22,18 @@ def describe_message(message: FoundMessage) -> str:
     return f"{message.algorithm}, {protection}, {count_word(message.size, 'byte')}"
 
 
+def describe_estimate(capacity: Capacity) -> str:
+    """Describe how much an algorithm may be able to hide, if the sound decides it."""
+    if capacity.plain == 0:
+        return "none, the sound is too short"
+    plain = count_word(capacity.plain, "byte")
+    return f"at most {plain}, or {capacity.encrypted:,} encrypted. Not every sound works."
+
+
 def describe_capacity(capacity: Capacity) -> str:
     """Describe in one line how much an algorithm can hide."""
+    if capacity.at_most:
+        return describe_estimate(capacity)
     if capacity.always_encrypted:
         return f"{count_word(capacity.encrypted, 'byte')}, always encrypted"
     return f"{count_word(capacity.plain, 'byte')}, or {capacity.encrypted:,} encrypted"
@@ -56,6 +67,7 @@ def show_inspection(view: View, path: str, inspection: Inspection) -> None:
                 "cannot_hide": inspection.cannot_hide and clean_for_json(inspection.cannot_hide),
                 "capacity": [vars(capacity) for capacity in inspection.capacities],
                 "messages": [vars(message) for message in inspection.messages],
+                "not_checked": list(inspection.not_checked),
             },
         )
         return
@@ -74,4 +86,5 @@ def show_inspection(view: View, path: str, inspection: Inspection) -> None:
     messages = [describe_message(message) for message in inspection.messages]
     rows += [("Hidden message", message) for message in messages or [NONE_DETECTED]]
     view.out.panel("What this file holds", rows, "cyan")
-    view.note(" ".join([HEADER_ONLY, *look_alikes(inspection)]) if messages else LIMITS)
+    found, missing = look_alikes(inspection), not_checked(inspection.not_checked)
+    view.note(" ".join([HEADER_ONLY, *found] if messages else [LIMITS, *missing]))

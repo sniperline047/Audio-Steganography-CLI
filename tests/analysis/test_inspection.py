@@ -47,7 +47,8 @@ def test_the_room_that_the_documentation_promises(
         lsb_4 = Capacity("lsb_4", max(samples // 2 - 14, 0), max(samples // 2 - 54, 0))
         parity = Capacity("lsb_parity", max(samples // 64 - 14, 0), max(samples // 64 - 54, 0))
         keyed = Capacity("lsb_keyed", 0, lsb[1], always_encrypted=True)
-        assert found.capacities[2:] == (lsb_4, Capacity("lsb_matching", *lsb), parity, keyed)
+        echo = Capacity("echo", 0, 0, at_most=True)
+        assert found.capacities[2:] == (lsb_4, Capacity("lsb_matching", *lsb), parity, keyed, echo)
     assert (found.cannot_hide, found.messages) == (None, ())
 
 
