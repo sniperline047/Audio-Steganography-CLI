@@ -2,13 +2,16 @@
 
 from questionary import Choice
 
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import LEGACY_ALGORITHMS
 from audiosteg.cli.commands.reveal import KEYED_ALGORITHM, HiddenMessage, find_message, read_message
 from audiosteg.cli.guided.equivalent import command_line, path_word
-from audiosteg.cli.guided.prompter import Prompter, Step
+from audiosteg.cli.guided.labels import algorithm_label
+from audiosteg.cli.guided.prompter import GoBack, Prompter, Step
 from audiosteg.cli.results import RevealResult
 from audiosteg.core import crypto
 from audiosteg.errors import NoMessageError
+
+ANOTHER_FILE = ""
 
 
 class RevealForm:
@@ -47,15 +50,16 @@ class RevealForm:
         key = self.prompter.choose(
             "How may the message be hidden?",
             [
-                Choice(
-                    f"{KEYED_ALGORITHM}: {ALGORITHMS[KEYED_ALGORITHM].explanation}", value=KEYED_ALGORITHM
-                ),
+                Choice("Not sure: choose another file", value=ANOTHER_FILE),
+                Choice(algorithm_label(KEYED_ALGORITHM), value=KEYED_ALGORITHM),
                 *[
                     Choice(f"{name} (old files only): {known.explanation}", value=name)
                     for name, known in LEGACY_ALGORITHMS.items()
                 ],
             ],
         )
+        if key == ANOTHER_FILE:
+            raise GoBack
         self.result = None
         if key == KEYED_ALGORITHM:
             crypto.check_available()
@@ -68,9 +72,14 @@ class RevealForm:
         """Ask for the passphrase of a message that is or may be encrypted, until it opens the message."""
         if self.hidden is None or not self.hidden.encrypted:
             return False
-        passphrase = self.prompter.hidden("Passphrase")
-        self.result = read_message(self.hidden, passphrase)
-        return True
+        while True:
+            passphrase = self.prompter.hidden("Passphrase")
+            try:
+                self.result = read_message(self.hidden, passphrase)
+                return True
+            except NoMessageError as error:
+                self.prompter.view.show_error(error, None, 1)
+                self.prompter.choose("What next?", [Choice("Try another passphrase")])
 
     def read(self) -> RevealResult | None:
         """Return the message, or None if no question was answered."""

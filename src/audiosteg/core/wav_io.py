@@ -17,6 +17,7 @@ MAX_BYTES_PER_SECOND = 2**32 - 1
 UNKNOWN_DATA_SIZE = 2**32 - 1
 MAX_INPUT_SIZE = 2**30
 SCATTERED_BATCH = 2**18
+SCATTERED_BLOCK = 1024
 
 
 class AudioData(NamedTuple):
@@ -140,21 +141,26 @@ def read_low_bytes(audio: wave.Wave_read, samples: Iterable[int]) -> Iterator[in
     """
     remaining = iter(samples)
     while batch := list(islice(remaining, SCATTERED_BATCH)):
-        found = {sample: read_low_byte(audio, sample) for sample in sorted(batch)}
+        found = dict(read_sorted_low_bytes(audio, sorted(batch)))
         for sample in batch:
-            low_byte = found[sample]
-            if low_byte is None:
+            if sample not in found:
                 return
-            yield low_byte
+            yield found[sample]
 
 
-def read_low_byte(audio: wave.Wave_read, sample: int) -> int | None:
-    """Return the lowest byte of one sample, or None if the file ends before it."""
+def read_sorted_low_bytes(audio: wave.Wave_read, samples: Iterable[int]) -> Iterator[tuple[int, int]]:
+    """Yield rising sample numbers that are not missing, each with the lowest byte of the sample."""
     channels, sample_width = audio.getnchannels(), audio.getsampwidth()
-    frame, channel = divmod(sample, channels)
-    audio.setpos(frame)
-    data = audio.readframes(1)
-    return data[channel * sample_width] if len(data) == channels * sample_width else None
+    block_samples = max(SCATTERED_BLOCK // (channels * sample_width), 1) * channels
+    start, block = -block_samples, b""
+    for sample in samples:
+        if sample >= start + block_samples:
+            start = sample - sample % block_samples
+            audio.setpos(start // channels)
+            block = audio.readframes(block_samples // channels)
+        offset = (sample - start) * sample_width
+        if offset + sample_width <= len(block):
+            yield sample, block[offset]
 
 
 def write_audio(input_path: str, output_path: str, audio: AudioData, overwrite: bool) -> None:

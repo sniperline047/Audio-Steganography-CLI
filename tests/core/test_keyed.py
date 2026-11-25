@@ -146,10 +146,12 @@ def test_a_file_that_ends_before_its_header_says(hidden: Path) -> None:
 @pytest.mark.needs_crypto
 def test_a_message_that_is_cut_off(hidden: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     last = places(hidden)[(54 + 6) * 8 - 1]
-    read = wav_io.read_low_byte
-    monkeypatch.setattr(
-        wav_io, "read_low_byte", lambda audio, sample: None if sample == last else read(audio, sample)
-    )
+    read = wav_io.read_sorted_low_bytes
+
+    def read_others(audio: wave.Wave_read, samples: list[int]) -> Iterator[tuple[int, int]]:
+        yield from (found for found in read(audio, samples) if found[0] != last)
+
+    monkeypatch.setattr(wav_io, "read_sorted_low_bytes", read_others)
     with pytest.raises(DamagedMessageError, match="ends before"):
         decode(str(hidden), ONE_BIT, passphrase="key")
 
@@ -190,6 +192,7 @@ def test_one_key_is_made_and_little_is_read_before_the_passphrase_proves_right(
     assert slow_work == []
 
 
+@pytest.mark.needs_crypto
 @pytest.mark.parametrize("length", [72, 2**32 - 1])
 def test_a_length_that_cannot_fit_is_refused_before_it_is_used(
     make_wav: Callable[..., Path], fast_scrypt: None, slow_work: list[str], length: int
@@ -205,18 +208,23 @@ def test_a_length_that_cannot_fit_is_refused_before_it_is_used(
 
 
 def test_a_message_without_the_library(
-    make_wav: Callable[..., Path], fast_scrypt: None, no_library: None, tmp_path: Path
+    make_wav: Callable[..., Path], no_library: None, slow_work: list[str], tmp_path: Path
 ) -> None:
     with pytest.raises(MissingLibraryError):
         encode(str(make_wav()), str(tmp_path / "o.wav"), "m", ONE_BIT, passphrase="key")
     assert os.listdir(tmp_path) == ["input.wav"]
-    with pytest.raises(NoMessageError):
-        decode(str(make_wav()), ONE_BIT, passphrase="key")
-    path = make_wav(frames=bytes(1000))
-    digits = "".join(f"{byte:08b}" for byte in b"ASTG\x01\x01\0\0\0\0")
-    flip(path, *(place for place, digit in zip(places(path), digits, strict=False) if digit == "1"))
     with pytest.raises(MissingLibraryError):
-        decode(str(path), ONE_BIT, passphrase="key")
+        decode(str(make_wav()), ONE_BIT, passphrase="key")
+    assert slow_work == []
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize("passphrase", ["key", "wrong"])
+def test_the_error_without_the_library_does_not_depend_on_the_passphrase(
+    hidden: Path, no_library: None, passphrase: str
+) -> None:
+    with pytest.raises(MissingLibraryError, match="Encryption needs an optional library"):
+        decode(str(hidden), ONE_BIT, passphrase=passphrase)
 
 
 @pytest.mark.parametrize("passphrase", ["", "a\0b", "\udcff"])

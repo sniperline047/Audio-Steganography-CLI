@@ -17,7 +17,7 @@ ORDER_PURPOSE = b"audiosteg keyed 1: order"
 ENCRYPTION_PURPOSE = b"audiosteg keyed 1: encryption"
 NOT_FOUND = (
     "No hidden message was found with this passphrase. "
-    "Either the passphrase is wrong, or there is no message. The file does not show which."
+    "The passphrase is wrong, there is no message, or the file was edited. The file does not show which."
 )
 DAMAGED = "The hidden message is damaged or was changed."
 
@@ -82,6 +82,7 @@ def read_message(audio: wave.Wave_read, samples: int, passphrase: bytes, algorit
     """
     if algorithm.count_bytes(samples) < container_overhead(encrypted=True):
         raise NoMessageError(NOT_FOUND)
+    crypto.load_aes_gcm()
     salt = read_bytes(audio, iter(range(samples)), crypto.SALT_SIZE, algorithm)
     keys = split_key(crypto.derive_key(passphrase, salt))
     order = scattered_samples(keys.order, samples, algorithm)

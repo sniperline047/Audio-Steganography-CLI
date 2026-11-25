@@ -120,7 +120,7 @@ def test_a_failure_returns_to_the_menu_and_a_later_success_does_not_hide_it(
     result = guide(
         REVEAL,
         ("hidden message:", f"input.wav{ENTER}"),
-        ("How may the message be hidden?", DOWN + ENTER),
+        ("How may the message be hidden?", DOWN * 2 + ENTER),
         REVEAL,
         ("hidden message:", ESCAPE),
         HIDE,

@@ -64,7 +64,7 @@ audiosteg reveal old.wav --legacy basic
 
 Only the message goes to stdout. Everything else, such as whether the message was encrypted, goes to stderr. If you expect an encrypted message and the program says that it was not encrypted, do not trust the message. With a passphrase option, a message that is not encrypted is refused.
 
-A message of `lsb_keyed` cannot be detected. If no other message is detected and there is a passphrase option, the passphrase is tried on `lsb_keyed`. With `-a lsb_keyed`, nothing else is tried, and a terminal asks for the passphrase. A wrong passphrase looks the same as a file without a message, so the error is the same too.
+A message of `lsb_keyed` cannot be detected. If no other message is detected and there is a passphrase option, the passphrase is tried on `lsb_keyed`. With `-a lsb_keyed`, nothing else is tried, and a terminal asks for the passphrase. A wrong passphrase looks the same as a file without a message or an edited file, so the error is the same too.
 
 A message of `lsb_matching` is the same as one of `lsb` to a reader, so it is always reported as `lsb`, even with `-a lsb_matching`.
 
@@ -241,7 +241,7 @@ The JSON document has `ok` and `command`, and:
 
 The numbers of `compare` are `snr_db` and `snr_note`, `psnr_db` and `psnr_note`, then `samples`, `changed_samples`, `changed_percentage`, `largest_change`, `largest_change_percentage`, then `first_changed_frame`, `last_changed_frame`, `changed_by_tenth`. `--show` limits them to its names, in the order `snr`, `psnr`, `changes`, `where`. `waveform` needs `--details` or `--show waveform`; it has 80 columns, or `--width`, or fewer for very short audio, whatever the terminal is. Its numbers are shares of the largest possible sample: 0 to 1, and up to almost 2 for the difference. A number that does not exist is `null`, and its note says why: `identical` or `silent_original`. `--play` and `--step` cannot be used with `--json`.
 
-`bits_per_byte` is the number of bits in each group of `samples_per_group` samples. In `explain`, every item of `samples` has `hidden_bits` (of its whole group), `low_byte_before`, `low_byte_after`, `value_before`, `value_after`, `change`, `position` (counted from 0 across all channels), and `group` (from 1). Every item of `groups` has `group`, `hidden_bits`, `lowest_bits_before`, `lowest_bits_after`, and `changed_sample` (its first changed sample, counted from 1 in the group, or `null`). `demo_seed` is `null` for algorithms without a passphrase. `first_frame` is the earliest frame used.
+`bits_per_byte` is the number of bits in each group of `samples_per_group` samples. In `explain`, every item of `samples` has `hidden_bits` (of its whole group), `low_byte_before`, `low_byte_after`, `value_before`, `value_after`, `change`, `position` (counted from 0 across all channels), and `group` (from 1). `groups` is empty unless the groups carry a parity (`lsb_parity`). Every item has `group`, `hidden_bits`, `lowest_bits_before`, `lowest_bits_after`, and `changed_sample` (its first changed sample, counted from 1 in the group, or `null`). `demo_seed` is `null` for algorithms without a passphrase. `first_frame` is the earliest frame used.
 
 `ok` says whether the command finished. If `verify` finds a difference, `ok` is `true`, `exact_match` is `false`, and the exit code is 1. Paths in these fields are as given, except `output` and the file of `difference`, which are absolute, and the input `sample`, which is shown as the path of the included file. Only `reveal` shows a message. A passphrase is never shown.
 
@@ -267,7 +267,7 @@ If the output is closed (for example, by a pipe such as `| head`), the code is 1
 - Ctrl-C leaves with code 130. Ctrl-D at the main menu leaves like Exit. Ctrl-D at any other question leaves with code 1; at a text question, only if nothing is typed yet.
 - An empty message and replacing a file must be confirmed: type `y` and Enter.
 - A message that does not fit is refused at once, and only algorithms that can hold it are offered.
-- `lsb_keyed` always asks for a passphrase. If no message is detected in a file, Reveal and Verify ask whether `lsb_keyed` or an older version hid one.
+- `lsb_keyed` always asks for a passphrase. If no message is detected in a file, Reveal and Verify offer another file, `lsb_keyed`, or an older version. After a passphrase that finds nothing, try another or go back.
 - Compare asks whether to show three lines, everything, or what you choose. It then offers to play the sounds, if the system has a player.
 - After each action, it shows the command that does the same. The message and the passphrase are never part of it. A command is not shown if a file name or another answer has characters that a shell could change.
 

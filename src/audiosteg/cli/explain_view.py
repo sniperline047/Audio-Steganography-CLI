@@ -97,10 +97,10 @@ def show_changes(view: View, key: str, walkthrough: Walkthrough) -> None:
     algorithm = ALGORITHMS[key]
     how = [algorithm.how] if algorithm.how else []
     show_step(view, "Step 3: put the bits into the samples", *how)
-    if algorithm.samples_per_group > 1:
+    if algorithm.parity:
         show_groups(view, walkthrough.groups)
     else:
-        show_samples(view, walkthrough.changes, scattered=algorithm.keyed)
+        show_samples(view, walkthrough.changes, algorithm)
     if not any(change.change for change in walkthrough.changes):
         view.out.line(ALREADY_HELD)
 
@@ -152,7 +152,7 @@ def show_walkthrough(
             "how": algorithm.how,
             "demo_seed": DEMO_SEED if algorithm.keyed else None,
             "samples": [change_fields(change) for change in walkthrough.changes],
-            "groups": [group_fields(group) for group in walkthrough.groups],
+            "groups": [group_fields(group) for group in walkthrough.groups] if algorithm.parity else [],
             "read_back": walkthrough.read_back,
             "largest_possible_change": largest_possible_change(algorithm),
             "strengths": list(algorithm.strengths),

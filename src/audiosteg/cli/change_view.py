@@ -5,6 +5,7 @@ from typing import Any
 
 from audiosteg.analysis.walkthrough import GroupChange, SampleChange
 from audiosteg.cli.views import View
+from audiosteg.core.algorithm import Algorithm
 
 BITS_IN_A_BYTE = 8
 LOW_BYTES = "These are the bits of the lowest byte of each sample. Changed bits are in [brackets]."
@@ -65,11 +66,18 @@ def show_rows(
         view.out.spans((start, ""), *old_spans, (f"{padding} -> ", ""), *new_spans, (f"{padding}  {end}", ""))
 
 
-def show_samples(view: View, changes: Sequence[SampleChange], scattered: bool) -> None:
+def describe_place(change: SampleChange, algorithm: Algorithm) -> str:
+    """Say where a sample is, if its number alone does not show it."""
+    if algorithm.keyed:
+        return f"sample {change.position:,}, "
+    return f"group {change.group}, " if algorithm.samples_per_group > 1 else ""
+
+
+def show_samples(view: View, changes: Sequence[SampleChange], algorithm: Algorithm) -> None:
     """Show the lowest byte of every sample before and after."""
     view.out.line(LOW_BYTES)
     numbers = len(str(len(changes)))
-    places = [f"sample {change.position:,}, " if scattered else "" for change in changes]
+    places = [describe_place(change, algorithm) for change in changes]
     place_width = max(map(len, places))
     values = [f"value {change.value_before} -> {change.value_after}" for change in changes]
     value_width = max(map(len, values))
@@ -98,7 +106,7 @@ def describe_group(group: GroupChange) -> str:
 
 
 def show_groups(view: View, groups: Sequence[GroupChange]) -> None:
-    """Show the lowest bits of every group of samples before and after, and the sample that changed."""
+    """Show the lowest bits of every group of samples, their parity, and the sample that changed."""
     size = len(groups[0].samples)
     view.out.line(LOWEST_BITS.format(size))
     numbers = len(str(len(groups)))
@@ -133,7 +141,7 @@ def change_fields(change: SampleChange) -> dict[str, Any]:
 
 
 def group_fields(group: GroupChange) -> dict[str, Any]:
-    """Return the JSON fields of one group of samples."""
+    """Return the JSON fields of one group of samples that carries a parity."""
     before, after = lowest_bits(group)
     changed = group.changed
     return {

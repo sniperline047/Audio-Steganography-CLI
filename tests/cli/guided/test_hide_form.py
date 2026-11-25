@@ -506,6 +506,7 @@ def test_a_keyed_algorithm_that_cannot_be_used_is_explained(
     make_wav()
     result = guide(START, OWN_FILE, INPUT, message("x"), KEYED, FIRST_ALGORITHM, (OUTPUT, ENTER))
     assert "Error: Not installed." in result.text
+    assert "lsb_keyed (needs encryption, which is not available here): " in result.text
     assert decode(str(tmp_path / "input.stego.wav")) == "x"
 
 
@@ -515,4 +516,4 @@ def test_a_keyed_algorithm_is_offered_only_for_a_message_that_fits_encrypted(
 ) -> None:
     make_wav(frames=bytes(800))
     result = guide(START, OWN_FILE, INPUT, message("x" * length), ("Which algorithm?", CTRL_C), leave=False)
-    assert ("lsb_keyed: " in result.text) is offered
+    assert ("lsb_keyed" in result.text) is offered

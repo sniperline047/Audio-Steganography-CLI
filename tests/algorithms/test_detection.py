@@ -11,8 +11,10 @@ from audiosteg.algorithms import detection
 from audiosteg.algorithms.detection import detect
 from audiosteg.algorithms.legacy import BASIC_LSB, ENHANCED_LSB, ENHANCED_LSB_FLIP
 from audiosteg.algorithms.lsb import LSB, LSB_2
+from audiosteg.algorithms.lsb_four import LSB_4
 from audiosteg.algorithms.lsb_keyed import LSB_KEYED
 from audiosteg.algorithms.lsb_matching import LSB_MATCHING
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.core import crypto
 from audiosteg.core.algorithm import LegacyAlgorithm
 from audiosteg.core.header import Header
@@ -76,8 +78,16 @@ def test_audio_without_a_message(make_wav: Callable[..., Path], frames: bytes) -
     assert detect(path) is None
     with pytest.raises(NoMessageError, match="No hidden message was found"):
         decode(path)
-    with pytest.raises(NoMessageError):
-        decode(path, passphrase="key")
+    if len(frames) < 432:
+        with pytest.raises(NoMessageError):
+            decode(path, passphrase="key")
+
+
+@pytest.mark.needs_crypto
+def test_audio_without_a_message_for_a_passphrase(make_wav: Callable[..., Path]) -> None:
+    for frames in (bytes(4000), b"\xff" * 4000):
+        with pytest.raises(NoMessageError):
+            decode(str(make_wav(frames=frames)), passphrase="key")
 
 
 @both
@@ -240,3 +250,23 @@ def test_a_message_of_lsb_matching_is_found_as_lsb(make_wav: Callable[..., Path]
     output = str(tmp_path / "output.wav")
     encode(str(make_wav()), output, "hidden", LSB_MATCHING)
     assert detect(output) == (LSB, Header(False, 6))
+
+
+@pytest.mark.needs_crypto
+def test_an_old_lsb_4_message_can_stay_visible_below_a_keyed_one(
+    make_wav: Callable[..., Path], tmp_path: Path, fast_scrypt: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old, new = str(tmp_path / "old.wav"), str(tmp_path / "new.wav")
+    encode(str(make_wav()), old, "old", LSB_4)
+    header = b"ASTG\x01\0\0\0\0\x03"
+    digits = "".join(f"{nibble:04b}"[3] for byte in header for nibble in (byte >> 4, byte & 15))
+    salt = int(digits.ljust(128, "0"), 2).to_bytes(16, "big")
+    monkeypatch.setattr(crypto, "new_salt", lambda: salt)
+    encode(old, new, "hidden", LSB_KEYED, passphrase="sesame")
+    with pytest.raises(NotEncryptedError):
+        decode(new, passphrase="sesame")
+    assert decode(new, LSB_KEYED, passphrase="sesame") == "hidden"
+
+
+def test_there_is_one_keyed_algorithm_to_try() -> None:
+    assert [known for known in ALGORITHMS.values() if known.keyed] == [LSB_KEYED]

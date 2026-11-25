@@ -36,19 +36,19 @@ The division is rounded down. One character can take up to four UTF-8 bytes.
 
 ## Audio quality
 
-These are signal-to-noise ratios for the included sample (higher is better). Results change slightly with the message.
+These are signal-to-noise ratios for the included sample (higher is better). The plain rows hide the 43 characters `Hello Peter. I have been waiting for you...`, repeated without a space and cut to 43, 1,024, or 10,240 bytes. The numbers are rounded down. Encrypted messages are random, so their rows are averages of five runs and change a little every time, and so does `LSB_PARITY`. The old algorithms cannot hide messages anymore; their rows were measured with an earlier version and another message may have been used.
 
 | Algorithm | 43 B | 1 KB | 10 KB |
 | --- | --- | --- | --- |
-| `LSB`, plain | 101.4 dB | 89.0 dB | 79.0 dB |
+| `LSB`, plain | 101.4 dB | 88.9 dB | 79.0 dB |
 | `LSB`, encrypted | 99.1 dB | 88.8 dB | 79.0 dB |
-| `LSB_2`, plain | 97.3 dB | 85.1 dB | 75.2 dB |
+| `LSB_2`, plain | 97.9 dB | 85.5 dB | 75.5 dB |
 | `LSB_2`, encrypted | 95.4 dB | 85.0 dB | 75.0 dB |
-| `LSB_4`, plain | 88.9 dB | 76.8 dB | 67.0 dB |
+| `LSB_4`, plain | 88.2 dB | 75.9 dB | 66.0 dB |
 | `LSB_4`, encrypted | 85.5 dB | 75.5 dB | 65.7 dB |
-| `LSB_MATCHING`, plain | 101.4 dB | 89.0 dB | 79.0 dB |
+| `LSB_MATCHING`, plain | 101.4 dB | 88.9 dB | 79.0 dB |
 | `LSB_MATCHING`, encrypted | 99.2 dB | 88.8 dB | 79.0 dB |
-| `LSB_PARITY`, plain | 101.4 dB | 88.9 dB | does not fit |
+| `LSB_PARITY`, plain | 101.5 dB | 88.9 dB | does not fit |
 | `LSB_PARITY`, encrypted | 99.2 dB | 88.8 dB | does not fit |
 | `LSB_KEYED`, encrypted | 99.3 dB | 88.8 dB | 79.0 dB |
 | Old Basic | 57.9 dB | 43.9 dB | 33.9 dB |
@@ -96,9 +96,9 @@ A message of `LSB_KEYED` uses the encrypted container above, with two keys from 
 2. The lowest bits of samples 0 to 127 are the 16 bytes of the salt, most significant bit first.
 3. The master key is 32 bytes from scrypt, with the same numbers and passphrase as above.
 4. Two keys of 32 bytes come from the master key with HKDF-Expand (RFC 5869, SHA-256). The `info` of the **order key** is the ASCII text `audiosteg keyed 1: order`. That of the **encryption key** is `audiosteg keyed 1: encryption`. For 32 bytes, this is HMAC-SHA256 with the master key of the `info` followed by the byte 1.
-5. The order key decides a permutation `P` of the numbers from 0 to `N - 1`, with `N = n - 128`, as described below.
+5. The order key decides a permutation `P` of the numbers from 0 to `N - 1`, with `N = n - 128`, which is at most `2^32`, as described below.
 6. The container without its salt (header, nonce, encrypted message, tag) is a row of bits, most significant bit of each byte first. Bit `i` is the lowest bit of sample `128 + P(i)`.
-7. The header is the first 80 bits. If it does not start with the marker, the passphrase is wrong or there is no message. It must say that the message is encrypted, and `m + 54` must be at most `n / 8`, rounded down.
+7. The header is the first 80 bits. If it does not start with the marker, the passphrase is wrong or there is no message. The version must be 1 and the flags must be 1 (encrypted, all other bits 0), and `m + 54` must be at most `n / 8`, rounded down.
 8. The nonce (12 bytes), the encrypted message (`m` bytes), and the tag (16 bytes) follow. The encryption is AES-256-GCM with the encryption key and the header as associated data.
 
 The permutation is a Feistel network with 10 rounds that walks in cycles:
@@ -110,7 +110,9 @@ The permutation is a Feistel network with 10 rounds that walks in cycles:
 
 The salt and the nonce are random for every message, so the places differ every time. The tables need at most 1.3 MB, however large the file is.
 
-Without the passphrase, the salt looks like any other random bits and nothing else has a known place. **This only means that no marker, length, or text can be read.** Comparing with the original shows every change. Statistics can show that lowest bits were replaced, most of all in silence, in very clean audio, or with a long message, and the first 128 lowest bits are always random. Adding or removing samples, even at the end, makes the message unreadable.
+Without the passphrase, the salt looks like any other random bits and nothing else has a known place. **This only means that no marker, length, or text can be read.** Comparing with the original shows every change. Statistics can show that lowest bits were replaced, most of all in silence, in very clean audio, or with a long message, and the first 128 lowest bits are always random. Compared with the original, the number of changed samples shows roughly how long the message is: about half of its container bits change a sample. Adding or removing samples, even at the end, makes the message unreadable.
+
+**Use a cover that never held a message.** `LSB_KEYED` changes only lowest bits. An old `LSB_4` message leaves its three upper bits of each sample behind, and about 1 time in 256 its marker too. Such a file seems to hold an `LSB_4` message, mostly one that cannot be read, so `LSB_KEYED` is not tried, and the message must be read with `-a lsb_keyed`.
 
 ## Security
 

@@ -23,6 +23,7 @@ class Algorithm:
     :param weaknesses: What the algorithm is bad at, one sentence each
     :param how: One line that explains what it does to the samples, if their bits do not show it
     :param samples_per_group: How many samples carry one group of bits together
+    :param parity: Whether a group carries the parity of its lowest bits, so that explain shows it
     :param reads_like: The algorithm that reads its messages, if it only hides them in another way
     :param keyed: Whether a passphrase decides the order of the samples. Such messages are always
         encrypted and are never detected without the passphrase.
@@ -37,6 +38,7 @@ class Algorithm:
     weaknesses: tuple[str, ...] = ()
     how: str = ""
     samples_per_group: int = 1
+    parity: bool = False
     reads_like: Algorithm | None = None
     keyed: bool = False
 

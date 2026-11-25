@@ -14,6 +14,7 @@ from audiosteg.cli.commands.hide import (
     largest_message,
 )
 from audiosteg.cli.guided.equivalent import command_line, path_word
+from audiosteg.cli.guided.labels import algorithm_label
 from audiosteg.cli.guided.prompter import GoBack, Prompter, Step
 from audiosteg.cli.passphrase import ask_new_passphrase
 from audiosteg.cli.views import display_path
@@ -98,7 +99,7 @@ class HideForm:
             )
         self.algorithm = self.prompter.choose(
             "Which algorithm? If you are not sure, use the first.",
-            [Choice(f"{key}: {ALGORITHMS[key].explanation}", value=key) for key in keys],
+            [Choice(algorithm_label(key), value=key) for key in keys],
         )
         if self.is_keyed():
             crypto.check_available()

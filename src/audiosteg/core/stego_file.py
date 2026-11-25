@@ -2,7 +2,7 @@
 
 import wave
 from collections.abc import Iterable
-from itertools import count, islice
+from itertools import count
 
 from audiosteg.core import crypto, keyed
 from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
@@ -81,7 +81,7 @@ def check_key(algorithm: Algorithm, passphrase: str | None) -> None:
 def embed_container(audio: AudioData, container: bytes, algorithm: Algorithm, order: Iterable[int]) -> None:
     """Put a container into groups of samples, in the given order."""
     bits = bytes_to_bits(container)
-    groups = iter(lambda: tuple(islice(bits, algorithm.bits_per_byte)), ())
+    groups = zip(*[bits] * algorithm.bits_per_byte, strict=True)
     size = algorithm.samples_per_group * audio.sample_width
     with memoryview(audio.frames) as frames:
         for group, number in zip(groups, order, strict=False):

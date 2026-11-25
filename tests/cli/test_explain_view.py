@@ -305,3 +305,36 @@ def test_every_new_algorithm_is_explained_one_step_at_a_time(run: Any, key: str)
     assert (result.code, result.errors) == (0, "Press Enter to continue." * 4)
     assert "Reading the same bits gives '🎵' again." in result.text
     assert ALGORITHMS[key].name in result.text
+
+
+class SecondBits(Algorithm):
+    """Hide two bits in two samples: one in the second lowest bit of each."""
+
+    def embed_group(self, samples: bytes, sample_width: int, bits: tuple[int, ...]) -> bytes:
+        changed = bytearray(samples)
+        for index, bit in enumerate(bits):
+            changed[index * sample_width] = changed[index * sample_width] & 253 | bit << 1
+        return bytes(changed)
+
+    def extract_group(self, low_bytes: bytes) -> tuple[int, ...]:
+        return tuple(byte >> 1 & 1 for byte in low_bytes)
+
+
+def test_groups_without_a_parity_show_every_sample(
+    run: Any, make_samples: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    algorithm = SecondBits("Second", 2, lambda b, bits: b, lambda b: (0, 0), samples_per_group=2)
+    monkeypatch.setitem(ALGORITHMS, "second", algorithm)
+    make_samples("a.wav", [100, 0, 0, 0, 0, 0, 0, 0])
+    words = ["explain", "second", "--letter", "p", "--file", "a.wav"]
+    output = run(*words).output
+    assert "parity" not in output
+    assert output.split("[brackets].\n")[1].splitlines()[:4] == [
+        "  1. group 1, hide 01: 01100100   -> 01100100    value 100 -> 100  no change",
+        "  2. group 1, hide 01: 000000[0]0 -> 000000[1]0  value 0 -> 2      +2",
+        "  3. group 2, hide 11: 000000[0]0 -> 000000[1]0  value 0 -> 2      +2",
+        "  4. group 2, hide 11: 000000[0]0 -> 000000[1]0  value 0 -> 2      +2",
+    ]
+    fields = json.loads(run(*words, "--json").output)
+    assert (fields["groups"], fields["read_back"]) == ([], "p")
+    assert [row["group"] for row in fields["samples"]] == [1, 1, 2, 2, 3, 3, 4, 4]

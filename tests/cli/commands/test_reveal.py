@@ -278,9 +278,7 @@ def test_a_wrong_passphrase_looks_the_same_as_no_message(
     ]
     assert {(result.code, result.output) for result in results} == {(1, "")}
     assert len({result.errors for result in results}) == 1
-    assert "No hidden message was found with this passphrase. Either the passphrase is wrong, or" in (
-        results[0].errors
-    )
+    assert "with this passphrase. The passphrase is wrong, there is no message, or" in results[0].errors
     assert "WRONG_KEY" not in results[0].errors
 
 
@@ -336,3 +334,33 @@ def test_a_byte_order_mark_explains_a_keyed_message_that_is_not_found(
 ) -> None:
     result = run("reveal", keyed, "--passphrase_file", key_file("\ufeffsesame"))
     assert (result.code, "byte order mark" in result.errors) == (1, True)
+
+
+HINT = "If it was hidden with lsb_keyed, add -p"
+
+
+def test_the_advice_to_add_a_passphrase_is_given_only_without_one(
+    run: Any, make_wav: Callable[..., Path]
+) -> None:
+    path = make_wav(frames=b"\xff" * 800)
+    plain = run("reveal", path)
+    assert HINT in plain.errors and "use --legacy basic" in plain.errors
+    assert HINT in json.loads(run("reveal", path, "--json").output)["error"]["hint"]
+    legacy = run("reveal", path, "--legacy", "basic")
+    assert (legacy.code, HINT in legacy.errors, "Check that this is the file" in legacy.errors) == (
+        1,
+        False,
+        True,
+    )
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize("words", [[], ["-a", "lsb_keyed"]])
+def test_the_advice_to_add_a_passphrase_is_not_given_with_one(
+    run: Any, make_wav: Callable[..., Path], key_file: Callable[[str], Path], words: list[str]
+) -> None:
+    secret = key_file("sesame")
+    for options in (["--passphrase_file", secret], ["-p"]):
+        asks = {"hidden": ("sesame",), "terminals": ALL} if options == ["-p"] else {}
+        result = run("reveal", make_wav(), *words, *options, **asks)
+        assert (result.code, HINT in result.errors, "Check that this" in result.errors) == (1, False, True)

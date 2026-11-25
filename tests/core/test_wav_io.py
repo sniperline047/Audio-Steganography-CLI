@@ -1,6 +1,7 @@
 """Tests for audiosteg/core/wav_io.py."""
 
 import os
+import random
 import struct
 import sys
 from collections.abc import Callable
@@ -256,3 +257,29 @@ def test_reading_scattered_samples_ends_at_the_first_that_is_missing(make_wav: C
     path.write_bytes(path.read_bytes()[:-2])
     with open_pcm_wav(str(path)) as audio:
         assert list(read_low_bytes(audio, [7, 1, 8, 2])) == [7, 1]
+
+
+@pytest.mark.parametrize("block", [1, 5, 8, 1024])
+@pytest.mark.parametrize(("channels", "width"), [(1, 1), (2, 2), (3, 3), (5, 4)])
+def test_the_size_of_a_block_changes_nothing(
+    make_wav: Callable[..., Path], monkeypatch: pytest.MonkeyPatch, block: int, channels: int, width: int
+) -> None:
+    monkeypatch.setattr(wav_io, "SCATTERED_BLOCK", block)
+    frames = random.Random(3).randbytes(700 * channels * width)
+    path = make_wav(frames=frames, channels=channels, sample_width=width)
+    asked = list(range(700 * channels))
+    random.Random(4).shuffle(asked)
+    with open_pcm_wav(str(path)) as audio:
+        assert bytes(read_low_bytes(audio, asked)) == bytes(frames[sample * width] for sample in asked)
+
+
+def test_scattered_samples_that_are_close_share_one_read(
+    make_wav: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = make_wav(frames=bytes(8192))
+    with open_pcm_wav(str(path)) as audio:
+        reads: list[int] = []
+        readframes = audio.readframes
+        monkeypatch.setattr(audio, "readframes", lambda count: reads.append(count) or readframes(count))
+        assert len(list(read_low_bytes(audio, range(8192)))) == 8192
+    assert reads == [1024] * 8

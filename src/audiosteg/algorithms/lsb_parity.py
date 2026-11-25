@@ -50,4 +50,5 @@ LSB_PARITY = LsbParity(
     ),
     how="Parity says whether the number of ones among the lowest bits of a group is even (0) or odd (1).",
     samples_per_group=GROUP_SIZE,
+    parity=True,
 )

@@ -154,10 +154,11 @@ If an algorithm needs more than the lowest byte of one sample, make a subclass o
 - `embed_group(samples, sample_width, bits)` gets whole samples as they are stored and returns as many changed bytes. `lsb_matching.py` uses it to move whole samples.
 - `extract_group(low_bytes)` gets the lowest byte of each sample of a group and returns the bits.
 - `samples_per_group` says how many samples carry `bits_per_byte` bits together. `lsb_parity.py` uses 8 and both methods.
+- `parity=True` makes `explain` show the parity of the lowest bits of each group. Without it, `explain` shows the lowest byte of every sample.
 
 Random choices use `secrets` through a field that tests can replace, such as `choose`. Two more fields need no subclass:
 
-- `keyed=True` encrypts every message and scatters it over the samples by the passphrase. Such a message is not detected. It needs groups of one sample.
+- `keyed=True` encrypts every message and scatters it over the samples by the passphrase. It needs groups of one sample. Such a message is not detected, and the program tries only one keyed algorithm by itself: `lsb_keyed`. Name any other with `-a`, or pass it to `decode`.
 - `reads_like=LSB` says that another algorithm reads the messages, so that they are not detected twice.
 
 The commands, the guided mode, detection, the capacity check, and the file handling need no changes.

@@ -14,7 +14,8 @@ DOWN, ENTER, ESCAPE, CTRL_C, CTRL_D = "\x1b[B", "\r", "\x1b", "\x03", "\x04"
 REVEAL, VERIFY = (("What would you like to do?", DOWN * number + ENTER) for number in (1, 2))
 FILE = "WAV file with the hidden message:"
 UNDETECTED = "How may the message be hidden?"
-KEYED, BASIC = (UNDETECTED, ENTER), (UNDETECTED, DOWN + ENTER)
+OTHER_FILE, KEYED, BASIC = ((UNDETECTED, DOWN * number + ENTER) for number in range(3))
+NEXT = "What next?"
 NOT_ENCRYPTED = "This message was not encrypted, so anyone could have written it."
 
 
@@ -77,7 +78,7 @@ def test_a_back_out_of_the_old_algorithms_leads_to_a_detected_file(
     result = guide(
         REVEAL,
         file("old.wav"),
-        (UNDETECTED, DOWN * 4 + ENTER),
+        (UNDETECTED, DOWN * 5 + ENTER),
         file("old.wav"),
         (UNDETECTED, ESCAPE),
         file("plain.wav"),
@@ -91,7 +92,7 @@ def test_the_command_for_an_old_file(
     guide: Any, run: Any, make_wav: Callable[..., Path], position: int, key: str
 ) -> None:
     make_wav(name="old.wav", frames=bytes(32))
-    old = (UNDETECTED, DOWN * (position + 1) + ENTER)
+    old = (UNDETECTED, DOWN * (position + 2) + ENTER)
     result = guide(VERIFY, file("old.wav"), old, ("Expected message:", ESCAPE), old, ("Expected", ENTER))
     assert (result.code, "The message matches" in result.text) == (0, True)
     assert f"The same as a command: audiosteg verify old.wav --legacy {key}\n" in result.text
@@ -185,6 +186,8 @@ def test_a_keyed_message_is_read_after_a_wrong_passphrase(guide: Any, run: Any) 
         file("scattered.wav"),
         KEYED,
         passphrase("wrong"),
+        (NEXT, ENTER),
+        passphrase(""),
         passphrase("sésame"),
         ("Expected message:", f"my secret{ENTER}"),
     )
@@ -222,3 +225,42 @@ def test_a_keyed_message_cannot_be_read_without_the_library(
     result = guide(REVEAL, file("old.wav"), KEYED, BASIC)
     assert "Error: Encryption needs an optional library." in result.text
     assert "The same as a command: audiosteg reveal old.wav --legacy basic\n" in result.text
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize("back", [ESCAPE, DOWN + ENTER])
+def test_a_passphrase_that_finds_nothing_is_no_trap(
+    guide: Any, make_wav: Callable[..., Path], plain: None, fast_scrypt: None, back: str
+) -> None:
+    make_wav(name="nothing.wav")
+    result = guide(
+        REVEAL,
+        file("nothing.wav"),
+        KEYED,
+        passphrase("sesame"),
+        (NEXT, ENTER),
+        passphrase("sesame"),
+        (NEXT, back),
+        OTHER_FILE,
+        file("plain.wav"),
+    )
+    assert (result.code, "\nplain message\n" in result.text) == (0, True)
+    assert result.text.count("Error: No hidden message was found with this passphrase.") == 2
+
+
+@pytest.mark.usefixtures("plain")
+def test_enter_for_a_file_without_a_message_asks_for_another_file(
+    guide: Any, make_wav: Callable[..., Path]
+) -> None:
+    make_wav(name="nothing.wav")
+    result = guide(REVEAL, file("nothing.wav"), OTHER_FILE, file("plain.wav"))
+    assert (result.code, "Passphrase:" in result.text) == (0, False)
+    assert "\nplain message\n" in result.text
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.parametrize(("key", "code"), [(CTRL_C, 130), (CTRL_D, 1)])
+@pytest.mark.usefixtures("scattered")
+def test_leaving_after_a_passphrase_that_finds_nothing(guide: Any, key: str, code: int) -> None:
+    result = guide(REVEAL, file("scattered.wav"), KEYED, passphrase("wrong"), (NEXT, key), leave=False)
+    assert result.code == code

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from audiosteg.algorithms.detection import decode, detect
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS, reading_key
+from audiosteg.cli.errors import NO_MESSAGE_HINT
 from audiosteg.cli.options import add_reading_options, file_path, passphrase_source
 from audiosteg.cli.passphrase import BYTE_ORDER_MARK, PassphraseSource
 from audiosteg.cli.results import RevealResult
@@ -64,7 +65,10 @@ def find_message(
     if detected is None and has_passphrase:
         return HiddenMessage(file, KEYED_ALGORITHM, legacy=False, encrypted=True)
     if detected is None:
-        raise NoMessageError("No hidden message was found.")
+        error = NoMessageError("No hidden message was found.")
+        error.add_note(NO_MESSAGE_HINT)
+        error.add_note(f"If it was hidden with {KEYED_ALGORITHM}, add -p and the passphrase that hid it.")
+        raise error
     keys = [key for key, known in ALGORITHMS.items() if known is detected[0]]
     return HiddenMessage(file, keys[0], legacy=False, encrypted=detected[1].encrypted)
 
