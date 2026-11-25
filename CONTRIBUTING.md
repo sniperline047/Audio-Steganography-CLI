@@ -42,7 +42,11 @@ Audio-Steganography-CLI/
 │   ├── algorithms/
 │   │   ├── detection.py    Detection and decode
 │   │   ├── legacy.py       Reading files from older versions
-│   │   ├── lsb.py          The two algorithms
+│   │   ├── lsb.py          lsb and lsb_2
+│   │   ├── lsb_four.py     Four bits per sample
+│   │   ├── lsb_keyed.py    Scattered by a passphrase
+│   │   ├── lsb_matching.py Whole samples by +1 or -1
+│   │   ├── lsb_parity.py   One bit per 8 samples
 │   │   └── registry.py     The names of the algorithms
 │   ├── analysis/
 │   │   ├── difference.py   The amplified difference
@@ -54,6 +58,7 @@ Audio-Steganography-CLI/
 │   ├── cli/
 │   │   ├── commands/       One file per command
 │   │   ├── accuracy.py     Message comparison
+│   │   ├── change_view.py  Changed samples of explain
 │   │   ├── compare_view.py Text and JSON of compare
 │   │   ├── explain_view.py Text and JSON of explain
 │   │   ├── guided/         Guided mode: menu, forms, questions
@@ -74,7 +79,9 @@ Audio-Steganography-CLI/
 │   │   ├── algorithm.py    The Algorithm type
 │   │   ├── crypto.py       Optional encryption
 │   │   ├── header.py       The container around a message
+│   │   ├── keyed.py        Containers scattered by a key
 │   │   ├── message_codec.py Message and bit conversion
+│   │   ├── scatter.py      A random order of numbers
 │   │   ├── stego_file.py   Hiding and reading with one algorithm
 │   │   └── wav_io.py       WAV reading and writing
 │   ├── data/
@@ -134,13 +141,25 @@ pip install -e .
    )
    ```
 
-   The functions get only the lowest byte of each sample. `bits_per_byte` must be 1, 2, 4, or 8. `strengths` and `weaknesses` are optional and shown by `explain`, which computes everything else with the two functions.
+   The functions get only the lowest byte of each sample. `bits_per_byte` must be 1, 2, 4, or 8. `strengths` and `weaknesses` are optional and shown by `explain`, which computes everything else with the two functions. `how` is optional too: `explain` shows it where the bits are changed.
 
 2. Import it in `src/audiosteg/algorithms/registry.py` and add one line to `ALGORITHMS`, with the name for the command line:
 
    ```python
    "my_new_algorithm": MY_NEW_ALGORITHM,
    ```
+
+If an algorithm needs more than the lowest byte of one sample, make a subclass of `Algorithm` and replace its methods:
+
+- `embed_group(samples, sample_width, bits)` gets whole samples as they are stored and returns as many changed bytes. `lsb_matching.py` uses it to move whole samples.
+- `extract_group(low_bytes)` gets the lowest byte of each sample of a group and returns the bits.
+- `samples_per_group` says how many samples carry `bits_per_byte` bits together. `lsb_parity.py` uses 8 and both methods.
+- `parity=True` makes `explain` show the parity of the lowest bits of each group. Without it, `explain` shows the lowest byte of every sample.
+
+Random choices use `secrets` through a field that tests can replace, such as `choose`. Two more fields need no subclass:
+
+- `keyed=True` encrypts every message and scatters it over the samples by the passphrase. It needs groups of one sample. Such a message is not detected, and the program tries only one keyed algorithm by itself: `lsb_keyed`. Name any other with `-a`, or pass it to `decode`.
+- `reads_like=LSB` says that another algorithm reads the messages, so that they are not detected twice.
 
 The commands, the guided mode, detection, the capacity check, and the file handling need no changes.
 

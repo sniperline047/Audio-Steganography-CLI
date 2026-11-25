@@ -1,6 +1,7 @@
 """Find out which algorithm hid a message, and read the message."""
 
 from audiosteg.algorithms.legacy import decode_legacy
+from audiosteg.algorithms.lsb_keyed import LSB_KEYED
 from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.core import stego_file
 from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
@@ -10,8 +11,10 @@ from audiosteg.errors import NoMessageError, NotEncryptedError
 
 
 def detect(path: str) -> tuple[Algorithm, Header] | None:
-    """Return the first algorithm that finds a message, with its header, or None."""
+    """Return the first algorithm that finds a message without a passphrase, with its header, or None."""
     for algorithm in ALGORITHMS.values():
+        if not algorithm.detectable:
+            continue
         header = stego_file.read_header(path, algorithm)
         if header is not None:
             return algorithm, header
@@ -28,7 +31,7 @@ def decode(
     :param algorithm: The algorithm that hid the message, or None to detect it. Files made by
         older versions are not detected and need a legacy algorithm.
     :param passphrase: The passphrase of an encrypted message. It is refused if the message
-        is not encrypted.
+        is not encrypted. If no message is detected, it is also tried on LSB_KEYED.
     :return: The hidden message
     """
     if passphrase is not None:
@@ -39,6 +42,8 @@ def decode(
         return decode_legacy(path, algorithm)
     if algorithm is None:
         detected = detect(path)
+        if detected is None and passphrase is not None:
+            return stego_file.decode(path, LSB_KEYED, passphrase=passphrase)
         if detected is None:
             raise NoMessageError("No hidden message was found.")
         algorithm = detected[0]

@@ -4,8 +4,9 @@ import os
 import stat
 import struct
 import wave
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
+from itertools import islice
 from typing import BinaryIO, NamedTuple
 
 from audiosteg.errors import UnsupportedFormatError
@@ -15,6 +16,8 @@ WAVE_FORMAT_IEEE_FLOAT = 3
 MAX_BYTES_PER_SECOND = 2**32 - 1
 UNKNOWN_DATA_SIZE = 2**32 - 1
 MAX_INPUT_SIZE = 2**30
+SCATTERED_BATCH = 2**18
+SCATTERED_BLOCK = 1024
 
 
 class AudioData(NamedTuple):
@@ -128,6 +131,36 @@ def read_first_bytes(audio: wave.Wave_read, count: int) -> bytes:
     frames_needed = -(-count // frame_size)
     audio.rewind()
     return audio.readframes(frames_needed)[:count]
+
+
+def read_low_bytes(audio: wave.Wave_read, samples: Iterable[int]) -> Iterator[int]:
+    """
+    Yield the lowest byte of each of these samples, up to the first that is missing.
+
+    Many samples at a time are read in the order of the file, which is much faster than jumping around.
+    """
+    remaining = iter(samples)
+    while batch := list(islice(remaining, SCATTERED_BATCH)):
+        found = dict(read_sorted_low_bytes(audio, sorted(batch)))
+        for sample in batch:
+            if sample not in found:
+                return
+            yield found[sample]
+
+
+def read_sorted_low_bytes(audio: wave.Wave_read, samples: Iterable[int]) -> Iterator[tuple[int, int]]:
+    """Yield rising sample numbers that are not missing, each with the lowest byte of the sample."""
+    channels, sample_width = audio.getnchannels(), audio.getsampwidth()
+    block_samples = max(SCATTERED_BLOCK // (channels * sample_width), 1) * channels
+    start, block = -block_samples, b""
+    for sample in samples:
+        if sample >= start + block_samples:
+            start = sample - sample % block_samples
+            audio.setpos(start // channels)
+            block = audio.readframes(block_samples // channels)
+        offset = (sample - start) * sample_width
+        if offset + sample_width <= len(block):
+            yield sample, block[offset]
 
 
 def write_audio(input_path: str, output_path: str, audio: AudioData, overwrite: bool) -> None:

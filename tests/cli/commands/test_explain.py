@@ -13,11 +13,13 @@ from audiosteg.cli.commands.explain import one_character
 from audiosteg.cli.commands.hide import SAMPLE_FILE
 from audiosteg.cli.errors import UsageError
 
+NAMES = "lsb, lsb_2, lsb_4, lsb_matching, lsb_parity, lsb_keyed"
+
 
 @pytest.mark.parametrize(
     ("words", "reason"),
     [
-        (["SECRET"], "Unknown algorithm. Choose from: lsb, lsb_2, basic, enhanced_flip, enhanced."),
+        (["SECRET"], f"Unknown algorithm. Choose from: {NAMES}, basic, enhanced_flip, enhanced."),
         (["LSB"], "Unknown algorithm."),
         (["lsb", "lsb_2"], "unknown option or an extra word"),
         (["lsb", "--letter", ""], "--letter needs exactly one character. Some emoji are several characters."),
@@ -26,8 +28,8 @@ from audiosteg.cli.errors import UsageError
         (["lsb", "--letter", "👍🏽"], "--letter needs exactly one character."),
         (["lsb", "--letter", "\udcff"], "--letter needs exactly one character."),
         (["lsb", "--file", ""], "A path is empty."),
-        (["--letter", "x"], "--letter needs one of these algorithms: lsb, lsb_2."),
-        (["basic", "--letter", "x"], "--letter needs one of these algorithms: lsb, lsb_2."),
+        (["--letter", "x"], f"--letter needs one of these algorithms: {NAMES}."),
+        (["basic", "--letter", "x"], f"--letter needs one of these algorithms: {NAMES}."),
         (["enhanced", "--file", "a.wav"], "--file needs one of these algorithms"),
         (["enhanced_flip", "--step"], "--step needs one of these algorithms"),
         (["--step"], "--step needs one of these algorithms"),

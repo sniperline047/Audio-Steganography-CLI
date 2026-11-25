@@ -3,12 +3,15 @@
 from questionary import Choice
 
 from audiosteg.algorithms.registry import LEGACY_ALGORITHMS
-from audiosteg.cli.commands.reveal import HiddenMessage, find_message, read_message
+from audiosteg.cli.commands.reveal import KEYED_ALGORITHM, HiddenMessage, find_message, read_message
 from audiosteg.cli.guided.equivalent import command_line, path_word
-from audiosteg.cli.guided.prompter import Prompter, Step
+from audiosteg.cli.guided.labels import algorithm_label, old_label
+from audiosteg.cli.guided.prompter import GoBack, Prompter, Step
 from audiosteg.cli.results import RevealResult
 from audiosteg.core import crypto
 from audiosteg.errors import NoMessageError
+
+ANOTHER_FILE = ""
 
 
 class RevealForm:
@@ -20,6 +23,7 @@ class RevealForm:
         self.default_file = default_file
         self.file = ""
         self.hidden: HiddenMessage | None = None
+        self.detected = False
         self.result: RevealResult | None = None
         self.expected = ""
 
@@ -31,29 +35,48 @@ class RevealForm:
             self.hidden = find_message(path)
         except NoMessageError:
             self.hidden = None
+        self.detected = self.hidden is not None
         if self.hidden is not None and self.hidden.encrypted:
             crypto.check_available()
         return True
 
-    def ask_legacy(self) -> bool:
-        """Ask for an old algorithm if no message was found."""
-        if self.hidden is not None and not self.hidden.legacy:
+    def ask_undetected(self) -> bool:
+        """Ask how a message may be hidden if none was detected."""
+        if self.detected:
             return False
-        self.prompter.view.note("No message was found. An older version may have made this file.")
-        legacy = self.prompter.choose(
-            "How did the older version hide the message?",
-            [Choice(f"{key}: {known.explanation}", value=key) for key, known in LEGACY_ALGORITHMS.items()],
+        self.prompter.view.note(
+            f"No message was detected. {KEYED_ALGORITHM} or an older version may have made this file."
         )
-        self.hidden = find_message(self.file, legacy=legacy)
+        key = self.prompter.choose(
+            "How may the message be hidden?",
+            [
+                Choice("Not sure: choose another file", value=ANOTHER_FILE),
+                Choice(algorithm_label(KEYED_ALGORITHM), value=KEYED_ALGORITHM),
+                *[Choice(old_label(name), value=name) for name in LEGACY_ALGORITHMS],
+            ],
+        )
+        if key == ANOTHER_FILE:
+            raise GoBack
+        self.result = None
+        if key == KEYED_ALGORITHM:
+            crypto.check_available()
+            self.hidden = find_message(self.file, algorithm=key)
+        else:
+            self.hidden = find_message(self.file, legacy=key)
         return True
 
     def ask_passphrase(self) -> bool:
-        """Ask for the passphrase of an encrypted message, until it opens the message."""
+        """Ask for the passphrase of a message that is or may be encrypted, until it opens the message."""
         if self.hidden is None or not self.hidden.encrypted:
             return False
-        passphrase = self.prompter.hidden("Passphrase")
-        self.result = read_message(self.hidden, passphrase)
-        return True
+        while True:
+            passphrase = self.prompter.hidden("Passphrase")
+            try:
+                self.result = read_message(self.hidden, passphrase)
+                return True
+            except NoMessageError as error:
+                self.prompter.view.show_error(error, None, 1)
+                self.prompter.choose("What next?", [Choice("Try another passphrase")])
 
     def read(self) -> RevealResult | None:
         """Return the message, or None if no question was answered."""
@@ -68,11 +91,13 @@ class RevealForm:
 
     def steps(self) -> list[Step]:
         """Return the questions in their order."""
-        return [self.ask_file, self.ask_legacy, self.ask_passphrase]
+        return [self.ask_file, self.ask_undetected, self.ask_passphrase]
 
     def command(self, name: str) -> str | None:
         """Return the same command without the expected message and the passphrase, which it asks for."""
         words = ["audiosteg", name, path_word(self.file)]
         if self.hidden is not None and self.hidden.legacy:
             words += ["--legacy", self.hidden.algorithm]
+        elif self.hidden is not None and not self.detected:
+            words += ["-a", self.hidden.algorithm]
         return command_line(*words)

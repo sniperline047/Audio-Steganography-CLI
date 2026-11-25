@@ -18,6 +18,7 @@ import time
 import wave
 from asyncio import get_running_loop
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, NamedTuple
@@ -30,6 +31,7 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output.vt100 import Vt100_Output
 from questionary import Question
 
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli import passphrase as passphrase_module
 from audiosteg.cli import player
 from audiosteg.cli.commands.hide import SAMPLE_FILE
@@ -116,6 +118,24 @@ KNOWN_ANSWER = KnownAnswer(
     tag=bytes.fromhex("15834794acd9447aabba741f215de768"),
     key=bytes.fromhex("496133bd0cbf70968e537d34b1d85e6cf64644bbd2f936dd50b0142abc812304"),
 )
+
+
+EVERY_KEY = [
+    pytest.param(key, marks=pytest.mark.needs_crypto) if known.keyed else key
+    for key, known in ALGORITHMS.items()
+]
+
+
+def needed_passphrase(key: str) -> str | None:
+    """Return a passphrase if the algorithm cannot hide a message without one."""
+    return "sesame" if ALGORITHMS[key].keyed else None
+
+
+@pytest.fixture
+def first_choices(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the algorithms that choose at random always choose 0."""
+    for key in ("lsb_matching", "lsb_parity"):
+        monkeypatch.setitem(ALGORITHMS, key, replace(ALGORITHMS[key], choose=lambda limit: 0))
 
 
 def repository_audio() -> dict[str, tuple[int, str]]:

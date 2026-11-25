@@ -11,6 +11,11 @@ from audiosteg.algorithms import detection
 from audiosteg.algorithms.detection import detect
 from audiosteg.algorithms.legacy import BASIC_LSB, ENHANCED_LSB, ENHANCED_LSB_FLIP
 from audiosteg.algorithms.lsb import LSB, LSB_2
+from audiosteg.algorithms.lsb_four import LSB_4
+from audiosteg.algorithms.lsb_keyed import LSB_KEYED
+from audiosteg.algorithms.lsb_matching import LSB_MATCHING
+from audiosteg.algorithms.registry import ALGORITHMS
+from audiosteg.core import crypto
 from audiosteg.core.algorithm import LegacyAlgorithm
 from audiosteg.core.header import Header
 from audiosteg.errors import (
@@ -20,6 +25,7 @@ from audiosteg.errors import (
     NotEncryptedError,
     PassphraseRequiredError,
     UnsupportedFormatError,
+    WrongPassphraseError,
 )
 
 PLAIN = bytes.fromhex("4153544701000000000348c3a9a411cc3b")
@@ -72,8 +78,16 @@ def test_audio_without_a_message(make_wav: Callable[..., Path], frames: bytes) -
     assert detect(path) is None
     with pytest.raises(NoMessageError, match="No hidden message was found"):
         decode(path)
-    with pytest.raises(NoMessageError):
-        decode(path, passphrase="key")
+    if len(frames) < 432:
+        with pytest.raises(NoMessageError):
+            decode(path, passphrase="key")
+
+
+@pytest.mark.needs_crypto
+def test_audio_without_a_message_for_a_passphrase(make_wav: Callable[..., Path]) -> None:
+    for frames in (bytes(4000), b"\xff" * 4000):
+        with pytest.raises(NoMessageError):
+            decode(str(make_wav(frames=frames)), passphrase="key")
 
 
 @both
@@ -165,3 +179,94 @@ def test_an_unusable_passphrase_is_refused_for_every_file(
 def test_something_that_is_not_an_algorithm_is_refused(make_wav: Callable[..., Path], algorithm: Any) -> None:
     with pytest.raises(TypeError, match="must be an Algorithm"):
         decode(str(make_wav()), algorithm)
+
+
+@pytest.fixture
+def keyed(make_wav: Callable[..., Path], tmp_path: Path, fast_scrypt: None) -> str:
+    output = tmp_path / "keyed.wav"
+    encode(str(make_wav()), str(output), "hidden", LSB_KEYED, passphrase="sesame")
+    return str(output)
+
+
+@pytest.mark.needs_crypto
+def test_a_keyed_message_is_found_only_with_its_passphrase(keyed: str) -> None:
+    assert detect(keyed) is None
+    assert decode(keyed, passphrase="sesame") == decode(keyed, LSB_KEYED, passphrase="sesame") == "hidden"
+    with pytest.raises(NoMessageError, match=r"No hidden message was found\.$"):
+        decode(keyed)
+
+
+@pytest.mark.needs_crypto
+def test_a_wrong_passphrase_is_the_same_as_no_message(keyed: str, make_wav: Callable[..., Path]) -> None:
+    reasons = set()
+    for path in (keyed, str(make_wav()), str(make_wav(frames=b""))):
+        for algorithm in (None, LSB_KEYED):
+            with pytest.raises(NoMessageError) as caught:
+                decode(path, algorithm, passphrase="wrong")
+            reasons.add(str(caught.value))
+    assert len(reasons) == 1
+
+
+@pytest.mark.needs_crypto
+def test_a_detected_message_is_never_read_as_a_keyed_one(keyed: str, tmp_path: Path) -> None:
+    both = str(tmp_path / "both.wav")
+    encode(keyed, both, "plain", LSB)
+    with pytest.raises(NotEncryptedError):
+        decode(both, passphrase="sesame")
+    encode(keyed, both, "encrypted", LSB, passphrase="other", overwrite=True)
+    with pytest.raises(WrongPassphraseError):
+        decode(both, passphrase="sesame")
+    assert decode(both, passphrase="other") == "encrypted"
+
+
+@pytest.mark.needs_crypto
+def test_a_plain_message_can_hold_a_keyed_one_that_is_named(
+    make_wav: Callable[..., Path], tmp_path: Path, fast_scrypt: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plain, both = str(tmp_path / "plain.wav"), str(tmp_path / "both.wav")
+    encode(str(make_wav()), plain, "plain", SECOND_BIT)
+    encode(plain, both, "hidden", LSB_KEYED, passphrase="sesame")
+    monkeypatch.setattr(detection, "ALGORITHMS", {"second": SECOND_BIT, "lsb_keyed": LSB_KEYED})
+    assert decode(both) == "plain"
+    with pytest.raises(NotEncryptedError):
+        decode(both, passphrase="sesame")
+    assert decode(both, LSB_KEYED, passphrase="sesame") == "hidden"
+
+
+def test_no_key_is_made_without_a_passphrase_or_with_a_detected_message(
+    make_wav: Callable[..., Path], embed: Callable[..., bytes], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(passphrase: bytes, salt: bytes) -> bytes:
+        raise AssertionError("a key was made")
+
+    monkeypatch.setattr(crypto, "derive_key", refuse)
+    with pytest.raises(NoMessageError):
+        decode(str(make_wav()))
+    with pytest.raises(NotEncryptedError):
+        decode(str(make_wav(frames=embed(PLAIN, 1))), passphrase="key")
+
+
+def test_a_message_of_lsb_matching_is_found_as_lsb(make_wav: Callable[..., Path], tmp_path: Path) -> None:
+    output = str(tmp_path / "output.wav")
+    encode(str(make_wav()), output, "hidden", LSB_MATCHING)
+    assert detect(output) == (LSB, Header(False, 6))
+
+
+@pytest.mark.needs_crypto
+def test_an_old_lsb_4_message_can_stay_visible_below_a_keyed_one(
+    make_wav: Callable[..., Path], tmp_path: Path, fast_scrypt: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old, new = str(tmp_path / "old.wav"), str(tmp_path / "new.wav")
+    encode(str(make_wav()), old, "old", LSB_4)
+    header = b"ASTG\x01\0\0\0\0\x03"
+    digits = "".join(f"{nibble:04b}"[3] for byte in header for nibble in (byte >> 4, byte & 15))
+    salt = int(digits.ljust(128, "0"), 2).to_bytes(16, "big")
+    monkeypatch.setattr(crypto, "new_salt", lambda: salt)
+    encode(old, new, "hidden", LSB_KEYED, passphrase="sesame")
+    with pytest.raises(NotEncryptedError):
+        decode(new, passphrase="sesame")
+    assert decode(new, LSB_KEYED, passphrase="sesame") == "hidden"
+
+
+def test_there_is_one_keyed_algorithm_to_try() -> None:
+    assert [known for known in ALGORITHMS.values() if known.keyed] == [LSB_KEYED]

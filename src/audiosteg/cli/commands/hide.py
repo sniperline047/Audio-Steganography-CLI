@@ -16,6 +16,7 @@ from audiosteg.cli.options import (
     message_source,
     passphrase_source,
 )
+from audiosteg.cli.passphrase import PassphraseSource, can_ask
 from audiosteg.cli.questions import ask_yes_no
 from audiosteg.cli.results import HideResult
 from audiosteg.cli.views import View, display_path
@@ -23,7 +24,7 @@ from audiosteg.core import crypto
 from audiosteg.core.message_codec import message_to_bytes
 from audiosteg.core.stego_file import count_message_bytes, encode, message_fits
 from audiosteg.core.wav_io import count_input_samples
-from audiosteg.errors import CapacityError, UnsafeOutputError
+from audiosteg.errors import CapacityError, PassphraseRequiredError, UnsafeOutputError
 from audiosteg.utils.output_path import check_output_path, normalize_output_path
 from audiosteg.utils.text import escape_text
 
@@ -32,6 +33,7 @@ EXAMPLES = """examples:
   audiosteg hide sample -m "Hello"            use the included sample
   audiosteg hide song.wav -p                  ask for message and passphrase
   audiosteg hide song.wav -o secret.wav -a lsb_2 --message_file letter.txt
+  audiosteg hide song.wav -a lsb_keyed -p     encrypt it and scatter its bits
   printf "Hello" | audiosteg hide song.wav    take the message from a pipe
 """
 SAMPLE_FILE = str(files("audiosteg") / "data" / "sample.wav")
@@ -89,16 +91,14 @@ def check_not_source(output_file: str, sources: list[str | None]) -> None:
 
 def largest_message(samples: int, encrypted: bool) -> int:
     """Return the size of the largest message that fits with any algorithm."""
-    return max(count_message_bytes(samples, known.bits_per_byte, encrypted) for known in ALGORITHMS.values())
+    return max(count_message_bytes(samples, known, encrypted) for known in ALGORITHMS.values())
 
 
 def fitting_algorithms(message: str, samples: int, encrypted: bool) -> list[str]:
     """Return the names of the algorithms that can hold a message."""
     length = len(message_to_bytes(message))
     return [
-        key
-        for key, algorithm in ALGORITHMS.items()
-        if message_fits(length, samples, algorithm.bits_per_byte, encrypted)
+        key for key, algorithm in ALGORITHMS.items() if message_fits(length, samples, algorithm, encrypted)
     ]
 
 
@@ -140,6 +140,18 @@ def may_replace(output_file: str, force: bool) -> bool:
     return True
 
 
+def find_passphrases(args: argparse.Namespace) -> PassphraseSource:
+    """Return where the passphrase comes from. A keyed algorithm asks for one if nothing else says where."""
+    passphrases = passphrase_source(args)
+    if passphrases.wanted or not ALGORITHMS[args.algorithm].keyed:
+        return passphrases
+    if not can_ask():
+        raise PassphraseRequiredError(
+            f"{args.algorithm} always encrypts the message. A passphrase is needed."
+        )
+    return PassphraseSource(prompt=True, file=None)
+
+
 def run(args: argparse.Namespace, view: View) -> int:
     """Run the command. Return the exit code."""
     input_file = find_input(args.input)
@@ -148,7 +160,7 @@ def run(args: argparse.Namespace, view: View) -> int:
     output_file, exists = check_output(input_file, chosen_output)
     check_not_source(output_file, [args.message_file, args.passphrase_file])
     overwrite = exists and may_replace(output_file, args.force)
-    passphrases = passphrase_source(args)
+    passphrases = find_passphrases(args)
     if passphrases.wanted:
         crypto.check_available()
     limit = largest_message(samples, passphrases.wanted)

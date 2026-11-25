@@ -18,7 +18,9 @@ encode("input.wav", "private.wav", "Hello", LSB, passphrase="correct horse batte
 print(decode("private.wav", passphrase="correct horse battery staple"))
 ```
 
-`decode` detects the algorithm unless you pass one. `encode` refuses to replace an existing output file unless you pass `overwrite=True`.
+`decode` detects the algorithm unless you pass one. `LSB_KEYED` (from `audiosteg.algorithms.lsb_keyed`) is the exception: `encode` needs a passphrase for it, and without an algorithm, `decode` tries it only if there is a passphrase and no other message is detected. A wrong passphrase then raises `NoMessageError`, because it looks the same as no message. An edited file can raise it too. Without the crypto extra, reading a keyed message raises `MissingLibraryError`, whatever the passphrase is. A file made with `LSB_MATCHING` is read as `LSB`.
+
+`encode` refuses to replace an existing output file unless you pass `overwrite=True`.
 
 Every error the package raises on purpose is a `StegoError`, except `ValueError` for a passphrase that is empty, contains a null character, or is not valid text, and `TypeError` for something that is not an algorithm:
 
@@ -28,9 +30,9 @@ Every error the package raises on purpose is a `StegoError`, except `ValueError`
 | `DamagedMessageError` | A message was found, but it was changed or cut off |
 | `InvalidMessageError` | The message is not valid text |
 | `MissingLibraryError` | Encryption is not available; it usually needs `pip install ".[crypto]"` |
-| `NoMessageError` | No message was found |
+| `NoMessageError` | No message was found, the passphrase of a keyed message is wrong, or a file with a keyed message was edited |
 | `NotEncryptedError` | A passphrase was given, but the message is not encrypted |
-| `PassphraseRequiredError` | The message is encrypted and no passphrase was given |
+| `PassphraseRequiredError` | The message is encrypted, or the algorithm always encrypts, and no passphrase was given |
 | `UnsafeOutputError` | The output path could damage another file |
 | `UnsupportedAlgorithmError` | The algorithm cannot hide new messages |
 | `UnsupportedFormatError` | The WAV file or the message format cannot be read |

@@ -29,4 +29,18 @@ def test_json_describes_an_algorithm(run: Any) -> None:
         "name": ALGORITHMS["lsb_2"].name,
         "bits_per_byte": 2,
         "explanation": ALGORITHMS["lsb_2"].explanation,
+        "samples_per_group": 1,
+        "needs_passphrase": False,
+        "reads_like": None,
     }
+    special = {
+        known["key"]: (known["samples_per_group"], known["needs_passphrase"], known["reads_like"])
+        for known in result["algorithms"][2:]
+    }
+    assert special == {
+        "lsb_4": (1, False, None),
+        "lsb_matching": (1, False, "lsb"),
+        "lsb_parity": (8, False, None),
+        "lsb_keyed": (1, True, None),
+    }
+    assert all(known.keys() == {"key", "name", "bits_per_byte", "explanation"} for known in result["legacy"])

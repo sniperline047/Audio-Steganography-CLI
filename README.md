@@ -152,7 +152,7 @@ audiosteg reveal locked.wav
 
 Both commands ask for the passphrase and don't show it while you type. `mischief-managed` is fun for practice, but pick a long one of your own for anything else: the whole internet knows that one. A lost passphrase can't be recovered.
 
-The passphrase hides what the message says, not that there is one. Anyone can still find it with `inspect`, remove it, or replace it with another.
+The passphrase hides what the message says, not that there is one. Anyone can still find it with `inspect`, remove it, or replace it with another. (`inspect` can't find messages hidden with `-a lsb_keyed`.)
 
 ### 4. Check it arrived unchanged
 
@@ -175,8 +175,12 @@ Sample rate: 22,050 Hz
 Duration: 4.2812 s (94,400 frames)
 Room with lsb: 23,586 bytes, or 23,546 encrypted
 Room with lsb_2: 47,186 bytes, or 47,146 encrypted
+Room with lsb_4: 94,386 bytes, or 94,346 encrypted
+Room with lsb_matching: 23,586 bytes, or 23,546 encrypted
+Room with lsb_parity: 2,936 bytes, or 2,896 encrypted
+Room with lsb_keyed: 23,546 bytes, always encrypted
 Hidden message: lsb, not encrypted, 41 bytes
-Only the header of the message was read, so damage further on is not detected.
+Only the header of the message was read, so damage further on is not detected. A message hidden with lsb_matching looks the same as one hidden with lsb.
 ```
 
 ### 6. Compare the two sounds
@@ -211,7 +215,7 @@ These are the ones you'll use most. Add `--help` to any command to see them all,
 | `hide`, `verify` | `--message_file FILE` | Take the message from a text file |
 | `hide` | `-o FILE` | The name of the new file |
 | `hide` | `--force` | Replace a file that already exists |
-| `hide`, `reveal`, `verify` | `-a lsb` or `-a lsb_2` | Choose the algorithm. `reveal` and `verify` usually find it themselves. |
+| `hide`, `reveal`, `verify` | `-a lsb` | Choose the algorithm, by a name from the table below. `reveal` and `verify` usually find it themselves. |
 | `hide`, `reveal`, `verify` | `-p` | Ask for a passphrase |
 | `hide`, `reveal`, `verify` | `--passphrase_file FILE` | Take the passphrase from a file |
 | `compare` | `--details` | Show and explain every number, with waveforms |
@@ -233,6 +237,10 @@ These are the ones you'll use most. Add `--help` to any command to see them all,
 | --- | --- | --- |
 | `lsb` (default) | Hides 1 bit in each sample | The best sound |
 | `lsb_2` | Hides 2 bits in each sample | Longer messages, with a little more noise |
+| `lsb_4` | Hides 4 bits in each sample | The longest messages, with the most noise |
+| `lsb_matching` | Adds or subtracts 1 instead of replacing a bit | Leaving less of a pattern. It is read as `lsb`. |
+| `lsb_parity` | Hides 1 bit in each group of 8 samples | Short messages, with the changes spread out |
+| `lsb_keyed` | Encrypts the message and scatters its bits with your passphrase | A map that `inspect` can't even find. Add `-p` to read it. |
 
 ## Explain mode
 

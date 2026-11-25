@@ -140,7 +140,7 @@ jobs:
           crypto="$RUNNER_TEMP/clean_crypto/bin"
           "$plain/audiosteg" --version
           "$plain/audiosteg" algorithms --json | python -m json.tool
-          for algorithm in lsb lsb_2; do
+          for algorithm in lsb lsb_2 lsb_4 lsb_parity lsb_matching; do
             printf '%s' "Hello $algorithm" | "$plain/audiosteg" hide sample -a "$algorithm"
             test "$("$plain/python" -m audiosteg reveal sample.stego.wav)" = "Hello $algorithm"
             "$plain/audiosteg" verify sample.stego.wav -m "Hello $algorithm"
@@ -150,6 +150,15 @@ jobs:
             rm sample.stego.wav
           done
           if "$plain/audiosteg" hide sample -m Hello --passphrase_file key.txt; then exit 1; fi
+          printf 'wrong\n' > wrong.txt
+          chmod 600 wrong.txt
+          "$crypto/audiosteg" hide sample -m "Secret lsb_keyed" -a lsb_keyed --passphrase_file key.txt
+          test "$("$crypto/audiosteg" reveal sample.stego.wav --passphrase_file key.txt)" = "Secret lsb_keyed"
+          "$crypto/audiosteg" verify sample.stego.wav -m "Secret lsb_keyed" -a lsb_keyed --passphrase_file key.txt
+          "$crypto/audiosteg" inspect sample.stego.wav --json > "$RUNNER_TEMP/inspect_keyed.json"
+          jq -e '.messages == []' "$RUNNER_TEMP/inspect_keyed.json"
+          if "$crypto/audiosteg" reveal sample.stego.wav --passphrase_file wrong.txt; then exit 1; fi
+          rm sample.stego.wav wrong.txt
           "$plain/audiosteg" hide sample -m Hello
           "$plain/audiosteg" inspect sample.stego.wav --json > "$RUNNER_TEMP/inspect.json"
           jq -e '.messages == [{"algorithm": "lsb", "encrypted": false, "size": 5, "problem": null}]' "$RUNNER_TEMP/inspect.json"

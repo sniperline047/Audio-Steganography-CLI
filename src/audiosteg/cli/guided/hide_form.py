@@ -14,6 +14,7 @@ from audiosteg.cli.commands.hide import (
     largest_message,
 )
 from audiosteg.cli.guided.equivalent import command_line, path_word
+from audiosteg.cli.guided.labels import algorithm_label
 from audiosteg.cli.guided.prompter import GoBack, Prompter, Step
 from audiosteg.cli.passphrase import ask_new_passphrase
 from audiosteg.cli.views import display_path
@@ -98,13 +99,21 @@ class HideForm:
             )
         self.algorithm = self.prompter.choose(
             "Which algorithm? If you are not sure, use the first.",
-            [Choice(f"{key}: {ALGORITHMS[key].explanation}", value=key) for key in keys],
+            [Choice(algorithm_label(key), value=key) for key in keys],
         )
+        if self.is_keyed():
+            crypto.check_available()
         return True
 
+    def is_keyed(self) -> bool:
+        """Say whether the chosen algorithm always encrypts."""
+        return ALGORITHMS[self.algorithm].keyed
+
     def ask_encryption(self) -> bool:
-        """Ask whether to encrypt the message, if this system can."""
-        self.encrypted = False
+        """Ask whether to encrypt the message, if this system can and the algorithm does not decide it."""
+        self.encrypted = self.is_keyed()
+        if self.encrypted:
+            return False
         try:
             crypto.check_available()
         except MissingLibraryError as error:

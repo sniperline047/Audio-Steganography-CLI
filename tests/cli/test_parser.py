@@ -26,7 +26,7 @@ PASSPHRASE_HELP = "-p takes no value: it asks for the passphrase."
         (["reveal", "-po", "SECRET"], PASSPHRASE_HELP),
         (["hide", "in.wav", "--passphrase=TOP_SECRET"], "A value was given to an option that takes none."),
         (["hide", "in.wav", "--force=SECRET"], "A value was given to an option that takes none."),
-        (["hide", "in.wav", "-a", "TOP_SECRET"], "Unknown algorithm. Choose from: lsb, lsb_2."),
+        (["hide", "in.wav", "-a", "TOP_SECRET"], "Unknown algorithm. Choose from: lsb, lsb_2, lsb_4,"),
         (["reveal", "in.wav", "--legacy", "TOP_SECRET"], "Unknown old algorithm. Choose from: basic,"),
         (["reveal", "in.wav", "--TOP_SECRET"], "unknown option or an extra word"),
         (["reveal", "in.wav", "--passphrase_fil=SECRET"], "Did you mean --passphrase_file?"),

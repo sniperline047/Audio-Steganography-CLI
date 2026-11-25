@@ -1,15 +1,24 @@
 """Tests for audiosteg/analysis/walkthrough.py."""
 
+import hashlib
+import hmac
 from collections.abc import Callable
+from dataclasses import replace
+from itertools import islice
 from pathlib import Path
 
 import pytest
 from conftest import pack
 
 from audiosteg.algorithms.lsb import LSB, LSB_2
+from audiosteg.algorithms.lsb_four import LSB_4
+from audiosteg.algorithms.lsb_keyed import LSB_KEYED
+from audiosteg.algorithms.lsb_matching import LSB_MATCHING
+from audiosteg.algorithms.lsb_parity import LSB_PARITY
 from audiosteg.analysis import walkthrough
 from audiosteg.analysis.walkthrough import largest_possible_change, walk_through
 from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.scatter import scatter
 from audiosteg.errors import CapacityError, InvalidMessageError
 
 LOUD = [20000, -20000, 19999, -19999, 12345, -12345, 1, -1]
@@ -26,7 +35,7 @@ LOUD = [20000, -20000, 19999, -19999, 12345, -12345, 1, -1]
         ("\U0010ffff", "f48fbfbf"),
     ],
 )
-@pytest.mark.parametrize(("algorithm", "size"), [(LSB, 1), (LSB_2, 2)])
+@pytest.mark.parametrize(("algorithm", "size"), [(LSB, 1), (LSB_2, 2), (LSB_4, 4)])
 @pytest.mark.parametrize("bits", [8, 16, 24, 32])
 @pytest.mark.parametrize("channels", [1, 3])
 def test_every_step_as_calculated_by_hand(
@@ -111,6 +120,14 @@ def test_a_later_place_must_be_louder(
         (6, 3, "h", LSB, False),
         (255, 255, "🎵", LSB, True),
         (0, 1, "h", LSB, False),
+        (2, 1, "h", LSB_4, True),
+        (1, 1, "h", LSB_4, False),
+        (64, 1, "h", LSB_PARITY, True),
+        (63, 1, "h", LSB_PARITY, False),
+        (66, 3, "h", LSB_PARITY, True),
+        (432, 1, "h", LSB_KEYED, True),
+        (431, 1, "h", LSB_KEYED, False),
+        (430, 2, "h", LSB_KEYED, False),
     ],
 )
 def test_a_file_that_is_almost_too_short(
@@ -135,7 +152,8 @@ def test_half_of_a_character_is_not_text(make_samples: Callable[..., Path]) -> N
 
 
 def test_the_largest_change_is_computed_from_the_algorithm() -> None:
-    assert (largest_possible_change(LSB), largest_possible_change(LSB_2)) == (1, 3)
+    assert [largest_possible_change(known) for known in (LSB, LSB_2, LSB_4)] == [1, 3, 15]
+    assert [largest_possible_change(known) for known in (LSB_MATCHING, LSB_PARITY, LSB_KEYED)] == [1, 1, 1]
     flip = Algorithm("", 1, lambda byte, bits: byte ^ (128 * bits[0]), lambda byte: (byte >> 7,))
     assert largest_possible_change(flip) == 128
     down = Algorithm("", 1, lambda byte, bits: byte if bits[0] else max(byte - 5, 0), lambda byte: (0,))
@@ -154,3 +172,66 @@ def test_a_new_algorithm_is_explained_with_its_own_functions(make_samples: Calla
     steps = walk_through(str(make_samples("a.wav", [0x1234] * 3)), "é", whole)
     assert [change.value_after for change in steps.changes] == [0x12C3, 0x12A9]
     assert steps.read_back == "é"
+
+
+@pytest.mark.parametrize("bits", [8, 16, 24, 32])
+@pytest.mark.parametrize(("choice", "step"), [(0, -1), (1, 1)])
+def test_matching_moves_whole_samples(
+    make_samples: Callable[..., Path], bits: int, choice: int, step: int
+) -> None:
+    smallest, largest = -(2 ** (bits - 1)), 2 ** (bits - 1) - 1
+    values = [smallest, largest, 63, 64, -1, 0, 1, -64]
+    algorithm = replace(LSB_MATCHING, choose=lambda limit: choice)
+    steps = walk_through(str(make_samples("a.wav", values, bits)), "\x55", algorithm)
+    for index, change in enumerate(steps.changes):
+        wrong = values[index] % 2 != index % 2
+        safe = {smallest: 1, largest: -1}.get(values[index], step)
+        assert change.change == (safe if wrong else 0)
+        assert change.byte_after == pack([values[index] + change.change], bits)[0]
+    assert steps.read_back == "\x55"
+
+
+@pytest.mark.parametrize("bits", [8, 16, 24, 32])
+@pytest.mark.parametrize("channels", [1, 3])
+def test_parity_changes_the_chosen_sample_of_a_group(
+    make_samples: Callable[..., Path], bits: int, channels: int
+) -> None:
+    values = [100] + [(index * 7) % 50 - 25 for index in range(66 * channels - 1)]
+    algorithm = replace(LSB_PARITY, choose=lambda limit: 5)
+    steps = walk_through(str(make_samples("a.wav", values, bits, channels)), "h", algorithm)
+    assert (len(steps.changes), len(steps.groups), steps.read_back) == (64, 8, "h")
+    for index, (group, digit) in enumerate(zip(steps.groups, "01101000", strict=True)):
+        before = values[index * 8 : index * 8 + 8]
+        assert [sample.value_before for sample in group.samples] == before
+        assert [sample.position for sample in group.samples] == list(range(index * 8, index * 8 + 8))
+        assert group.number == index + 1
+        wrong = sum(value % 2 for value in before) % 2 != int(digit)
+        assert (group.changed is group.samples[5]) is wrong
+        assert (group.changed is None) is not wrong
+        assert sum(sample.value_after % 2 for sample in group.samples) % 2 == int(digit)
+
+
+@pytest.mark.parametrize(("bits", "channels"), [(8, 1), (16, 2), (24, 1), (32, 3)])
+def test_the_places_of_a_keyed_message_are_those_of_the_demo_seed(
+    make_samples: Callable[..., Path], bits: int, channels: int
+) -> None:
+    values = [index % 100 - 50 for index in range(600)]
+    path = make_samples("a.wav", values, bits, channels)
+    before = path.read_bytes()
+    steps = walk_through(str(path), "h", LSB_KEYED)
+    key = hashlib.sha256(b"audiosteg demo").digest()
+    order_key = hmac.new(key, b"audiosteg keyed 1: order\x01", hashlib.sha256).digest()
+    places = [128 + number for number in islice(scatter(order_key, 472), 8)]
+    assert [change.position for change in steps.changes] == places
+    assert [change.value_before for change in steps.changes] == [values[place] for place in places]
+    assert [change.value_after % 2 for change in steps.changes] == [0, 1, 1, 0, 1, 0, 0, 0]
+    assert (steps.first_frame, steps.read_back) == (min(places) // channels, "h")
+    assert path.read_bytes() == before
+
+
+def test_no_passphrase_library_is_needed_to_explain(
+    make_samples: Callable[..., Path], no_library: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delattr(hashlib, "scrypt", raising=False)
+    path = str(make_samples("a.wav", [100] * 500))
+    assert walk_through(path, "h", LSB_KEYED).read_back == "h"

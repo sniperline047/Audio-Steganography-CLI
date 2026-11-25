@@ -70,6 +70,12 @@ def explain(error: BaseException) -> str:
     return str(error)
 
 
+CHECK_THE_FILE = "Check that this is the file that hide made, and that it was not converted or edited."
+NO_MESSAGE_HINT = (
+    f"{CHECK_THE_FILE} If an older version made it, use --legacy basic, enhanced, or enhanced_flip."
+)
+
+
 def next_step(error: BaseException) -> str | None:
     """Say what to do about an error of a command, if the error does not say so itself. Notes come first."""
     notes = getattr(error, "__notes__", None)
@@ -82,10 +88,7 @@ def next_step(error: BaseException) -> str | None:
     if isinstance(error, PassphraseRequiredError):
         return "Run the command in a terminal, or use --passphrase_file."
     if isinstance(error, NoMessageError):
-        return (
-            "Check that this is the file that hide made, and that it was not converted or edited. "
-            "If an older version made it, use --legacy basic, enhanced, or enhanced_flip."
-        )
+        return NO_MESSAGE_HINT
     if isinstance(error, MissingLibraryError):
         return "Without it, only messages that are not encrypted can be used."
     return None

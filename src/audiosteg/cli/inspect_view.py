@@ -1,12 +1,13 @@
 """Show what inspect found."""
 
-from audiosteg.analysis.inspection import FoundMessage, Inspection
+from audiosteg.algorithms.registry import ALGORITHMS, reading_key
+from audiosteg.analysis.inspection import Capacity, FoundMessage, Inspection
 from audiosteg.analysis.samples import seconds
 from audiosteg.cli.views import Rows, View, clean_for_json, count_word, display_path, format_time
 
 CHANNEL_NAMES = {1: "1 (mono)", 2: "2 (stereo)"}
 NONE_DETECTED = "none detected"
-LIMITS = "Messages of older versions and of other tools cannot be detected."
+LIMITS = "Messages of lsb_keyed, of older versions, and of other tools cannot be detected."
 HEADER_ONLY = "Only the header of the message was read, so damage further on is not detected."
 
 
@@ -18,6 +19,23 @@ def describe_message(message: FoundMessage) -> str:
         raise ValueError("A message without a problem needs a size.")
     protection = "encrypted" if message.encrypted else "not encrypted"
     return f"{message.algorithm}, {protection}, {count_word(message.size, 'byte')}"
+
+
+def describe_capacity(capacity: Capacity) -> str:
+    """Describe in one line how much an algorithm can hide."""
+    if capacity.always_encrypted:
+        return f"{count_word(capacity.encrypted, 'byte')}, always encrypted"
+    return f"{count_word(capacity.plain, 'byte')}, or {capacity.encrypted:,} encrypted"
+
+
+def look_alikes(inspection: Inspection) -> list[str]:
+    """Return one sentence for every algorithm whose messages look the same as a message that was found."""
+    found = {message.algorithm for message in inspection.messages}
+    return [
+        f"A message hidden with {key} looks the same as one hidden with {reading_key(key)}."
+        for key in ALGORITHMS
+        if reading_key(key) != key and reading_key(key) in found
+    ]
 
 
 def show_inspection(view: View, path: str, inspection: Inspection) -> None:
@@ -50,11 +68,10 @@ def show_inspection(view: View, path: str, inspection: Inspection) -> None:
         ("Duration", f"{format_time(inspection.frames, sample_format.frame_rate)} ({length})"),
     ]
     for capacity in inspection.capacities:
-        sizes = f"{count_word(capacity.plain, 'byte')}, or {capacity.encrypted:,} encrypted"
-        rows.append((f"Room with {capacity.algorithm}", sizes))
+        rows.append((f"Room with {capacity.algorithm}", describe_capacity(capacity)))
     if inspection.cannot_hide is not None:
         rows.append(("Room", f"none. {inspection.cannot_hide}"))
     messages = [describe_message(message) for message in inspection.messages]
     rows += [("Hidden message", message) for message in messages or [NONE_DETECTED]]
     view.out.panel("What this file holds", rows, "cyan")
-    view.note(HEADER_ONLY if messages else LIMITS)
+    view.note(" ".join([HEADER_ONLY, *look_alikes(inspection)]) if messages else LIMITS)

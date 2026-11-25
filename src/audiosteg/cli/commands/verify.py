@@ -33,7 +33,7 @@ def largest_message(file: str, legacy: str | None) -> int:
     if legacy is not None:
         stored = max(sample_bytes * LEGACY_ALGORITHMS[legacy].bits_per_byte - HEADER_BITS, 0) // 8
         return stored * UTF_8_BYTES_PER_LATIN_1_BYTE
-    return max(count_message_bytes(samples, known.bits_per_byte, False) for known in ALGORITHMS.values())
+    return max(count_message_bytes(samples, known, False) for known in ALGORITHMS.values())
 
 
 def run(args: argparse.Namespace, view: View) -> int:

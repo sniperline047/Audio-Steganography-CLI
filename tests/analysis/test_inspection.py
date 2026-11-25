@@ -43,7 +43,11 @@ def test_the_room_that_the_documentation_promises(
     assert found.format == (channels, width, 11025)
     assert found.frames == samples // channels
     if samples % 8 == 0:
-        assert found.capacities == (Capacity("lsb", *lsb), Capacity("lsb_2", *lsb_2))
+        assert found.capacities[:2] == (Capacity("lsb", *lsb), Capacity("lsb_2", *lsb_2))
+        lsb_4 = Capacity("lsb_4", max(samples // 2 - 14, 0), max(samples // 2 - 54, 0))
+        parity = Capacity("lsb_parity", max(samples // 64 - 14, 0), max(samples // 64 - 54, 0))
+        keyed = Capacity("lsb_keyed", 0, lsb[1], always_encrypted=True)
+        assert found.capacities[2:] == (lsb_4, Capacity("lsb_matching", *lsb), parity, keyed)
     assert (found.cannot_hide, found.messages) == (None, ())
 
 
@@ -90,6 +94,7 @@ def test_a_header_that_cannot_be_used(
 def test_messages_of_two_algorithms_are_both_found(
     make_wav: Callable[..., Path], monkeypatch: pytest.MonkeyPatch, embed: Callable[..., bytes]
 ) -> None:
+    known = list(ALGORITHMS)
     second = Algorithm("", 1, lambda b, bits: (b & 253) | bits[0] << 1, lambda b: ((b >> 1) & 1,))
     monkeypatch.setitem(ALGORITHMS, "second", second)
     frames = bytearray(embed(b"ASTG\x01\x00\x00\x00\x00\x01A\x00\x00\x00\x00", 1))
@@ -99,7 +104,7 @@ def test_messages_of_two_algorithms_are_both_found(
         frames[index] = frames[index] & 253 | int(digit) << 1
     found = inspect(str(make_wav(frames=bytes(frames))))
     assert found.messages == (FoundMessage("lsb", False, 1), FoundMessage("second", True, 0))
-    assert [capacity.algorithm for capacity in found.capacities] == ["lsb", "lsb_2", "second"]
+    assert [capacity.algorithm for capacity in found.capacities] == [*known, "second"]
 
 
 @pytest.mark.parametrize("missing", [1, 4, 5, 399])

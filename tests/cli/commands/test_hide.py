@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import ALL, NO_SIGINT
+from conftest import ALL, EVERY_KEY, NO_SIGINT, needed_passphrase
 
 from audiosteg import decode, encode
 from audiosteg.algorithms.registry import ALGORITHMS
@@ -19,7 +19,7 @@ from audiosteg.cli.results import HideResult
 from audiosteg.errors import UnsafeOutputError
 
 needs_sigint = pytest.mark.skipif(NO_SIGINT, reason="Ctrl-C cannot be sent to one process here")
-every_algorithm = pytest.mark.parametrize("key", ALGORITHMS)
+every_algorithm = pytest.mark.parametrize("key", EVERY_KEY)
 
 
 @pytest.fixture
@@ -33,16 +33,22 @@ def key_file(tmp_path: Path) -> Path:
 
 
 @every_algorithm
+@pytest.mark.usefixtures("fast_scrypt")
 def test_the_sample_and_the_current_folder_are_used(run: Any, tmp_path: Path, key: str) -> None:
     sample = Path(hide.SAMPLE_FILE).read_bytes()
-    result = run("hide", "sample", "-m", "Hello 🎵", "-a", key, cwd=tmp_path)
-    assert (result.code, result.errors) == (0, "")
+    passphrase = needed_passphrase(key)
+    asks = {"hidden": (passphrase, passphrase), "terminals": ALL} if passphrase else {}
+    result = run("hide", "sample", "-m", "Hello 🎵", "-a", key, cwd=tmp_path, **asks)
+    assert result.code == 0
+    assert bool(result.errors) is bool(passphrase)
     assert os.listdir(tmp_path) == ["sample.stego.wav"]
-    assert decode(str(tmp_path / "sample.stego.wav"), ALGORITHMS[key]) == "Hello 🎵"
+    output = str(tmp_path / "sample.stego.wav")
+    assert decode(output, ALGORITHMS[key], passphrase=passphrase) == "Hello 🎵"
     assert Path(hide.SAMPLE_FILE).read_bytes() == sample
 
 
-@every_algorithm
+@pytest.mark.parametrize("key", [key for key, known in ALGORITHMS.items() if not known.keyed])
+@pytest.mark.usefixtures("first_choices")
 def test_each_name_uses_its_own_algorithm(
     run: Any, make_wav: Callable[..., Path], tmp_path: Path, key: str
 ) -> None:
@@ -50,6 +56,54 @@ def test_each_name_uses_its_own_algorithm(
     encode(str(source), str(expected), "hidden", ALGORITHMS[key])
     assert run("hide", source, "-m", "hidden", "-a", key, "-o", output).code == 0
     assert output.read_bytes() == expected.read_bytes()
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.usefixtures("fast_scrypt")
+@pytest.mark.parametrize("words", [[], ["-p"]])
+def test_a_keyed_algorithm_asks_for_a_passphrase_with_or_without_the_option(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, words: list[str]
+) -> None:
+    output = tmp_path / "out.wav"
+    request = ["hide", make_wav(), "-m", "MY_MESSAGE", "-a", "lsb_keyed", "-o", output, *words]
+    result = run(*request, hidden=("sesame", "sesame"), terminals=ALL)
+    assert result.code == 0
+    assert "Encrypted: yes" in run(*request, "--plain", "--force", hidden=("s", "s"), terminals=ALL).text
+    assert "sesame" not in result.seen and "MY_MESSAGE" not in result.seen
+    assert decode(str(output), passphrase="s") == "MY_MESSAGE"
+
+
+def test_a_keyed_algorithm_without_any_passphrase_is_refused_before_anything_is_read(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    words = ["hide", make_wav(), "-a", "lsb_keyed"]
+    result = run(*words, stdin=b"TOP_SECRET")
+    assert (result.code, result.output) == (1, "")
+    assert "lsb_keyed always encrypts the message. A passphrase is needed.\n" in result.errors
+    assert "--passphrase_file" in result.errors
+    error = json.loads(run(*words, "--json").output)["error"]
+    assert (error["type"], error["exit_code"]) == ("passphrase_required", 1)
+    assert os.listdir(tmp_path) == ["input.wav"]
+
+
+def test_a_keyed_algorithm_without_the_library_is_explained(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path, no_library: None
+) -> None:
+    result = run("hide", make_wav(), "-m", "x", "-a", "lsb_keyed", terminals=ALL)
+    assert (result.code, "Error: Encryption needs an optional library." in result.errors) == (1, True)
+    assert os.listdir(tmp_path) == ["input.wav"]
+
+
+@pytest.mark.needs_crypto
+def test_the_largest_keyed_message_is_named(
+    run: Any, make_wav: Callable[..., Path], key_file: Path, tmp_path: Path, fast_scrypt: None
+) -> None:
+    source, output = make_wav(frames=bytes(800)), tmp_path / "out.wav"
+    words = ["hide", source, "-a", "lsb_keyed", "--passphrase_file", key_file, "-o", output]
+    refused = run(*words, stdin=b"x" * 47)
+    assert "needs 47 bytes and the audio file can hold 46 bytes. Use the algorithm lsb_2" in refused.errors
+    assert run(*words, stdin=b"x" * 46).code == 0
+    assert decode(str(output), passphrase="TOP_SECRET") == "x" * 46
 
 
 @pytest.mark.parametrize(
@@ -184,8 +238,8 @@ def test_the_largest_message_fits_and_one_byte_more_does_not(
 ) -> None:
     source, output = make_wav(frames=bytes(800)), tmp_path / "out.wav"
     passphrase = "TOP_SECRET" if encrypted else None
-    limit = 800 * 2 // 8 - (54 if encrypted else 14)
-    words = ["hide", source, "-a", "lsb_2", "-o", output]
+    limit = 800 * 4 // 8 - (54 if encrypted else 14)
+    words = ["hide", source, "-a", "lsb_4", "-o", output]
     words += ["--passphrase_file", key_file] if encrypted else []
     refused = run(*words, stdin=b"x" * (limit + 1))
     assert (refused.code, output.exists()) == (1, False)
@@ -287,7 +341,7 @@ def test_a_message_that_fits_another_algorithm_is_told_so(
     fits = run("hide", source, "-m", "x" * 100, "-o", output)
     assert fits.code == 1
     assert "needs 100 bytes and the audio file can hold 86 bytes. Use the algorithm lsb_2" in fits.errors
-    too_large = run("hide", source, "-m", "x" * 300, "-o", output)
+    too_large = run("hide", source, "-m", "x" * 400, "-o", output)
     assert too_large.code == 1
     assert "lsb_2" not in too_large.errors
     assert "longer audio file" in too_large.errors
@@ -585,7 +639,7 @@ def test_no_algorithm_is_advised_that_cannot_hold_the_encrypted_message(
     run: Any, make_wav: Callable[..., Path], key_file: Path
 ) -> None:
     result = run("hide", make_wav(frames=bytes(800)), "-m", "x" * 160, "--passphrase_file", key_file)
-    assert (result.code, "lsb_2" in result.errors, "longer audio file" in result.errors) == (1, False, True)
+    assert (result.code, "lsb_2" in result.errors, "algorithm lsb_4" in result.errors) == (1, False, True)
 
 
 def test_typed_bytes_that_are_not_text_are_refused_without_showing_them(

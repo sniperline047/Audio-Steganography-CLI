@@ -7,26 +7,31 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import ALL
+from conftest import ALL, EVERY_KEY, needed_passphrase
 
 from audiosteg import encode
 from audiosteg.algorithms.registry import ALGORITHMS
 
 
-@pytest.mark.parametrize("key", ALGORITHMS)
+@pytest.mark.parametrize("key", EVERY_KEY)
+@pytest.mark.usefixtures("fast_scrypt")
 def test_a_match_changes_nothing(run: Any, make_wav: Callable[..., Path], tmp_path: Path, key: str) -> None:
-    output = tmp_path / "output.wav"
-    encode(str(make_wav()), str(output), "hidden 🎵", ALGORITHMS[key])
+    output, passphrase = tmp_path / "output.wav", needed_passphrase(key)
+    encode(str(make_wav()), str(output), "hidden 🎵", ALGORITHMS[key], passphrase=passphrase)
     content = output.read_bytes()
     output.chmod(0o444)
     modified = output.stat().st_mtime_ns
+    asks = {"hidden": (passphrase,), "terminals": ("stderr",), "NO_COLOR": "1"} if passphrase else {}
     try:
-        result = run("verify", output, "-m", "hidden 🎵", cwd=tmp_path)
+        result = run(
+            "verify", output, "-m", "hidden 🎵", *(["-p"] if passphrase else []), cwd=tmp_path, **asks
+        )
     finally:
         output.chmod(0o644)
     assert (result.code, result.errors) == (0, "")
     assert "Exact match: yes\nAccuracy: 100.00%\n" in result.output
-    assert "This message was not encrypted" in result.output
+    protection = "This message was encrypted" if passphrase else "This message was not encrypted"
+    assert protection in result.output
     assert output.read_bytes() == content
     assert output.stat().st_mtime_ns == modified
     assert sorted(os.listdir(tmp_path)) == ["input.wav", "output.wav"]
@@ -106,6 +111,15 @@ def test_a_long_latin_1_message_of_an_old_file_matches(run: Any, make_wav: Calla
     path = make_wav(frames=bytes(int(digit) for digit in digits))
     assert run("reveal", path, "--legacy", "basic").output == "é" * 100
     assert run("verify", path, "--legacy", "basic", stdin=("é" * 100).encode()).code == 0
+
+
+def test_an_expected_message_may_be_as_long_as_the_largest_message(
+    run: Any, make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    output, message = tmp_path / "output.wav", b"x" * (4008 // 2 - 14)
+    encode(str(make_wav()), str(output), message.decode(), ALGORITHMS["lsb_4"])
+    assert run("verify", output, stdin=message).code == 0
+    assert run("verify", output, stdin=message + b"x").output == ""
 
 
 def test_a_too_long_expected_message_is_not_answered_with_advice_for_hide(
