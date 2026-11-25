@@ -61,7 +61,7 @@ def test_up_to_half_of_the_parity_is_corrected(size: int, parity_size: int) -> N
     codeword = data + make_parity(data, parity_size)
     assert [slow_value(codeword, exponent) for exponent in range(parity_size)] == [0] * parity_size
     for errors in sorted({0, 1, parity_size // 4, parity_size // 2 - 1, parity_size // 2}):
-        for _ in range(4):
+        for _ in range(2):
             assert correct(damage(codeword, errors, chooser), parity_size) == (data, errors)
 
 

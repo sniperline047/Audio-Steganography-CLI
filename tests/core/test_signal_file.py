@@ -7,6 +7,7 @@ import tracemalloc
 import wave
 from collections.abc import Callable
 from dataclasses import replace
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -34,10 +35,11 @@ BLOCK = 1024
 SMALLEST = 46 * 8 * BLOCK
 
 
+@cache
 def noise(samples: int, bits: int, share: float = 0.3, seed: int = 1) -> list[int]:
     limit = int(((1 << bits - 1) - 1) * share)
-    chooser = random.Random(seed)
-    return [chooser.randint(-limit, limit) for _ in range(samples)]
+    values = memoryview(random.Random(seed).randbytes(4 * samples)).cast("i")
+    return [value * limit >> 31 for value in values]
 
 
 def numbers(data: bytes, bits: int) -> list[int]:
@@ -197,13 +199,23 @@ def damaged_copy(path: Path, name: str, change: Callable[[bytearray], None]) -> 
     return str(path.parent / name)
 
 
+@pytest.fixture(scope="module")
+def hidden_file(tmp_path_factory: pytest.TempPathFactory) -> bytes:
+    """The bytes of a file that holds Hello and 100 more blocks."""
+    folder = tmp_path_factory.mktemp("hidden")
+    with wave.open(str(folder / "input.wav"), "wb") as audio:
+        audio.setparams((1, 2, 8000, 0, "NONE", ""))
+        audio.writeframes(pack(noise(SMALLEST + 5 * 8 * BLOCK + 100 * BLOCK, 16), 16))
+    encode(str(folder / "input.wav"), str(folder / "hidden.wav"), "Hello", ECHO)
+    return (folder / "hidden.wav").read_bytes()
+
+
 @pytest.fixture
-def hidden(make_samples: Callable[..., Path], tmp_path: Path) -> Path:
+def hidden(hidden_file: bytes, tmp_path: Path) -> Path:
     """A file that holds Hello and 100 more blocks."""
-    output = tmp_path / "hidden.wav"
-    frames = SMALLEST + 5 * 8 * BLOCK + 100 * BLOCK
-    encode(str(make_samples("input.wav", noise(frames, 16))), str(output), "Hello", ECHO)
-    return output
+    path = tmp_path / "hidden.wav"
+    path.write_bytes(hidden_file)
+    return path
 
 
 def replace_frames(first: int, count: int, seed: int) -> Callable[[bytearray], None]:

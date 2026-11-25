@@ -47,10 +47,11 @@ def divide(first: int, second: int) -> int:
 
 
 def evaluate(polynomial: Sequence[int], point: int) -> int:
-    """Return the value of a polynomial, highest power first, at a point."""
+    """Return the value of a polynomial, highest power first, at a point that is not 0."""
+    step = EXPONENTS[point]
     value = 0
     for coefficient in polynomial:
-        value = multiply(value, point) ^ coefficient
+        value = POWERS[EXPONENTS[value] + step] ^ coefficient if value else coefficient
     return value
 
 
