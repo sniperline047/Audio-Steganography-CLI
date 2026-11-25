@@ -252,7 +252,7 @@ def test_matching_shows_whole_samples(run: Any, make_samples: Callable[..., Path
 
 @pytest.mark.usefixtures("first_choices")
 def test_parity_shows_groups_and_the_chosen_sample(run: Any, make_samples: Callable[..., Path]) -> None:
-    make_samples("a.wav", [100, 1, 0, 1, 1, 0, 0, 0] + [0] * 56)
+    make_samples("a.wav", [100, 1, 0, 1, 1, 0, 0, 0] + [0] * 8 + [1, 1] + [0] * 46)
     words = ["explain", "lsb_parity", "--letter", "@", "--file", "a.wav"]
     output = run(*words).output
     assert "64 samples of a.wav, from 0.000 s on (frame 0)." in output
@@ -260,7 +260,7 @@ def test_parity_shows_groups_and_the_chosen_sample(run: Any, make_samples: Calla
     assert shown.splitlines()[:3] == [
         "  1. hide 0: [0]1011000 -> [1]1011000  parity 1 -> 0  sample 1: 100 -> 101  +1",
         "  2. hide 1: [0]0000000 -> [1]0000000  parity 0 -> 1  sample 1: 0 -> 1  +1",
-        "  3. hide 0: 00000000   -> 00000000    parity 0 -> 0  no change",
+        "  3. hide 0: 11000000   -> 11000000    parity 0 -> 0  no change",
     ]
     assert "2 of 64 samples changed, by at most 1 here." in output
     fields = json.loads(run(*words, "--json").output)
@@ -284,6 +284,7 @@ def test_keyed_shows_scattered_samples_and_a_demo_seed(run: Any) -> None:
     assert 'This is a demo: the seed "audiosteg demo" made the order. It never uses a passphrase' in output
     assert "starts at the first sample" not in output
     places = [int(text.replace(",", "")) for text in re.findall(r"sample ([\d,]+),", output)]
+    assert len({row.index("hide") for row in output.splitlines() if re.search(r"hide [01]:", row)}) == 1
     fields = json.loads(run("explain", "lsb_keyed", "--json").output)
     assert places == [row["position"] for row in fields["samples"]]
     assert len(set(places)) == 8 and places != sorted(places) and max(places) - min(places) > 50_000

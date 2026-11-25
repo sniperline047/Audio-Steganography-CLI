@@ -255,6 +255,7 @@ def test_enter_for_a_file_without_a_message_asks_for_another_file(
     make_wav(name="nothing.wav")
     result = guide(REVEAL, file("nothing.wav"), OTHER_FILE, file("plain.wav"))
     assert (result.code, "Passphrase:" in result.text) == (0, False)
+    assert "No message was detected. lsb_keyed or an older version may have made" in result.text
     assert "\nplain message\n" in result.text
 
 

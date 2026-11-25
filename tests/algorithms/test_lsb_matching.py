@@ -97,6 +97,19 @@ def test_carries_and_the_limits_of_a_sample(before: str, bit: int, step: int, af
     assert algorithm.embed_group(sample, len(sample), (1 - bit,)) == sample
 
 
+def test_the_direction_is_one_of_two() -> None:
+    limits: list[int] = []
+
+    def choose(limit: int) -> int:
+        limits.append(limit)
+        return 0
+
+    algorithm = replace(LSB_MATCHING, choose=choose)
+    for sample, bit in ((5, 0), (5, 1), (0, 1), (255, 0)):
+        algorithm.embed_group(bytes([sample]), 1, (bit,))
+    assert limits == [2]
+
+
 def test_both_directions_are_really_used(
     make_wav: Callable[..., Path], read_frames: Callable[[Path], bytes], tmp_path: Path
 ) -> None:
