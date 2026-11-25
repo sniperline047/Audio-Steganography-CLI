@@ -57,7 +57,7 @@ jobs:
               if length <= 100 and test("\\A(src/audiosteg|scripts)/([a-z0-9_]+/)*[a-z0-9_]+\\.py\\z") then .
               else error("invalid file name") end;
             (if length == 1 then .[0] else error("expected one JSON value") end)
-            | if (.files | type) != "object" or (.files | length) > 50 then error("invalid file list") else . end
+            | if (.files | type) != "object" or (.files | length) > 200 then error("invalid file list") else . end
             | (.totals.percent_covered_display | percent) as $total
             | [.files | to_entries | sort_by(.key)[]
                 | "| `\(.key | file_name)` | \(.value.summary.percent_covered_display | percent)% |"] as $rows
