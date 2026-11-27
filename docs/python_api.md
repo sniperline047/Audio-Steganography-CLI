@@ -47,8 +47,6 @@ File problems raise the usual `OSError` types, such as `FileNotFoundError`. A nu
 | Old | New |
 | --- | --- |
 | `python cli/main.py`, `python -m cli.main` | `audiosteg`, `python -m audiosteg` |
-| `basic_lsb_steganography.encode(source, output, message)` | `encode(source, output, message, LSB)` |
-| `basic_lsb_steganography.decode(path)` | `decode(path)` |
 | `from audiosteg.core.stego_file import decode` | `from audiosteg import decode` |
 | One default output file per algorithm | `INPUT.stego.wav` |
 | `input/original_sample.wav` | `src/audiosteg/data/sample.wav` |

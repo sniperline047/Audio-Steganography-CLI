@@ -356,7 +356,6 @@ The numbered menu of earlier versions is gone, so scripts that typed its numbers
 | 1) Encode a message | `audiosteg hide` |
 | 2) Decode a message | `audiosteg reveal` |
 | 3) Calculate accuracy | `audiosteg verify` |
-| An algorithm number | `-a lsb` or `-a lsb_2` |
 | `message_encoded.wav` | `INPUT.stego.wav` |
 
 ## Audio files
