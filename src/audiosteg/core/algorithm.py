@@ -74,22 +74,3 @@ class Algorithm:
     def extract_group(self, low_bytes: bytes) -> tuple[int, ...]:
         """Get the hidden bits from the lowest bytes of a group of samples."""
         return self.extract_bits(low_bytes[0])
-
-
-@dataclass(frozen=True)
-class LegacyAlgorithm:
-    """
-    One way older versions hid bits, using every sample byte in order.
-
-    :param name: The full name
-    :param bits_per_byte: How many bits each sample byte carries
-    :param extract_bits: Function that gets the hidden bits from a sample byte
-    :param explanation: One line that explains the algorithm to a beginner
-    :param replaced_because: Why it was replaced, one sentence each
-    """
-
-    name: str
-    bits_per_byte: int
-    extract_bits: ExtractBits
-    explanation: str = ""
-    replaced_because: tuple[str, ...] = ()

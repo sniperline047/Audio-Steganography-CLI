@@ -76,10 +76,7 @@ def explain(error: BaseException) -> str:
     return str(error)
 
 
-CHECK_THE_FILE = "Check that this is the file that hide made, and that it was not converted or edited."
-NO_MESSAGE_HINT = (
-    f"{CHECK_THE_FILE} If an older version made it, use --legacy basic, enhanced, or enhanced_flip."
-)
+NO_MESSAGE_HINT = "Check that this is the file that hide made, and that it was not converted or edited."
 
 
 def next_step(error: BaseException) -> str | None:

@@ -12,7 +12,7 @@ from conftest import ALL
 from audiosteg.analysis.inspection import FoundMessage
 from audiosteg.cli.inspect_view import describe_message
 
-NONE = "Messages of lsb_keyed, of older versions, and of other tools cannot be detected.\n"
+NONE = "Messages of lsb_keyed and of other tools cannot be detected.\n"
 HEADER = "Only the header of the message was read, so damage further on is not detected."
 LOOKS_LIKE_LSB = "A message hidden with lsb_matching looks the same as one hidden with lsb."
 

@@ -1,11 +1,10 @@
 """How algorithms are named in the menus of the guided mode."""
 
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.core import crypto
 from audiosteg.core.signal_algorithm import SignalAlgorithm, has_numpy
 from audiosteg.errors import MissingLibraryError
 
-OLD = " (old files)"
 NOT_AVAILABLE = " (cannot encrypt here)"
 NO_NUMPY = " (needs NumPy)"
 
@@ -34,8 +33,3 @@ def algorithm_label(key: str) -> str:
 def explain_label(key: str) -> str:
     """Return the same for a menu that never encrypts."""
     return f"{key}{no_numpy(key)}: {ALGORITHMS[key].explanation}"
-
-
-def old_label(key: str) -> str:
-    """Return the name and the explanation of an algorithm of older versions."""
-    return f"{key}{OLD}: {LEGACY_ALGORITHMS[key].explanation}"

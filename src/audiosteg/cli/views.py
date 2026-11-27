@@ -13,12 +13,12 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.accuracy import AccuracyResult
 from audiosteg.cli.errors import OutputClosedError, UsageError, error_type, explain, next_step
 from audiosteg.cli.logo import MINIMUM_WIDTH, draw_logo, plain_title
 from audiosteg.cli.results import HideResult, RevealResult, VerifyResult
-from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
+from audiosteg.core.algorithm import Algorithm
 from audiosteg.core.signal_algorithm import SignalAlgorithm
 from audiosteg.utils.text import escape_text
 
@@ -288,13 +288,10 @@ class View:
     def show_algorithms(self) -> None:
         """Show every algorithm."""
         if self.as_json:
-            fields = {"algorithms": describe(ALGORITHMS), "legacy": describe(LEGACY_ALGORITHMS)}
-            self.show_json("algorithms", True, fields)
+            self.show_json("algorithms", True, {"algorithms": describe(ALGORITHMS)})
             return
         rows = [(key, algorithm.explanation) for key, algorithm in ALGORITHMS.items()]
-        legacy_rows = [(key, algorithm.explanation) for key, algorithm in LEGACY_ALGORITHMS.items()]
         self.out.panel("Algorithms (-a)", rows, "cyan")
-        self.out.panel("Old files (--legacy)", legacy_rows, "cyan")
 
     def show_version(self, version: str) -> None:
         """Show the version."""
@@ -319,13 +316,12 @@ def reveal_fields(result: RevealResult) -> dict[str, Any]:
     return {
         "file": clean_for_json(result.file),
         "algorithm": result.algorithm,
-        "legacy": result.legacy,
         "encrypted": result.encrypted,
     }
 
 
 def describe(
-    algorithms: Mapping[str, Algorithm | SignalAlgorithm] | Mapping[str, LegacyAlgorithm],
+    algorithms: Mapping[str, Algorithm | SignalAlgorithm],
 ) -> list[dict[str, Any]]:
     """Return the JSON fields that describe algorithms."""
     return [
@@ -340,10 +336,8 @@ def describe(
     ]
 
 
-def group_fields(algorithm: Algorithm | SignalAlgorithm | LegacyAlgorithm) -> dict[str, Any]:
-    """Return the JSON fields that only an algorithm that can hide messages has."""
-    if isinstance(algorithm, LegacyAlgorithm):
-        return {}
+def group_fields(algorithm: Algorithm | SignalAlgorithm) -> dict[str, Any]:
+    """Return the JSON fields that describe how an algorithm groups its samples."""
     return {
         "samples_per_group": algorithm.samples_per_group,
         "needs_passphrase": algorithm.keyed,

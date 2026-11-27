@@ -1,14 +1,13 @@
 """Find out which algorithm hid a message, and read the message."""
 
-from audiosteg.algorithms.legacy import decode_legacy
 from audiosteg.algorithms.lsb_keyed import LSB_KEYED
 from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.core import stego_file
-from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
+from audiosteg.core.algorithm import Algorithm
 from audiosteg.core.crypto import passphrase_to_bytes
 from audiosteg.core.header import Header
 from audiosteg.core.signal_algorithm import SignalAlgorithm, has_numpy
-from audiosteg.errors import NoMessageError, NotEncryptedError
+from audiosteg.errors import NoMessageError
 
 
 def can_detect(algorithm: Algorithm | SignalAlgorithm) -> bool:
@@ -34,7 +33,7 @@ def detect(path: str) -> tuple[Algorithm | SignalAlgorithm, Header] | None:
 
 def decode(
     path: str,
-    algorithm: Algorithm | SignalAlgorithm | LegacyAlgorithm | None = None,
+    algorithm: Algorithm | SignalAlgorithm | None = None,
     *,
     passphrase: str | None = None,
 ) -> str:
@@ -42,18 +41,13 @@ def decode(
     Read a hidden message from a WAV file.
 
     :param path: Path to the encoded audio file
-    :param algorithm: The algorithm that hid the message, or None to detect it. Files made by
-        older versions are not detected and need a legacy algorithm.
+    :param algorithm: The algorithm that hid the message, or None to detect it
     :param passphrase: The passphrase of an encrypted message. It is refused if the message
         is not encrypted. If no message is detected, it is also tried on LSB_KEYED.
     :return: The hidden message
     """
     if passphrase is not None:
         passphrase_to_bytes(passphrase)
-    if isinstance(algorithm, LegacyAlgorithm):
-        if passphrase is not None:
-            raise NotEncryptedError("Older versions never encrypted messages. Remove the passphrase.")
-        return decode_legacy(path, algorithm)
     if algorithm is None:
         detected = detect(path)
         if detected is None and passphrase is not None:

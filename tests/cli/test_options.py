@@ -1,29 +1,26 @@
 """Tests for audiosteg/cli/options.py."""
 
 import argparse
-from collections.abc import Callable
 
 import pytest
 
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.errors import UsageError
 from audiosteg.cli.options import (
     add_message_options,
     add_reading_options,
     algorithm_key,
     file_path,
-    legacy_key,
     message_source,
     passphrase_source,
 )
 
 
-@pytest.mark.parametrize(("check", "known"), [(algorithm_key, ALGORITHMS), (legacy_key, LEGACY_ALGORITHMS)])
-def test_only_known_names_are_accepted(check: Callable[[str], str], known: dict[str, object]) -> None:
-    assert [check(name) for name in known] == list(known)
-    for name in ("PRIVATE", "", "LSB", "lsb "):
-        with pytest.raises(UsageError, match=", ".join(known)) as caught:
-            check(name)
+def test_only_known_names_are_accepted() -> None:
+    assert [algorithm_key(name) for name in ALGORITHMS] == list(ALGORITHMS)
+    for name in ("PRIVATE", "", "LSB", "lsb ", "basic", "enhanced", "enhanced_flip"):
+        with pytest.raises(UsageError, match=", ".join(ALGORITHMS)) as caught:
+            algorithm_key(name)
         assert "PRIVATE" not in str(caught.value)
 
 

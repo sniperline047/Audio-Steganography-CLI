@@ -27,8 +27,8 @@ def test_the_public_names() -> None:
     assert namespace.keys() - {"__builtins__"} == {
         "Algorithm", "CapacityError", "DamagedMessageError", "InvalidMessageError",
         "MissingLibraryError", "NoMessageError", "NotEncryptedError", "PassphraseRequiredError",
-        "StegoError", "UnsafeOutputError", "UnsuitableAudioError", "UnsupportedAlgorithmError",
-        "UnsupportedFormatError", "WrongPassphraseError", "decode", "encode",
+        "StegoError", "UnsafeOutputError", "UnsuitableAudioError", "UnsupportedFormatError",
+        "WrongPassphraseError", "decode", "encode",
     }  # fmt: skip
 
 

@@ -12,14 +12,12 @@ from audiosteg import Algorithm, decode, encode
 from audiosteg.algorithms import detection
 from audiosteg.algorithms.detection import detect, undetectable_here
 from audiosteg.algorithms.echo import ECHO
-from audiosteg.algorithms.legacy import BASIC_LSB, ENHANCED_LSB, ENHANCED_LSB_FLIP
 from audiosteg.algorithms.lsb import LSB, LSB_2
 from audiosteg.algorithms.lsb_four import LSB_4
 from audiosteg.algorithms.lsb_keyed import LSB_KEYED
 from audiosteg.algorithms.lsb_matching import LSB_MATCHING
 from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.core import crypto
-from audiosteg.core.algorithm import LegacyAlgorithm
 from audiosteg.core.header import Header
 from audiosteg.errors import (
     DamagedMessageError,
@@ -32,7 +30,7 @@ from audiosteg.errors import (
 )
 
 PLAIN = bytes.fromhex("4153544701000000000348c3a9a411cc3b")
-OLD_BASIC = bytes(int(digit) for digit in f"{24:032b}" + "".join(f"{byte:08b}" for byte in b"Old"))
+UNMARKED = bytes(int(digit) for digit in f"{24:032b}" + "".join(f"{byte:08b}" for byte in b"Old"))
 
 SECOND_BIT = Algorithm(
     "Second bit", 1, lambda byte, bits: (byte & 253) | (bits[0] << 1), lambda byte: ((byte >> 1) & 1,)
@@ -75,7 +73,7 @@ def test_an_encrypted_message_made_by_another_program_is_read(
     assert decode(path, passphrase="Café ☕") == known_answer.message
 
 
-@pytest.mark.parametrize("frames", [b"", b"\0", bytes(79), bytes(4000), b"\xff" * 4000, OLD_BASIC])
+@pytest.mark.parametrize("frames", [b"", b"\0", bytes(79), bytes(4000), b"\xff" * 4000, UNMARKED])
 def test_audio_without_a_message(make_wav: Callable[..., Path], frames: bytes) -> None:
     path = str(make_wav(frames=frames))
     assert detect(path) is None
@@ -154,25 +152,18 @@ def test_a_passphrase_for_a_plain_message_is_refused(
         decode(path, algorithm, passphrase="key")
 
 
-@pytest.mark.parametrize("algorithm", [BASIC_LSB, ENHANCED_LSB, ENHANCED_LSB_FLIP])
-def test_a_passphrase_for_an_old_file_is_refused(
-    make_wav: Callable[..., Path], algorithm: LegacyAlgorithm
+@pytest.mark.parametrize("algorithm", [None, LSB, LSB_2, LSB_4])
+def test_a_message_without_a_marker_is_not_found(
+    make_wav: Callable[..., Path], algorithm: Algorithm | None
 ) -> None:
-    with pytest.raises(NotEncryptedError, match="Older versions never encrypted"):
-        decode(str(make_wav(frames=OLD_BASIC)), algorithm, passphrase="key")
-
-
-def test_old_files_are_read_only_with_a_chosen_algorithm(make_wav: Callable[..., Path]) -> None:
-    path = str(make_wav(frames=OLD_BASIC))
     with pytest.raises(NoMessageError):
-        decode(path)
-    assert decode(path, BASIC_LSB) == "Old"
+        decode(str(make_wav(frames=UNMARKED)), algorithm)
 
 
-@pytest.mark.parametrize("algorithm", [None, LSB, BASIC_LSB])
+@pytest.mark.parametrize("algorithm", [None, LSB])
 @pytest.mark.parametrize("passphrase", ["", "a\0b", "\udcff"])
 def test_an_unusable_passphrase_is_refused_for_every_file(
-    make_wav: Callable[..., Path], algorithm: Algorithm | LegacyAlgorithm | None, passphrase: str
+    make_wav: Callable[..., Path], algorithm: Algorithm | None, passphrase: str
 ) -> None:
     with pytest.raises(ValueError, match="The passphrase"):
         decode(str(make_wav()), algorithm, passphrase=passphrase)

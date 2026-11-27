@@ -2,8 +2,8 @@
 
 import pytest
 
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
-from audiosteg.cli.guided.labels import algorithm_label, explain_label, old_label
+from audiosteg.algorithms.registry import ALGORITHMS
+from audiosteg.cli.guided.labels import algorithm_label, explain_label
 
 MISSING = " (cannot encrypt here)"
 
@@ -30,5 +30,5 @@ def test_nothing_is_marked_with_the_library(key: str) -> None:
 
 
 def test_every_label_fits_in_80_columns_after_the_pointer(no_library: None, no_numpy: None) -> None:
-    labels = [*map(algorithm_label, ALGORITHMS), *map(old_label, LEGACY_ALGORITHMS)]
+    labels = [*map(algorithm_label, ALGORITHMS), *map(explain_label, ALGORITHMS)]
     assert {label: len(label) for label in labels if len(f" > {label}") >= 80} == {}

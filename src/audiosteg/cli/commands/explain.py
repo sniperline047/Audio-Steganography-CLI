@@ -5,10 +5,10 @@ import sys
 from collections.abc import Callable
 
 from audiosteg.algorithms.echo import EchoHiding
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.commands.hide import SAMPLE_WORD, find_input
 from audiosteg.cli.errors import UsageError
-from audiosteg.cli.options import file_path
+from audiosteg.cli.options import algorithm_key, file_path
 from audiosteg.cli.questions import ask_line
 from audiosteg.cli.views import View
 from audiosteg.core.algorithm import Algorithm
@@ -18,18 +18,9 @@ EXAMPLES = """examples:
   audiosteg explain
   audiosteg explain lsb
   audiosteg explain lsb_2 --letter A --file song.wav
-  audiosteg explain basic
 """
 DEFAULT_LETTER = "h"
 CONTINUE = "Press Enter to continue."
-
-
-def known_key(text: str) -> str:
-    """Check the name of an algorithm, which may be one of older versions."""
-    keys = [*ALGORITHMS, *LEGACY_ALGORITHMS]
-    if text not in keys:
-        raise UsageError(f"Unknown algorithm. Choose from: {', '.join(keys)}.")
-    return text
 
 
 def one_character(text: str) -> str:
@@ -43,7 +34,7 @@ def check_options(args: argparse.Namespace) -> None:
     """Refuse options that cannot be used."""
     options = {"--letter": args.letter, "--file": args.file, "--step": args.step or None}
     given = [name for name, value in options.items() if value is not None]
-    if given and args.algorithm not in ALGORITHMS:
+    if given and args.algorithm is None:
         raise UsageError(f"{given[0]} needs one of these algorithms: {', '.join(ALGORITHMS)}.")
     if args.step and args.json:
         raise UsageError("--step cannot be used with --json.")
@@ -87,12 +78,10 @@ def explain(
     :param word: The path of a WAV file, or the word sample
     :param pause: Function that is called between the steps
     """
-    from audiosteg.cli.explain_view import show_legacy, show_list
+    from audiosteg.cli.explain_view import show_list
 
     if key is None:
         show_list(view)
-    elif key in LEGACY_ALGORITHMS:
-        show_legacy(view, key)
     else:
         explain_hiding(view, key, letter, find_input(word), pause)
 
@@ -111,7 +100,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "algorithm",
         nargs="?",
-        type=known_key,
+        type=algorithm_key,
         metavar="ALGORITHM",
         help="the algorithm to explain (default: list them)",
     )

@@ -26,7 +26,6 @@ class RevealResult:
 
     file: str
     algorithm: str
-    legacy: bool
     encrypted: bool
     message: str = field(repr=False)
 

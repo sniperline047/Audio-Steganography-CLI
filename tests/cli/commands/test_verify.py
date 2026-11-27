@@ -51,7 +51,6 @@ def test_a_difference_is_reported_and_fails(run: Any, make_wav: Callable[..., Pa
         "command": "verify",
         "file": str(output),
         "algorithm": "lsb",
-        "legacy": False,
         "encrypted": False,
         "exact_match": False,
         "percentage": 62.5,
@@ -95,25 +94,6 @@ def test_a_damaged_message_is_an_error_not_a_score(
     assert "Error: The hidden message is damaged" in result.errors
 
 
-@pytest.mark.parametrize(("key", "bits"), [("basic", 1), ("enhanced", 2)])
-def test_an_expected_message_may_be_as_long_as_an_old_message(
-    run: Any, make_wav: Callable[..., Path], key: str, bits: int
-) -> None:
-    path = make_wav(frames=bytes(320))
-    limit = 2 * ((320 * bits - 32) // 8)
-    fits = run("verify", path, "--legacy", key, stdin=b"x" * limit)
-    assert (fits.code, "Accuracy: 0.00%" in fits.output) == (1, True)
-    assert run("verify", path, "--legacy", key, stdin=b"x" * (limit + 1)).output == ""
-
-
-def test_a_long_latin_1_message_of_an_old_file_matches(run: Any, make_wav: Callable[..., Path]) -> None:
-    hidden = b"\xe9" * 100
-    digits = f"{len(hidden) * 8:032b}" + "".join(f"{byte:08b}" for byte in hidden)
-    path = make_wav(frames=bytes(int(digit) for digit in digits))
-    assert run("reveal", path, "--legacy", "basic").output == "é" * 100
-    assert run("verify", path, "--legacy", "basic", stdin=("é" * 100).encode()).code == 0
-
-
 def test_an_expected_message_may_be_as_long_as_the_largest_message(
     run: Any, make_wav: Callable[..., Path], tmp_path: Path
 ) -> None:
@@ -145,8 +125,3 @@ def test_a_file_without_a_message_is_an_error_not_a_score(run: Any, make_wav: Ca
     result = run("verify", make_wav(frames=b"\xff" * 200), "-m", "")
     assert (result.code, result.output) == (1, "")
     assert "No hidden message" in result.errors
-
-
-def test_an_old_file_is_compared(run: Any, make_wav: Callable[..., Path]) -> None:
-    path = make_wav(frames=bytes(32))
-    assert run("verify", path, "-m", "", "--legacy", "basic").code == 0

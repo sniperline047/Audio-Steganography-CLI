@@ -37,26 +37,10 @@ Every error the package raises on purpose is a `StegoError`, except `ValueError`
 | `PassphraseRequiredError` | The message is encrypted, or the algorithm always encrypts, and no passphrase was given |
 | `UnsafeOutputError` | The output path could damage another file |
 | `UnsuitableAudioError` | The sound is long enough, but the message could not be read back from it |
-| `UnsupportedAlgorithmError` | The algorithm cannot hide new messages |
 | `UnsupportedFormatError` | The WAV file or the message format cannot be read |
 | `WrongPassphraseError` | Wrong passphrase, or the message was changed |
 
 File problems raise the usual `OSError` types, such as `FileNotFoundError`. A null character in an input path raises `ValueError`.
-
-## Read files from older versions
-
-Files made by older versions are not detected. Choose how they were encoded:
-
-```python
-from audiosteg import decode
-from audiosteg.algorithms.legacy import BASIC_LSB
-
-print(decode("old.wav", BASIC_LSB))
-```
-
-The other choices are `ENHANCED_LSB_FLIP` and `ENHANCED_LSB`, which read each other's files. These algorithms cannot hide new messages.
-
-The oldest of these files stored one byte per character. If a message is not valid UTF-8, it is read as Latin-1, so most old messages still decode. A few old messages with accented letters also happen to be valid UTF-8 and show different characters. The earliest files, which have no length header and are padded with `#`, are not supported.
 
 ## Moving from the old layout
 
@@ -64,15 +48,9 @@ The oldest of these files stored one byte per character. If a message is not val
 | --- | --- |
 | `python cli/main.py`, `python -m cli.main` | `audiosteg`, `python -m audiosteg` |
 | `basic_lsb_steganography.encode(source, output, message)` | `encode(source, output, message, LSB)` |
-| `basic_lsb_steganography.decode(path)` | `decode(path)` for new files, `decode(path, BASIC_LSB)` for old files |
-| `from algorithms import basic_lsb_steganography` | `from audiosteg.algorithms.legacy import BASIC_LSB` (read only) |
-| `from algorithms import enhanced_lsb_steganography_no_flip` | `from audiosteg.algorithms.legacy import ENHANCED_LSB` (read only) |
-| `from algorithms import enhanced_lsb_steganography_with_flip` | `from audiosteg.algorithms.legacy import ENHANCED_LSB_FLIP` (read only) |
+| `basic_lsb_steganography.decode(path)` | `decode(path)` |
 | `encode(source, output, message, BASIC_LSB)` | `encode(source, output, message, LSB)` |
 | `encode(source, output, message, ENHANCED_LSB)`, `encode(source, output, message, ENHANCED_LSB_FLIP)` | `encode(source, output, message, LSB_2)` |
-| `from audiosteg.algorithms.basic_lsb import BASIC_LSB` | `from audiosteg.algorithms.legacy import BASIC_LSB` (read only) |
-| `from audiosteg.algorithms.enhanced_lsb import ENHANCED_LSB` | `from audiosteg.algorithms.legacy import ENHANCED_LSB` (read only) |
-| `from audiosteg.algorithms.enhanced_lsb_flip import ENHANCED_LSB_FLIP` | `from audiosteg.algorithms.legacy import ENHANCED_LSB_FLIP` (read only) |
 | `from audiosteg.core.stego_file import decode` | `from audiosteg import decode` |
 | One default output file per algorithm | `INPUT.stego.wav` |
 | `input/original_sample.wav` | `src/audiosteg/data/sample.wav` |
