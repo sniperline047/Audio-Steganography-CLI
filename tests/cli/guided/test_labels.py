@@ -41,3 +41,8 @@ def test_every_choice_carries_its_explanation(key: str) -> None:
 def test_every_label_fits_in_80_columns_after_the_pointer(no_library: None, no_numpy: None) -> None:
     labels = [*map(algorithm_label, ALGORITHMS), *map(explain_label, ALGORITHMS)]
     assert {label: len(label) for label in labels if len(f" > {label}") >= 80} == {}
+
+
+@pytest.mark.parametrize("key", ALGORITHMS)
+def test_every_hint_fits_in_80_columns(key: str) -> None:
+    assert len(f"  Description: {explain_choice(key).description}") <= 80

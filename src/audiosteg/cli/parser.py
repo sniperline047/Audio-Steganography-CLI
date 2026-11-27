@@ -119,7 +119,10 @@ def parse(parser: Parser, commands: dict[str, Parser], words: Sequence[str]) -> 
             raise UsageError(f"Unknown option. Did you mean {similar[0]}?")
     if args.command == "compare" and follows_play(options_only):
         raise UsageError(f"There is an extra word. {NOT_A_SOUND}")
-    raise UsageError(
+    unknown = (
         "The command line has an unknown option or an extra word. "
-        "It is not shown here because it may be private. -p takes no value: it asks for the passphrase."
+        "It is not shown here because it may be private."
     )
+    if any(word in ("-p", "--passphrase") for word in options_only):
+        unknown += " -p takes no value: it asks for the passphrase."
+    raise UsageError(unknown)

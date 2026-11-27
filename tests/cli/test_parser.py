@@ -63,6 +63,25 @@ def test_wrong_usage_is_explained_without_any_value(run: Any, words: list[str], 
         assert "SECRET" not in shown
 
 
+@pytest.mark.parametrize(
+    ("words", "hinted"),
+    [
+        (["reveal", "in.wav", "-p", "SECRET"], True),
+        (["reveal", "in.wav", "--passphrase", "SECRET"], True),
+        (["reveal", "in.wav", "--legacy"], False),
+        (["reveal", "in.wav", "SECRET"], False),
+        (["hide", "in.wav", "-m", "x", "--", "-p", "SECRET"], False),
+    ],
+)
+def test_the_passphrase_hint_is_given_only_with_a_passphrase_option(
+    run: Any, words: list[str], hinted: bool
+) -> None:
+    result = run(*words)
+    assert result.code == 2
+    assert "unknown option or an extra word" in result.errors
+    assert (PASSPHRASE_HELP in result.errors) is hinted
+
+
 def test_a_value_that_looks_like_an_option_is_a_value(
     run: Any, make_wav: Callable[..., Path], tmp_path: Path
 ) -> None:
