@@ -54,13 +54,11 @@ Reads a hidden message. The algorithm is detected.
 audiosteg reveal song.stego.wav
 audiosteg reveal song.stego.wav > message.txt
 audiosteg reveal song.stego.wav --passphrase_file key.txt
-audiosteg reveal old.wav --legacy basic
 ```
 
 | Option | Meaning |
 | --- | --- |
 | `-a`, `--algorithm` | The algorithm, instead of detecting it |
-| `--legacy` | `basic`, `enhanced`, or `enhanced_flip`, for files of older versions, which are not detected |
 | `-p`, `--passphrase` | Ask for the passphrase. A terminal asks without this option if the message is encrypted. |
 | `--passphrase_file FILE` | Read the passphrase from a file |
 
@@ -113,7 +111,7 @@ Only the header of the message was read, so damage further on is not detected. A
 
 The room of `echo` is what may fit. The sound decides whether it really does, so it is no promise.
 
-`none detected` does not mean that a file has no hidden message: messages of `lsb_keyed`, files of older versions, and messages of other tools cannot be detected. A message of `lsb_matching` is shown as `lsb`. Without NumPy, messages of `echo` are not looked for, and the program says so if it finds no other message. A header that is damaged or of an unknown version is reported. Because only the header is read, damage in the message itself is found by `reveal`, not here. The exit code is 0 in all these cases.
+`none detected` does not mean that a file has no hidden message: messages of `lsb_keyed` and messages of other tools cannot be detected. A message of `lsb_matching` is shown as `lsb`. Without NumPy, messages of `echo` are not looked for, and the program says so if it finds no other message. A header that is damaged or of an unknown version is reported. Because only the header is read, damage in the message itself is found by `reveal`, not here. The exit code is 0 in all these cases.
 
 ## compare
 
@@ -282,11 +280,9 @@ Try it
 The file song.wav is one of yours. At 44,100 frames a second, this message needs 9.5 s of it, so the tune sample is too short.
 ```
 
-For an algorithm of older versions, it says why the algorithm was replaced, and the options are not allowed.
-
 ## algorithms
 
-Lists the names that `-a` and `--legacy` accept.
+Lists the names that `-a` accepts, each with the full name of the algorithm, such as `Enhanced LSB (2 bit)` for `lsb_2`, and one line about it.
 
 ## Passphrases
 
@@ -304,12 +300,12 @@ The JSON document has `ok` and `command`, and:
 | Result | Other fields |
 | --- | --- |
 | `hide` | `input`, `output`, `algorithm`, `encrypted`, `gain` (below 1 if the whole file was made quieter, which only `echo` does) |
-| `reveal` | `file`, `algorithm`, `legacy`, `encrypted`, `message` |
-| `verify` | `file`, `algorithm`, `legacy`, `encrypted`, `exact_match`, `percentage`, `expected_length`, `found_length` |
+| `reveal` | `file`, `algorithm`, `encrypted`, `message` |
+| `verify` | `file`, `algorithm`, `encrypted`, `exact_match`, `percentage`, `expected_length`, `found_length` |
 | `inspect` | `file`, `bits`, `channels`, `sample_rate`, `frames`, `seconds`, `cannot_hide` (a reason or `null`), `capacity` (a list of `algorithm`, `plain`, `encrypted`, `always_encrypted` (if it is `true`, `plain` is 0), and `at_most` (if it is `true`, the sound decides how much really fits)), `messages` (a list of `algorithm`, `encrypted`, `size`, `problem`; empty if none was detected), `not_checked` (the algorithms whose messages could not be looked for without NumPy) |
 | `compare` | `original`, `encoded`, `first_frame`, `frames`, `total_frames`, `identical`, `quality`, the numbers below, `difference` (`file`, which is absolute, `gain`, and `capped`, or `null`) |
-| `explain` | Without a name, like `algorithms`. With one, `key`, `name`, `bits_per_byte`, `explanation`, `legacy`, and for an old algorithm `replaced_because`, for others `samples_per_group`, `needs_passphrase`, `reads_like`, `frames_per_bit`, `letter`, `utf_8`, `file`, `first_frame`, `silent`, `how`, `demo_seed`, `samples`, `groups`, `read_back`, `largest_possible_change`, `strengths`, `weaknesses`. For `echo` also `delays`, `level`, `gain`, `blocks` |
-| `algorithms` | `algorithms` and `legacy`: lists of `key`, `name`, `bits_per_byte`, `explanation`. In `algorithms` also `samples_per_group`, `needs_passphrase`, `reads_like` (the algorithm that its messages are reported as, or `null`), and `frames_per_bit` (`null` unless whole blocks of sound carry the bits) |
+| `explain` | Without a name, like `algorithms`. With one, `key`, `name`, `bits_per_byte`, `explanation`, `samples_per_group`, `needs_passphrase`, `reads_like`, `frames_per_bit`, `letter`, `utf_8`, `file`, `first_frame`, `silent`, `how`, `demo_seed`, `samples`, `groups`, `read_back`, `largest_possible_change`, `strengths`, `weaknesses`. For `echo` also `delays`, `level`, `gain`, `blocks` |
+| `algorithms` | `algorithms`: a list of `key`, `name`, `bits_per_byte`, `explanation`, `samples_per_group`, `needs_passphrase`, `reads_like` (the algorithm that its messages are reported as, or `null`), and `frames_per_bit` (`null` unless whole blocks of sound carry the bits) |
 | `--version` | `version` (`command` is `null`) |
 | Error | `error`: `type`, `message`, `hint` (or `null`), `exit_code` |
 
@@ -321,7 +317,7 @@ With `echo`, `samples_per_group` counts the samples of one channel, `samples` an
 
 `ok` says whether the command finished. If `verify` finds a difference, `ok` is `true`, `exact_match` is `false`, and the exit code is 1. Paths in these fields are as given, except `output` and the file of `difference`, which are absolute, and the input `sample`, which is shown as the path of the included file. Only `reveal` shows a message. A passphrase is never shown.
 
-The error types are `usage`, `cancelled`, `interrupted`, `input_ended`, `out_of_memory`, `file`, `file_exists`, `file_not_found`, `invalid_value`, `capacity`, `damaged_message`, `invalid_message`, `missing_library`, `no_message`, `not_encrypted`, `passphrase_required`, `unsafe_output`, `unsuitable_audio`, `unsupported_algorithm`, `unsupported_format`, and `wrong_passphrase`.
+The error types are `usage`, `cancelled`, `interrupted`, `input_ended`, `out_of_memory`, `file`, `file_exists`, `file_not_found`, `invalid_value`, `capacity`, `damaged_message`, `invalid_message`, `missing_library`, `no_message`, `not_encrypted`, `passphrase_required`, `unsafe_output`, `unsuitable_audio`, `unsupported_format`, and `wrong_passphrase`.
 
 ## Exit codes
 
@@ -343,9 +339,9 @@ If the output is closed (for example, by a pipe such as `| head`), the code is 1
 - Ctrl-C leaves with code 130. Ctrl-D at the main menu leaves like Exit. Ctrl-D at any other question leaves with code 1; at a text question, only if nothing is typed yet.
 - An empty message and replacing a file must be confirmed: type `y` and Enter.
 - A message that does not fit is refused at once, and only algorithms that can hold it are offered.
-- `lsb_keyed` always asks for a passphrase. If no message is detected in a file, Reveal and Verify offer another file, `lsb_keyed`, or an older version. After a passphrase that finds nothing, try another or go back.
+- `lsb_keyed` always asks for a passphrase. If no message is detected in a file, Reveal and Verify offer another file or `lsb_keyed`. After a passphrase that finds nothing, try another or go back.
 - If a passphrase does not open an `echo` message, try another or look for a `lsb_keyed` message in the same file.
-- `echo` is offered if the file is long enough. If not, the program says that the sound is too short. Without NumPy, the menus say `needs NumPy` next to it, and choosing it says how to install it.
+- `echo` is offered if the file is long enough. If not, the program says that the sound is too short. Without NumPy, its hint in the menus starts with `Needs NumPy.`, and choosing it says how to install it.
 - Compare asks whether to show three lines, everything, or what you choose. It then offers to play the sounds, if the system has a player.
 - After each action, it shows the command that does the same. The message and the passphrase are never part of it. A command is not shown if a file name or another answer has characters that a shell could change.
 
@@ -360,8 +356,6 @@ The numbered menu of earlier versions is gone, so scripts that typed its numbers
 | 1) Encode a message | `audiosteg hide` |
 | 2) Decode a message | `audiosteg reveal` |
 | 3) Calculate accuracy | `audiosteg verify` |
-| An algorithm number | `-a lsb` or `-a lsb_2` |
-| An old algorithm number | `--legacy basic`, `enhanced_flip`, or `enhanced` |
 | `message_encoded.wav` | `INPUT.stego.wav` |
 
 ## Audio files

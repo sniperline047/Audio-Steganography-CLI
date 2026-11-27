@@ -14,7 +14,7 @@ def extract_four_bits(byte: int) -> tuple[int, ...]:
 
 
 LSB_4 = Algorithm(
-    name="LSB_4 (4 bits per sample)",
+    name="Enhanced LSB (4 bit)",
     bits_per_byte=4,
     embed_bits=embed_four_bits,
     extract_bits=extract_four_bits,

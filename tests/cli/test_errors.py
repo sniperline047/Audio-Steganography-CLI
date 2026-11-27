@@ -12,12 +12,11 @@ from conftest import ALL, PROJECT_ROOT
 from audiosteg import decode, encode
 from audiosteg.algorithms.lsb import LSB, LSB_2
 from audiosteg.cli.commands import reveal
-from audiosteg.cli.errors import CancelledError, UsageError, error_type, explain, next_step
+from audiosteg.cli.errors import CancelledError, UsageError, explain, next_step
 from audiosteg.errors import (
     MissingLibraryError,
     NoMessageError,
     PassphraseRequiredError,
-    UnsupportedAlgorithmError,
 )
 
 
@@ -146,7 +145,7 @@ def test_the_documentation_lists_every_error_type() -> None:
     documentation = (PROJECT_ROOT / "docs" / "commands.md").read_text(encoding="utf-8")
     listed = set(re.findall("`([a-z_]+)`", re.search("The error types are (.*)\n", documentation)[1]))
     tested = {case[0] for case in ERRORS} | {"interrupted", "out_of_memory", "missing_library"}
-    assert listed == tested | {error_type(UnsupportedAlgorithmError())}
+    assert listed == tested
 
 
 def test_the_hint_for_an_existing_file_is_true(run: Any, folder: Path) -> None:

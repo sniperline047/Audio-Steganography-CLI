@@ -38,7 +38,7 @@ The division is rounded down. One character can take up to four UTF-8 bytes.
 
 ## Audio quality
 
-These are signal-to-noise ratios for the included sample (higher is better). The plain rows hide the 43 characters `Hello Peter. I have been waiting for you...`, repeated without a space and cut to 43, 1,024, or 10,240 bytes. The numbers are rounded down. Encrypted messages are random, so their rows are averages of five runs and change a little every time, and so does `LSB_PARITY`. The old algorithms cannot hide messages anymore; their rows were measured with an earlier version and another message may have been used.
+These are signal-to-noise ratios for the included sample (higher is better). The plain rows hide the 43 characters `Hello Peter. I have been waiting for you...`, repeated without a space and cut to 43, 1,024, or 10,240 bytes. The numbers are rounded down. Encrypted messages are random, so their rows are averages of five runs and change a little every time, and so does `LSB_PARITY`.
 
 | Algorithm | 43 B | 1 KB | 10 KB |
 | --- | --- | --- | --- |
@@ -53,11 +53,8 @@ These are signal-to-noise ratios for the included sample (higher is better). The
 | `LSB_PARITY`, plain | 101.5 dB | 88.9 dB | does not fit |
 | `LSB_PARITY`, encrypted | 99.2 dB | 88.8 dB | does not fit |
 | `LSB_KEYED`, encrypted | 99.3 dB | 88.8 dB | 79.0 dB |
-| Old Basic | 57.9 dB | 43.9 dB | 33.9 dB |
-| Old Enhanced without flipping | 40.0 dB | 28.1 dB | 17.9 dB |
-| Old Enhanced with flipping | 40.5 dB | 27.8 dB | 17.6 dB |
 
-The old algorithms also changed the high byte of 16-bit samples, so the start of the file could have audible noise. `LSB_PARITY` changes as many samples as `LSB` for the same message, but spreads them over 8 times as many. No algorithm is proven to resist detection by statistics.
+`LSB_PARITY` changes as many samples as `LSB` for the same message, but spreads them over 8 times as many. No algorithm is proven to resist detection by statistics.
 
 ## Container layout
 

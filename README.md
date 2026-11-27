@@ -279,10 +279,10 @@ Read line 1 like this: the bit to hide is `0`, but the sample ends in `1`. So it
 ```bash
 audiosteg explain
 audiosteg explain lsb_2 --letter M
-audiosteg explain basic
+audiosteg explain lsb_parity --letter M
 ```
 
-They list every algorithm, show how two bits fit in each sample, and tell you why the project's first algorithm was retired.
+They list every algorithm, show how two bits fit in each sample, and show how one bit is spread over 8 samples.
 
 ## Go deeper
 
@@ -291,7 +291,7 @@ They list every algorithm, show how two bits fit in each sample, and tell you wh
 | [Commands](docs/commands.md) | Every option, the menu, JSON, exit codes, supported audio files |
 | [Metrics](docs/metrics.md) | What SNR and the other numbers mean, and what they can't tell you |
 | [Algorithms and file format](docs/file_format.md) | How much fits, sound quality, every byte of the format, security |
-| [Use from Python](docs/python_api.md) | The Python API, files from older versions, moving from the old layout |
+| [Use from Python](docs/python_api.md) | The Python API, moving from the old layout |
 | [Contributing](CONTRIBUTING.md) | Project layout, development, adding your own algorithm |
 
 ## License

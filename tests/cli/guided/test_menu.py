@@ -8,7 +8,6 @@ from typing import Any
 import pytest
 
 from audiosteg import decode
-from audiosteg.algorithms.registry import ALGORITHMS as KNOWN
 
 DOWN, ENTER, ESCAPE, CTRL_C, CTRL_D = "\x1b[B", "\r", "\x1b", "\x03", "\x04"
 MENU = "What would you like to do?"
@@ -104,7 +103,7 @@ def test_hide_reveal_and_verify_the_sample(guide: Any, tmp_path: Path) -> None:
         "The message does not match",
         "The same as a command: audiosteg verify sample.stego.wav\n",
         MENU,
-        "enhanced_flip",
+        "lsb_keyed",
         "The same as a command: audiosteg algorithms\n",
         MENU,
     ]:
@@ -114,13 +113,12 @@ def test_hide_reveal_and_verify_the_sample(guide: Any, tmp_path: Path) -> None:
 
 @pytest.mark.usefixtures("plain")
 def test_a_failure_returns_to_the_menu_and_a_later_success_does_not_hide_it(
-    guide: Any, make_wav: Callable[..., Path], tmp_path: Path
+    guide: Any, make_wav: Callable[..., Path], embed: Callable[..., bytes], tmp_path: Path
 ) -> None:
-    make_wav(frames=b"\xff" * 800)
+    make_wav(frames=embed(b"ASTG\x01\0\0\0\0\x01A\0\0\0\0", 1) + b"\xff" * 800)
     result = guide(
         REVEAL,
         ("hidden message:", f"input.wav{ENTER}"),
-        ("How may the message be hidden?", DOWN * 2 + ENTER),
         REVEAL,
         ("hidden message:", ESCAPE),
         HIDE,
@@ -133,7 +131,7 @@ def test_a_failure_returns_to_the_menu_and_a_later_success_does_not_hide_it(
         leave=False,
     )
     assert result.code == 1
-    assert "Error: No hidden message was found." in result.text
+    assert "Error: The hidden message is damaged" in result.text
     assert decode(str(tmp_path / "input.stego.wav")) == "fits"
 
 
@@ -156,7 +154,8 @@ def test_back_from_every_first_question_returns_to_the_menu(guide: Any, tmp_path
         COMPARE,
         ("Original (sample means the included tune) [sample]:", ESCAPE),
         EXPLAIN,
-        ("Which algorithm?", DOWN * (len(KNOWN) + 3) + ENTER),
+        ("Which algorithm?", ENTER),
+        ("Character to hide [h]:", ENTER),
         EXPLAIN,
         ("Which algorithm?", ESCAPE),
         EXIT,

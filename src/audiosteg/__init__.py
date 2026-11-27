@@ -14,7 +14,6 @@ from audiosteg.errors import (
     StegoError,
     UnsafeOutputError,
     UnsuitableAudioError,
-    UnsupportedAlgorithmError,
     UnsupportedFormatError,
     WrongPassphraseError,
 )
@@ -31,7 +30,6 @@ __all__ = [
     "StegoError",
     "UnsafeOutputError",
     "UnsuitableAudioError",
-    "UnsupportedAlgorithmError",
     "UnsupportedFormatError",
     "WrongPassphraseError",
     "decode",

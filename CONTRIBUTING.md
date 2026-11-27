@@ -42,7 +42,6 @@ Audio-Steganography-CLI/
 │   ├── algorithms/
 │   │   ├── detection.py    Detection and decode
 │   │   ├── echo.py         Short echoes in blocks of sound
-│   │   ├── legacy.py       Reading files from older versions
 │   │   ├── lsb.py          lsb and lsb_2
 │   │   ├── lsb_four.py     Four bits per sample
 │   │   ├── lsb_keyed.py    Scattered by a passphrase

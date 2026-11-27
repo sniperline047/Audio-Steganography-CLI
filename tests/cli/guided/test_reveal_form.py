@@ -15,8 +15,8 @@ from audiosteg.algorithms.lsb_keyed import LSB_KEYED
 DOWN, ENTER, ESCAPE, CTRL_C, CTRL_D = "\x1b[B", "\r", "\x1b", "\x03", "\x04"
 REVEAL, VERIFY = (("What would you like to do?", DOWN * number + ENTER) for number in (1, 2))
 FILE = "WAV file with the hidden message:"
-UNDETECTED = "How may the message be hidden?"
-OTHER_FILE, KEYED, BASIC = ((UNDETECTED, DOWN * number + ENTER) for number in range(3))
+UNDETECTED = "How was it hidden?"
+OTHER_FILE, KEYED = ((UNDETECTED, DOWN * number + ENTER) for number in range(2))
 NEXT = "What next?"
 NOT_ENCRYPTED = "This message was not encrypted, so anyone could have written it."
 
@@ -73,15 +73,15 @@ def test_another_file_after_back_is_read_without_the_old_message_and_passphrase(
 
 
 @pytest.mark.usefixtures("plain")
-def test_a_back_out_of_the_old_algorithms_leads_to_a_detected_file(
+def test_a_back_out_of_the_question_leads_to_a_detected_file(
     guide: Any, make_wav: Callable[..., Path]
 ) -> None:
-    make_wav(name="old.wav", frames=bytes(32))
+    make_wav(name="silent.wav", frames=bytes(32))
     result = guide(
         REVEAL,
-        file("old.wav"),
-        (UNDETECTED, DOWN * 5 + ENTER),
-        file("old.wav"),
+        file("silent.wav"),
+        (UNDETECTED, DOWN * 2 + ENTER),
+        file("silent.wav"),
         (UNDETECTED, ESCAPE),
         file("plain.wav"),
     )
@@ -89,34 +89,31 @@ def test_a_back_out_of_the_old_algorithms_leads_to_a_detected_file(
     assert "The same as a command: audiosteg reveal plain.wav\n" in result.text
 
 
-@pytest.mark.parametrize(("position", "key"), [(0, "basic"), (1, "enhanced_flip"), (2, "enhanced")])
-def test_the_command_for_an_old_file(
-    guide: Any, run: Any, make_wav: Callable[..., Path], position: int, key: str
-) -> None:
-    make_wav(name="old.wav", frames=bytes(32))
-    old = (UNDETECTED, DOWN * (position + 2) + ENTER)
-    result = guide(VERIFY, file("old.wav"), old, ("Expected message:", ESCAPE), old, ("Expected", ENTER))
-    assert (result.code, "The message matches" in result.text) == (0, True)
-    assert f"The same as a command: audiosteg verify old.wav --legacy {key}\n" in result.text
-    assert run("verify", "old.wav", "--legacy", key, "-m", "").code == 0
-
-
 @pytest.mark.usefixtures("plain")
 def test_a_file_without_a_message_after_back_is_not_read_as_the_file_before(
     guide: Any, make_wav: Callable[..., Path]
 ) -> None:
-    make_wav(name="old.wav", frames=bytes(32))
+    make_wav(name="silent.wav", frames=bytes(32))
     result = guide(
-        VERIFY, file("plain.wav"), ("Expected", ESCAPE), file("old.wav"), BASIC, ("Expected", ENTER)
+        VERIFY,
+        file("plain.wav"),
+        ("Expected", ESCAPE),
+        file("silent.wav"),
+        OTHER_FILE,
+        file("plain.wav"),
+        ("Expected", f"plain message{ENTER}"),
     )
     assert (result.code, "The message matches" in result.text) == (0, True)
+    assert "No message was detected." in result.text
 
 
+@pytest.mark.needs_crypto
+@pytest.mark.usefixtures("fast_scrypt")
 def test_a_failure_does_not_show_hints_about_options(guide: Any, make_wav: Callable[..., Path]) -> None:
     make_wav(name="other.wav", frames=b"\xff" * 400)
-    result = guide(REVEAL, file("other.wav"), BASIC)
-    assert (result.code, "Error: No hidden message was found." in result.text) == (1, True)
-    assert "--legacy" not in result.text and "hide made" not in result.text
+    result = guide(REVEAL, file("other.wav"), KEYED, passphrase("sesame"), (NEXT, CTRL_C), leave=False)
+    assert "Error: No hidden message was found with this passphrase." in result.text
+    assert "hide made" not in result.text and "add -p" not in result.text
 
 
 def test_a_damaged_or_unusable_file_is_asked_again(
@@ -129,7 +126,6 @@ def test_a_damaged_or_unusable_file_is_asked_again(
     assert "format version 2" in result.text
     assert "it is longer than the audio file" in result.text
     assert "not a regular file" in result.text
-    assert "older version" not in result.text
 
 
 def test_a_message_that_turns_out_to_be_damaged_is_a_failure(
@@ -202,9 +198,8 @@ def test_a_keyed_message_is_read_after_a_wrong_passphrase(guide: Any, run: Any) 
 
 
 @pytest.mark.needs_crypto
-@pytest.mark.usefixtures("scattered")
-def test_back_out_of_a_keyed_message(guide: Any, make_wav: Callable[..., Path]) -> None:
-    make_wav(name="old.wav", frames=bytes(32))
+@pytest.mark.usefixtures("scattered", "plain")
+def test_back_out_of_a_keyed_message(guide: Any) -> None:
     result = guide(
         VERIFY,
         file("scattered.wav"),
@@ -213,9 +208,8 @@ def test_back_out_of_a_keyed_message(guide: Any, make_wav: Callable[..., Path]) 
         ("Expected", ESCAPE),
         ("Passphrase:", ESCAPE),
         (UNDETECTED, ESCAPE),
-        file("old.wav"),
-        BASIC,
-        ("Expected", ENTER),
+        file("plain.wav"),
+        ("Expected", f"plain message{ENTER}"),
     )
     assert (result.code, "The message matches" in result.text) == (0, True)
 
@@ -256,13 +250,14 @@ def test_a_keyed_message_behind_an_encrypted_echo_can_be_read(
     assert "The same as a command: audiosteg reveal both.wav\n" in back.text
 
 
+@pytest.mark.usefixtures("plain")
 def test_a_keyed_message_cannot_be_read_without_the_library(
     guide: Any, make_wav: Callable[..., Path], no_library: None
 ) -> None:
-    make_wav(name="old.wav", frames=bytes(32))
-    result = guide(REVEAL, file("old.wav"), KEYED, BASIC)
+    make_wav(name="silent.wav", frames=bytes(32))
+    result = guide(REVEAL, file("silent.wav"), KEYED, OTHER_FILE, file("plain.wav"))
     assert "Error: Encryption needs an optional library." in result.text
-    assert "The same as a command: audiosteg reveal old.wav --legacy basic\n" in result.text
+    assert "The same as a command: audiosteg reveal plain.wav\n" in result.text
 
 
 @pytest.mark.needs_crypto
@@ -293,7 +288,7 @@ def test_enter_for_a_file_without_a_message_asks_for_another_file(
     make_wav(name="nothing.wav")
     result = guide(REVEAL, file("nothing.wav"), OTHER_FILE, file("plain.wav"))
     assert (result.code, "Passphrase:" in result.text) == (0, False)
-    assert "No message was detected. lsb_keyed or an older version may have made" in result.text
+    assert "No message was detected. lsb_keyed may have made this file." in result.text
     assert "\nplain message\n" in result.text
 
 

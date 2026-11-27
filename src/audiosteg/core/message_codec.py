@@ -3,7 +3,7 @@
 from collections.abc import Iterable, Iterator
 from contextlib import suppress
 
-from audiosteg.core.algorithm import Algorithm, ExtractBits
+from audiosteg.core.algorithm import Algorithm
 from audiosteg.errors import DamagedMessageError, InvalidMessageError
 
 
@@ -41,12 +41,6 @@ def bits_to_bytes(bits: Iterable[int]) -> bytes:
             value = 0
             count = 0
     return bytes(result)
-
-
-def extract_all(sample_bytes: bytes, extract_bits: ExtractBits) -> Iterator[int]:
-    """Yield the hidden bits of every given byte."""
-    for byte in sample_bytes:
-        yield from extract_bits(byte)
 
 
 def extract_groups(low_bytes: bytes, algorithm: Algorithm) -> Iterator[int]:

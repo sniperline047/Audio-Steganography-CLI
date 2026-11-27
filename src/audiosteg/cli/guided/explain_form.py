@@ -1,14 +1,14 @@
 """The questions before an algorithm is explained."""
 
-from questionary import Choice
-
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.commands.explain import DEFAULT_LETTER, one_character
 from audiosteg.cli.errors import UsageError
 from audiosteg.cli.guided.equivalent import command_line
-from audiosteg.cli.guided.labels import explain_label, old_label
+from audiosteg.cli.guided.labels import explain_choice
 from audiosteg.cli.guided.prompter import Prompter, Step
 from audiosteg.core.signal_algorithm import check_library
+
+ALGORITHM_QUESTION = "Which algorithm?"
 
 
 class ExplainForm:
@@ -21,22 +21,13 @@ class ExplainForm:
         self.letter = DEFAULT_LETTER
 
     def ask_algorithm(self) -> bool:
-        """Ask for one of the algorithms, old ones last."""
-        self.algorithm = self.prompter.choose(
-            "Which algorithm?",
-            [
-                *[Choice(explain_label(key), value=key) for key in ALGORITHMS],
-                *[Choice(old_label(key), value=key) for key in LEGACY_ALGORITHMS],
-            ],
-        )
-        if self.algorithm in ALGORITHMS:
-            check_library(ALGORITHMS[self.algorithm])
+        """Ask for one of the algorithms."""
+        self.algorithm = self.prompter.choose(ALGORITHM_QUESTION, [explain_choice(key) for key in ALGORITHMS])
+        check_library(ALGORITHMS[self.algorithm])
         return True
 
     def ask_letter(self) -> bool:
         """Ask for the character to hide."""
-        if self.algorithm in LEGACY_ALGORITHMS:
-            return False
         try:
             self.letter = one_character(self.prompter.text("Character to hide", DEFAULT_LETTER))
         except UsageError as error:
@@ -50,6 +41,6 @@ class ExplainForm:
     def command(self) -> str | None:
         """Return the same command."""
         words = ["audiosteg", "explain", self.algorithm]
-        if self.algorithm in ALGORITHMS and self.letter != DEFAULT_LETTER:
+        if self.letter != DEFAULT_LETTER:
             words += ["--letter", self.letter]
         return command_line(*words)

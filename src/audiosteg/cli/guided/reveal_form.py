@@ -3,7 +3,7 @@
 from questionary import Choice
 
 from audiosteg.algorithms.detection import undetectable_here
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.commands.reveal import (
     KEYED_ALGORITHM,
     HiddenMessage,
@@ -12,7 +12,7 @@ from audiosteg.cli.commands.reveal import (
     read_message,
 )
 from audiosteg.cli.guided.equivalent import command_line, path_word
-from audiosteg.cli.guided.labels import algorithm_label, old_label
+from audiosteg.cli.guided.labels import algorithm_choice
 from audiosteg.cli.guided.prompter import GoBack, Prompter, Step
 from audiosteg.cli.results import RevealResult
 from audiosteg.core import crypto
@@ -20,6 +20,7 @@ from audiosteg.core.signal_algorithm import SignalAlgorithm
 from audiosteg.errors import NoMessageError, WrongPassphraseError
 
 ANOTHER_FILE = ""
+UNDETECTED_QUESTION = "How was it hidden?"
 TRY_ANOTHER = "Try another passphrase"
 
 
@@ -53,24 +54,20 @@ class RevealForm:
         """Ask how a message may be hidden if none was detected."""
         if self.detected:
             return False
-        maybe = f"No message was detected. {KEYED_ALGORITHM} or an older version may have made this file."
+        maybe = f"No message was detected. {KEYED_ALGORITHM} may have made this file."
         self.prompter.view.note(" ".join([maybe, *not_checked(undetectable_here())]))
         key = self.prompter.choose(
-            "How may the message be hidden?",
+            UNDETECTED_QUESTION,
             [
                 Choice("Not sure: choose another file", value=ANOTHER_FILE),
-                Choice(algorithm_label(KEYED_ALGORITHM), value=KEYED_ALGORITHM),
-                *[Choice(old_label(name), value=name) for name in LEGACY_ALGORITHMS],
+                algorithm_choice(KEYED_ALGORITHM),
             ],
         )
         if key == ANOTHER_FILE:
             raise GoBack
         self.result = None
-        if key == KEYED_ALGORITHM:
-            crypto.check_available()
-            self.hidden = find_message(self.file, algorithm=key)
-        else:
-            self.hidden = find_message(self.file, legacy=key)
+        crypto.check_available()
+        self.hidden = find_message(self.file, algorithm=key)
         return True
 
     def ask_passphrase(self) -> bool:
@@ -120,8 +117,6 @@ class RevealForm:
     def command(self, name: str) -> str | None:
         """Return the same command without the expected message and the passphrase, which it asks for."""
         words = ["audiosteg", name, path_word(self.file)]
-        if self.hidden is not None and self.hidden.legacy:
-            words += ["--legacy", self.hidden.algorithm]
-        elif self.hidden is not None and not self.detected:
+        if self.hidden is not None and not self.detected:
             words += ["-a", self.hidden.algorithm]
         return command_line(*words)

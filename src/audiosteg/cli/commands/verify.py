@@ -2,8 +2,7 @@
 
 import argparse
 
-from audiosteg.algorithms.legacy import HEADER_BITS
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.accuracy import compare_messages
 from audiosteg.cli.commands.reveal import reveal
 from audiosteg.cli.options import add_message_options, add_reading_options, file_path, message_source
@@ -17,7 +16,6 @@ EXAMPLES = """examples:
   audiosteg verify song.stego.wav -m "Hello"
   audiosteg verify song.stego.wav --message_file letter.txt
 """
-UTF_8_BYTES_PER_LATIN_1_BYTE = 2
 
 
 def verify(revealed: RevealResult, expected: str) -> VerifyResult:
@@ -25,20 +23,17 @@ def verify(revealed: RevealResult, expected: str) -> VerifyResult:
     return VerifyResult(revealed, compare_messages(expected, revealed.message))
 
 
-def largest_message(file: str, legacy: str | None) -> int:
+def largest_message(file: str) -> int:
     """Return the most UTF-8 bytes that the message in a WAV file can have."""
     with open_pcm_wav(file) as audio:
-        sample_bytes = count_sample_bytes(audio, file)
-        samples, channels = sample_bytes // audio.getsampwidth(), audio.getnchannels()
-    if legacy is not None:
-        stored = max(sample_bytes * LEGACY_ALGORITHMS[legacy].bits_per_byte - HEADER_BITS, 0) // 8
-        return stored * UTF_8_BYTES_PER_LATIN_1_BYTE
+        samples = count_sample_bytes(audio, file) // audio.getsampwidth()
+        channels = audio.getnchannels()
     return max(count_message_bytes(samples, known, False, channels) for known in ALGORITHMS.values())
 
 
 def run(args: argparse.Namespace, view: View) -> int:
     """Run the command. Return the exit code, which is 1 if the messages differ."""
-    limit = largest_message(args.file, args.legacy)
+    limit = largest_message(args.file)
     expected = message_source(args).read("Expected message: ", limit)
     result = verify(reveal(args, view), expected)
     view.show_verify(result)

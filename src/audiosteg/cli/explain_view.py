@@ -3,7 +3,7 @@
 import unicodedata
 from collections.abc import Callable
 
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.analysis.walkthrough import DEMO_SEED, Walkthrough, largest_possible_change
 from audiosteg.cli.change_view import change_fields, group_fields, show_groups, show_samples
 from audiosteg.cli.commands.hide import SAMPLE_FILE, SAMPLE_WORD
@@ -11,7 +11,6 @@ from audiosteg.cli.views import View, clean_for_json, count_word, describe, disp
 from audiosteg.core.algorithm import Algorithm
 from audiosteg.core.signal_algorithm import SignalAlgorithm
 
-REPLACED = " (old files only)"
 FROM_THE_START = "The hide command itself starts at the first sample and puts a header before the message."
 DEMO = f'This is a demo: the seed "{DEMO_SEED}" made the order. It never uses a passphrase of yours.'
 SCATTERED = (
@@ -35,28 +34,11 @@ def show_letter(letter: str) -> str:
 def show_list(view: View) -> None:
     """Show one line about every algorithm."""
     if view.as_json:
-        fields = {"algorithms": describe(ALGORITHMS), "legacy": describe(LEGACY_ALGORITHMS)}
-        view.show_json("explain", True, fields)
+        view.show_json("explain", True, {"algorithms": describe(ALGORITHMS)})
         return
-    rows = [(key, known.explanation) for key, known in ALGORITHMS.items()]
-    rows += [(key, f"{known.explanation}{REPLACED}") for key, known in LEGACY_ALGORITHMS.items()]
+    rows = [(key, f"{known.name}. {known.explanation}") for key, known in ALGORITHMS.items()]
     view.out.panel("What can be explained", rows, "cyan")
     view.note(f"To see one work, name it: audiosteg explain {next(iter(ALGORITHMS))}")
-
-
-def show_legacy(view: View, key: str) -> None:
-    """Explain why an algorithm of older versions was replaced."""
-    algorithm = LEGACY_ALGORITHMS[key]
-    if view.as_json:
-        fields = {**describe({key: algorithm})[0], "legacy": True}
-        view.show_json("explain", True, {**fields, "replaced_because": list(algorithm.replaced_because)})
-        return
-    view.out.spans((algorithm.name, "bold"))
-    view.out.line(algorithm.explanation)
-    view.out.line("It can read old files, but it cannot hide new messages. It was replaced because:")
-    for reason in algorithm.replaced_because:
-        view.out.line(f"- {reason}")
-    view.out.line(f"To read an old file: audiosteg reveal old.wav --legacy {key}")
 
 
 def show_step(view: View, title: str, *lines: str) -> None:
@@ -171,7 +153,6 @@ def show_walkthrough(
     if view.as_json:
         fields = {
             **describe({key: algorithm})[0],
-            "legacy": False,
             "letter": walkthrough.letter,
             "utf_8": walkthrough.data.hex(),
             "file": clean_for_json(path),

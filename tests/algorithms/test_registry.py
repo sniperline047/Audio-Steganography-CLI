@@ -4,20 +4,18 @@ import re
 from collections.abc import Callable
 from itertools import product
 from pathlib import Path
-from typing import Any
 
 import pytest
 from conftest import EVERY_KEY, PLAIN_KEYS, needed_passphrase, noise_for
 
 from audiosteg import Algorithm, decode, encode
 from audiosteg.algorithms.echo import ECHO
-from audiosteg.algorithms.legacy import BASIC_LSB, ENHANCED_LSB, ENHANCED_LSB_FLIP
 from audiosteg.algorithms.lsb import LSB, LSB_2
 from audiosteg.algorithms.lsb_four import LSB_4
 from audiosteg.algorithms.lsb_keyed import LSB_KEYED
 from audiosteg.algorithms.lsb_matching import LSB_MATCHING
 from audiosteg.algorithms.lsb_parity import LSB_PARITY
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS, reading_key
+from audiosteg.algorithms.registry import ALGORITHMS, reading_key
 from audiosteg.analysis.inspection import inspect as look_at
 
 every_byte_algorithm = pytest.mark.parametrize(
@@ -37,23 +35,28 @@ def test_the_documented_names_and_the_order_of_detection_do_not_change() -> None
         ("lsb_keyed", LSB_KEYED),
         ("echo", ECHO),
     ]
-    assert LEGACY_ALGORITHMS == {
-        "basic": BASIC_LSB,
-        "enhanced_flip": ENHANCED_LSB_FLIP,
-        "enhanced": ENHANCED_LSB,
-    }
 
 
-@pytest.mark.parametrize("algorithms", [ALGORITHMS, LEGACY_ALGORITHMS])
-def test_every_algorithm_has_a_usable_name_and_one_line_of_explanation(algorithms: Any) -> None:
-    for key, algorithm in algorithms.items():
+def test_the_names_shown_to_people_do_not_change() -> None:
+    assert [known.name for known in ALGORITHMS.values()] == [
+        "LSB (1 bit per sample)",
+        "Enhanced LSB (2 bit)",
+        "Enhanced LSB (4 bit)",
+        "LSB matching (1 bit per sample)",
+        "LSB parity (1 bit per 8 samples)",
+        "LSB keyed (1 bit per sample, scattered)",
+        "Echo (1 bit per block of 1,024 frames)",
+    ]
+
+
+def test_every_algorithm_has_a_usable_name_and_one_line_of_explanation() -> None:
+    for key, algorithm in ALGORITHMS.items():
         assert re.fullmatch("[a-z][a-z0-9_]*", key)
         assert algorithm.explanation and algorithm.explanation.isprintable()
 
 
 def test_no_two_algorithms_look_the_same() -> None:
-    algorithms = [*ALGORITHMS.values(), *LEGACY_ALGORITHMS.values()]
-    names = [algorithm.name.casefold() for algorithm in algorithms]
+    names = [algorithm.name.casefold() for algorithm in ALGORITHMS.values()]
     assert len(set(names)) == len(names)
 
 

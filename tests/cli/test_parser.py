@@ -27,10 +27,10 @@ PASSPHRASE_HELP = "-p takes no value: it asks for the passphrase."
         (["hide", "in.wav", "--passphrase=TOP_SECRET"], "A value was given to an option that takes none."),
         (["hide", "in.wav", "--force=SECRET"], "A value was given to an option that takes none."),
         (["hide", "in.wav", "-a", "TOP_SECRET"], "Unknown algorithm. Choose from: lsb, lsb_2, lsb_4,"),
-        (["reveal", "in.wav", "--legacy", "TOP_SECRET"], "Unknown old algorithm. Choose from: basic,"),
+        (["reveal", "in.wav", "--legacy", "TOP_SECRET"], "unknown option or an extra word"),
         (["reveal", "in.wav", "--TOP_SECRET"], "unknown option or an extra word"),
         (["reveal", "in.wav", "--passphrase_fil=SECRET"], "Did you mean --passphrase_file?"),
-        (["reveal", "in.wav", "--legcy", "SECRET"], "Did you mean --legacy?"),
+        (["reveal", "in.wav", "--algoritm", "SECRET"], "Did you mean --algorithm?"),
         (["-p", "TOP_SECRET"], ""),
         (
             ["TOP_SECRET"],
@@ -41,7 +41,7 @@ PASSPHRASE_HELP = "-p takes no value: it asks for the passphrase."
         (["hide", "in.wav", "-m"], "--message needs a value. If it starts with a dash, write --message="),
         (["hide", "in.wav", "-m", "-SECRET"], "--message needs a value."),
         (["hide", "in.wav", "-m", "x", "--message_file", "TOP_SECRET"], "not allowed with argument"),
-        (["reveal", "in.wav", "-a", "lsb", "--legacy", "basic"], "not allowed with argument"),
+        (["reveal", "in.wav", "-a", "basic"], "Unknown algorithm. Choose from: lsb, lsb_2, lsb_4,"),
         (["reveal", "in.wav", "-p", "--passphrase_file", "SECRET"], "not allowed with argument"),
         (["--TOP_SECRET"], "unknown option or an extra word"),
         (["--versio"], "Did you mean --version?"),
@@ -61,6 +61,25 @@ def test_wrong_usage_is_explained_without_any_value(run: Any, words: list[str], 
     assert (as_json.code, error["type"], error["exit_code"]) == (2, "usage", 2)
     for shown in (result.errors, as_json.output, as_json.errors):
         assert "SECRET" not in shown
+
+
+@pytest.mark.parametrize(
+    ("words", "hinted"),
+    [
+        (["reveal", "in.wav", "-p", "SECRET"], True),
+        (["reveal", "in.wav", "--passphrase", "SECRET"], True),
+        (["reveal", "in.wav", "--legacy"], False),
+        (["reveal", "in.wav", "SECRET"], False),
+        (["hide", "in.wav", "-m", "x", "--", "-p", "SECRET"], False),
+    ],
+)
+def test_the_passphrase_hint_is_given_only_with_a_passphrase_option(
+    run: Any, words: list[str], hinted: bool
+) -> None:
+    result = run(*words)
+    assert result.code == 2
+    assert "unknown option or an extra word" in result.errors
+    assert (PASSPHRASE_HELP in result.errors) is hinted
 
 
 def test_a_value_that_looks_like_an_option_is_a_value(

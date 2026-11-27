@@ -167,7 +167,7 @@ def test_a_file_that_is_made_quieter_never_keeps_its_whole_level(gain: float, sh
 
 
 def test_a_result_does_not_show_its_message() -> None:
-    assert "PRIVATE" not in repr(RevealResult("a.wav", "lsb", False, False, "PRIVATE"))
+    assert "PRIVATE" not in repr(RevealResult("a.wav", "lsb", False, "PRIVATE"))
 
 
 @pytest.mark.parametrize("as_json", [False, True])

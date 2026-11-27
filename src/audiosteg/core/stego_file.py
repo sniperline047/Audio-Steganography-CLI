@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from itertools import count
 
 from audiosteg.core import crypto, keyed, signal_file
-from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
+from audiosteg.core.algorithm import Algorithm
 from audiosteg.core.header import (
     HEADER_SIZE,
     Header,
@@ -36,7 +36,6 @@ from audiosteg.errors import (
     DamagedMessageError,
     NoMessageError,
     PassphraseRequiredError,
-    UnsupportedAlgorithmError,
 )
 from audiosteg.utils.output_path import check_output_path, normalize_output_path
 
@@ -147,8 +146,6 @@ def hide_message(
     overwrite: bool,
 ) -> float:
     """Do what encode does. Return what every sample was multiplied by: 1, or less to prevent clipping."""
-    if isinstance(algorithm, LegacyAlgorithm):
-        raise UnsupportedAlgorithmError("This algorithm can only read old files, not hide messages.")
     check_algorithm(algorithm)
     check_key(algorithm, passphrase)
     check_library(algorithm)

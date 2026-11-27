@@ -160,7 +160,6 @@ def walkthrough_fields(
     """Return the JSON fields of a walkthrough. Those that only other algorithms have are empty."""
     return {
         **describe({key: algorithm})[0],
-        "legacy": False,
         "letter": walkthrough.letter,
         "utf_8": walkthrough.data.hex(),
         "file": clean_for_json(path),

@@ -17,7 +17,7 @@ pytestmark = pytest.mark.needs_signal
 
 FIELDS_OF_THE_OTHERS = {
     "ok", "command", "key", "name", "bits_per_byte", "explanation", "samples_per_group",
-    "needs_passphrase", "reads_like", "frames_per_bit", "legacy", "letter", "utf_8", "file", "first_frame",
+    "needs_passphrase", "reads_like", "frames_per_bit", "letter", "utf_8", "file", "first_frame",
     "silent", "how", "demo_seed", "samples", "groups", "read_back", "largest_possible_change", "strengths",
     "weaknesses",
 }  # fmt: skip

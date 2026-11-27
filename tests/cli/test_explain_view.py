@@ -10,16 +10,15 @@ from typing import Any
 import pytest
 from conftest import ALL, PROJECT_ROOT
 
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.explain_view import show_letter
 from audiosteg.core.algorithm import Algorithm
 
 
 def test_the_list(run: Any) -> None:
     result = run("explain")
-    known = [f"{key}: {value.explanation}" for key, value in ALGORITHMS.items()]
-    old = [f"{key}: {value.explanation} (old files only)" for key, value in LEGACY_ALGORITHMS.items()]
-    assert result.output.splitlines() == ["What can be explained", *known, *old]
+    known = [f"{key}: {value.name}. {value.explanation}" for key, value in ALGORITHMS.items()]
+    assert result.output.splitlines() == ["What can be explained", *known]
     assert result.errors == "To see one work, name it: audiosteg explain lsb\n"
     as_json = run("explain", "--json")
     fields = json.loads(as_json.output)
@@ -35,36 +34,13 @@ def test_the_whole_text_is_the_one_in_the_documentation(run: Any) -> None:
     assert result.output == example.removeprefix("\n")
 
 
-@pytest.mark.parametrize("key", LEGACY_ALGORITHMS)
-def test_an_old_algorithm_says_why_it_was_replaced(run: Any, key: str) -> None:
-    algorithm = LEGACY_ALGORITHMS[key]
+@pytest.mark.parametrize(
+    ("key", "heading"), [("lsb_2", "Enhanced LSB (2 bit)"), ("lsb_4", "Enhanced LSB (4 bit)")]
+)
+def test_the_heading_is_the_name_shown_to_people(run: Any, key: str, heading: str) -> None:
     result = run("explain", key)
-    assert (result.code, result.errors) == (0, "")
-    assert result.output.splitlines() == [
-        algorithm.name,
-        algorithm.explanation,
-        "It can read old files, but it cannot hide new messages. It was replaced because:",
-        *[f"- {reason}" for reason in algorithm.replaced_because],
-        f"To read an old file: audiosteg reveal old.wav --legacy {key}",
-    ]
-    assert len(algorithm.replaced_because) >= 3
-    fields = json.loads(run("explain", key, "--json").output)
-    assert fields == {
-        "ok": True,
-        "command": "explain",
-        "key": key,
-        "name": algorithm.name,
-        "bits_per_byte": algorithm.bits_per_byte,
-        "explanation": algorithm.explanation,
-        "legacy": True,
-        "replaced_because": list(algorithm.replaced_because),
-    }
-
-
-def test_only_what_is_true_is_said_about_old_algorithms() -> None:
-    assert "middle bits" not in " ".join(LEGACY_ALGORITHMS["basic"].replaced_because)
-    for key in ("enhanced", "enhanced_flip"):
-        assert "middle bits" in " ".join(LEGACY_ALGORITHMS[key].replaced_because)
+    assert result.output.splitlines()[0] == heading
+    assert json.loads(run("explain", key, "--json").output)["key"] == key
 
 
 @pytest.mark.parametrize(
@@ -196,14 +172,14 @@ def test_json_of_a_new_algorithm(run: Any, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setitem(ALGORITHMS, "high", high)
     fields = json.loads(run("explain", "high", "--json").output)
     assert (fields["key"], fields["name"], fields["bits_per_byte"]) == ("high", "High", 4)
-    assert (fields["legacy"], fields["strengths"], fields["weaknesses"]) == (False, [], [])
+    assert (fields["strengths"], fields["weaknesses"]) == ([], [])
     assert [row["hidden_bits"] for row in fields["samples"]] == ["0110", "1000"]
     assert [row["low_byte_after"][:4] for row in fields["samples"]] == ["0110", "1000"]
     assert (fields["read_back"], fields["largest_possible_change"]) == ("h", 240)
     output = run("explain", "high").output
     assert "Strengths" not in output and "Weaknesses" not in output
     assert "Uses four high bits." in output and '-m "Hello" -a high\n' in output
-    assert "high: Uses four high bits.\n" in run("explain").output
+    assert "high: High. Uses four high bits.\n" in run("explain").output
 
 
 def test_changed_bits_have_a_colour_only_in_a_terminal(run: Any) -> None:

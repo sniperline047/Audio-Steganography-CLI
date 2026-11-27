@@ -2,7 +2,7 @@
 
 import argparse
 
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.errors import UsageError
 from audiosteg.cli.message_input import MessageSource
 from audiosteg.cli.passphrase import PassphraseSource
@@ -12,13 +12,6 @@ def algorithm_key(text: str) -> str:
     """Check the name of an algorithm."""
     if text not in ALGORITHMS:
         raise UsageError(f"Unknown algorithm. Choose from: {', '.join(ALGORITHMS)}.")
-    return text
-
-
-def legacy_key(text: str) -> str:
-    """Check the name of an algorithm of older versions."""
-    if text not in LEGACY_ALGORITHMS:
-        raise UsageError(f"Unknown old algorithm. Choose from: {', '.join(LEGACY_ALGORITHMS)}.")
     return text
 
 
@@ -61,19 +54,12 @@ def add_passphrase_options(parser: argparse.ArgumentParser, purpose: str) -> Non
 
 def add_reading_options(parser: argparse.ArgumentParser) -> None:
     """Add the options that say how to read a message."""
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument(
+    parser.add_argument(
         "-a",
         "--algorithm",
         type=algorithm_key,
         metavar="ALGORITHM",
         help=f"{', '.join(ALGORITHMS)} (default: detect it)",
-    )
-    group.add_argument(
-        "--legacy",
-        type=legacy_key,
-        metavar="ALGORITHM",
-        help=f"for files of older versions: {', '.join(LEGACY_ALGORITHMS)}",
     )
     add_passphrase_options(parser, "to read an encrypted message")
 

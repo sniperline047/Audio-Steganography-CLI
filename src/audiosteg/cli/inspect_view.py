@@ -8,7 +8,7 @@ from audiosteg.cli.views import Rows, View, clean_for_json, count_word, display_
 
 CHANNEL_NAMES = {1: "1 (mono)", 2: "2 (stereo)"}
 NONE_DETECTED = "none detected"
-LIMITS = "Messages of lsb_keyed, of older versions, and of other tools cannot be detected."
+LIMITS = "Messages of lsb_keyed and of other tools cannot be detected."
 HEADER_ONLY = "Only the header of the message was read, so damage further on is not detected."
 
 

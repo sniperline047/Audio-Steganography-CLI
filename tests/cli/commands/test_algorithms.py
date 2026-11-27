@@ -3,22 +3,20 @@
 import json
 from typing import Any
 
-from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS
+from audiosteg.algorithms.registry import ALGORITHMS
 
 
 def test_every_algorithm_is_listed_in_order(run: Any) -> None:
     result = run("algorithms")
     assert (result.code, result.errors) == (0, "")
-    lines = [
-        f"{key}: {known.explanation}" for key, known in [*ALGORITHMS.items(), *LEGACY_ALGORITHMS.items()]
-    ]
-    assert [line for line in result.output.splitlines() if line in lines] == lines
+    lines = [f"{key}: {known.name}. {known.explanation}" for key, known in ALGORITHMS.items()]
+    assert result.output.splitlines() == ["Algorithms (-a)", *lines]
 
 
 def test_json_lists_every_algorithm(run: Any) -> None:
     result = json.loads(run("algorithms", "--json").output)
     assert [algorithm["key"] for algorithm in result["algorithms"]] == list(ALGORITHMS)
-    assert [algorithm["key"] for algorithm in result["legacy"]] == list(LEGACY_ALGORITHMS)
+    assert result.keys() == {"ok", "command", "algorithms"}
 
 
 def test_json_describes_an_algorithm(run: Any) -> None:
@@ -46,4 +44,3 @@ def test_json_describes_an_algorithm(run: Any) -> None:
         "echo": (1024, False, None),
     }
     assert [known["frames_per_bit"] for known in result["algorithms"]] == [None] * 6 + [1024]
-    assert all(known.keys() == {"key", "name", "bits_per_byte", "explanation"} for known in result["legacy"])

@@ -29,10 +29,6 @@ class UnsuitableAudioError(StegoError):
     """The sound cannot carry the message, although it is long enough."""
 
 
-class UnsupportedAlgorithmError(StegoError):
-    """The algorithm cannot hide new messages."""
-
-
 class DamagedMessageError(StegoError):
     """A hidden message was found, but it was changed or cut off."""
 

@@ -95,7 +95,6 @@ def test_a_passphrase_that_finds_nothing_names_what_was_not_looked_for(
     options = [words[0], "input.wav", *words[1:], "--passphrase_file", "key.txt"]
     errors = run(*options).errors
     assert "because NumPy is missing" in errors
-    assert "--legacy basic, enhanced, or enhanced_flip" in errors
     named = run(*options, "-a", "lsb_keyed").errors
     assert "No hidden message was found with this passphrase." in named
     assert "NumPy" not in named
@@ -187,38 +186,24 @@ def test_a_passphrase_for_a_plain_message_is_refused(
 ) -> None:
     path, key_file = hide("hidden"), tmp_path / "key.txt"
     key_file.write_text("key")
-    for words in (["-p"], ["--passphrase_file", key_file], ["-p", "--legacy", "basic"]):
+    for words in (["-p"], ["--passphrase_file", key_file]):
         result = run("reveal", path, *words)
         assert (result.code, result.output) == (1, "")
         assert "not encrypted" in result.errors
 
 
-@pytest.mark.parametrize(("key", "answer"), [("basic", "one"), ("enhanced_flip", "two"), ("enhanced", "two")])
-def test_an_old_file_is_read_with_the_chosen_algorithm(
-    run: Any, make_wav: Callable[..., Path], key: str, answer: str
-) -> None:
-    digits = f"{24:032b}" + "".join(f"{byte:08b}" for byte in answer.encode())
-    if answer == "one":
-        frames = bytes(int(digit) for digit in digits)
-    else:
-        frames = bytes(int(digits[start : start + 2], 2) << 2 for start in range(0, len(digits), 2))
+@pytest.mark.parametrize("bits", [1, 2])
+def test_a_message_without_a_marker_is_no_message(run: Any, make_wav: Callable[..., Path], bits: int) -> None:
+    digits = f"{24:032b}" + "".join(f"{byte:08b}" for byte in b"one")
+    frames = bytes(int(digits[start : start + bits], 2) for start in range(0, len(digits), bits))
     path = make_wav(frames=frames)
-    result = run("reveal", path, "--legacy", key)
-    assert (result.code, result.output, result.errors) == (0, answer, NOT_ENCRYPTED)
-    described = json.loads(run("reveal", path, "--legacy", key, "--json").output)
-    assert (described["algorithm"], described["legacy"], described["message"]) == (key, True, answer)
-    undetected = run("reveal", path)
-    assert undetected.code == 1
-    assert "--legacy" in undetected.errors
-
-
-def test_a_damaged_message_is_not_offered_the_old_algorithms(
-    run: Any, make_wav: Callable[..., Path], embed: Callable[..., bytes]
-) -> None:
-    result = run("reveal", make_wav(frames=embed(b"ASTG\x02\0\0\0\0\0", 1)))
-    assert result.code == 1
-    assert "format version 2" in result.errors
+    result = run("reveal", path)
+    assert (result.code, result.output) == (1, "")
+    assert result.errors.startswith("Error: No hidden message was found.\n")
+    assert "Check that this is the file that hide made" in result.errors
     assert "--legacy" not in result.errors
+    for words in (["--legacy", "basic"], ["-a", "basic"], ["-a", "enhanced"], ["-a", "enhanced_flip"]):
+        assert run("reveal", path, *words).code == 2
 
 
 def test_only_the_chosen_algorithm_is_used(run: Any, hide: Callable[[str], Path]) -> None:
@@ -238,7 +223,6 @@ def test_json_describes_the_message(run: Any, hide: Callable[[str], Path]) -> No
         "command": "reveal",
         "file": str(path),
         "algorithm": "lsb",
-        "legacy": False,
         "encrypted": False,
         "message": UNSAFE,
     }
@@ -317,7 +301,7 @@ def test_a_keyed_message_is_found_with_its_passphrase(
     fields = json.loads(
         run("reveal", keyed, *words, "--passphrase_file", key_file("sesame"), "--json").output
     )
-    assert (fields["algorithm"], fields["legacy"], fields["encrypted"]) == ("lsb_keyed", False, True)
+    assert (fields["algorithm"], fields["encrypted"]) == ("lsb_keyed", True)
 
 
 @pytest.mark.needs_crypto
@@ -398,14 +382,8 @@ def test_the_advice_to_add_a_passphrase_is_given_only_without_one(
 ) -> None:
     path = make_wav(frames=b"\xff" * 800)
     plain = run("reveal", path)
-    assert HINT in plain.errors and "use --legacy basic" in plain.errors
+    assert HINT in plain.errors and "Check that this is the file" in plain.errors
     assert HINT in json.loads(run("reveal", path, "--json").output)["error"]["hint"]
-    legacy = run("reveal", path, "--legacy", "basic")
-    assert (legacy.code, HINT in legacy.errors, "Check that this is the file" in legacy.errors) == (
-        1,
-        False,
-        True,
-    )
 
 
 @pytest.mark.needs_crypto
@@ -418,20 +396,3 @@ def test_the_advice_to_add_a_passphrase_is_not_given_with_one(
         asks = {"hidden": ("sesame",), "terminals": ALL} if options == ["-p"] else {}
         result = run("reveal", make_wav(), *words, *options, **asks)
         assert (result.code, HINT in result.errors, "Check that this" in result.errors) == (1, False, True)
-
-
-@pytest.mark.parametrize(
-    ("key", "others"),
-    [
-        ("basic", "enhanced_flip or enhanced"),
-        ("enhanced_flip", "basic or enhanced"),
-        ("enhanced", "basic or enhanced_flip"),
-    ],
-)
-def test_another_old_algorithm_is_advised_after_one_that_finds_nothing(
-    run: Any, make_wav: Callable[..., Path], key: str, others: str
-) -> None:
-    result = run("reveal", make_wav(frames=b"\xff" * 800), "--legacy", key)
-    assert result.code == 1
-    assert result.errors.endswith(f"Or try another old algorithm: --legacy {others}.\n")
-    assert "use --legacy" not in result.errors
