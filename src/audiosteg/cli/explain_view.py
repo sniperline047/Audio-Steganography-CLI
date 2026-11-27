@@ -36,7 +36,7 @@ def show_list(view: View) -> None:
     if view.as_json:
         view.show_json("explain", True, {"algorithms": describe(ALGORITHMS)})
         return
-    rows = [(key, known.explanation) for key, known in ALGORITHMS.items()]
+    rows = [(key, f"{known.name}. {known.explanation}") for key, known in ALGORITHMS.items()]
     view.out.panel("What can be explained", rows, "cyan")
     view.note(f"To see one work, name it: audiosteg explain {next(iter(ALGORITHMS))}")
 

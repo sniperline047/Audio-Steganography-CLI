@@ -17,7 +17,7 @@ from audiosteg.core.algorithm import Algorithm
 
 def test_the_list(run: Any) -> None:
     result = run("explain")
-    known = [f"{key}: {value.explanation}" for key, value in ALGORITHMS.items()]
+    known = [f"{key}: {value.name}. {value.explanation}" for key, value in ALGORITHMS.items()]
     assert result.output.splitlines() == ["What can be explained", *known]
     assert result.errors == "To see one work, name it: audiosteg explain lsb\n"
     as_json = run("explain", "--json")
@@ -179,7 +179,7 @@ def test_json_of_a_new_algorithm(run: Any, monkeypatch: pytest.MonkeyPatch) -> N
     output = run("explain", "high").output
     assert "Strengths" not in output and "Weaknesses" not in output
     assert "Uses four high bits." in output and '-m "Hello" -a high\n' in output
-    assert "high: Uses four high bits.\n" in run("explain").output
+    assert "high: High. Uses four high bits.\n" in run("explain").output
 
 
 def test_changed_bits_have_a_colour_only_in_a_terminal(run: Any) -> None:
