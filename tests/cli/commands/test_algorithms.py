@@ -9,7 +9,7 @@ from audiosteg.algorithms.registry import ALGORITHMS
 def test_every_algorithm_is_listed_in_order(run: Any) -> None:
     result = run("algorithms")
     assert (result.code, result.errors) == (0, "")
-    lines = [f"{key}: {known.explanation}" for key, known in ALGORITHMS.items()]
+    lines = [f"{key}: {known.name}. {known.explanation}" for key, known in ALGORITHMS.items()]
     assert result.output.splitlines() == ["Algorithms (-a)", *lines]
 
 

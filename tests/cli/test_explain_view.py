@@ -35,6 +35,15 @@ def test_the_whole_text_is_the_one_in_the_documentation(run: Any) -> None:
 
 
 @pytest.mark.parametrize(
+    ("key", "heading"), [("lsb_2", "Enhanced LSB (2 bit)"), ("lsb_4", "Enhanced LSB (4 bit)")]
+)
+def test_the_heading_is_the_name_shown_to_people(run: Any, key: str, heading: str) -> None:
+    result = run("explain", key)
+    assert result.output.splitlines()[0] == heading
+    assert json.loads(run("explain", key, "--json").output)["key"] == key
+
+
+@pytest.mark.parametrize(
     ("letter", "shown"),
     [
         ("h", "'h'"),

@@ -290,7 +290,7 @@ class View:
         if self.as_json:
             self.show_json("algorithms", True, {"algorithms": describe(ALGORITHMS)})
             return
-        rows = [(key, algorithm.explanation) for key, algorithm in ALGORITHMS.items()]
+        rows = [(key, f"{algorithm.name}. {algorithm.explanation}") for key, algorithm in ALGORITHMS.items()]
         self.out.panel("Algorithms (-a)", rows, "cyan")
 
     def show_version(self, version: str) -> None:

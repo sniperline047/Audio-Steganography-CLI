@@ -41,7 +41,7 @@ LSB = Algorithm(
 )
 
 LSB_2 = Algorithm(
-    name="LSB_2 (2 bits per sample)",
+    name="Enhanced LSB (2 bit)",
     bits_per_byte=2,
     embed_bits=embed_two_bits,
     extract_bits=extract_two_bits,

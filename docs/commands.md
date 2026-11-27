@@ -282,7 +282,7 @@ The file song.wav is one of yours. At 44,100 frames a second, this message needs
 
 ## algorithms
 
-Lists the names that `-a` accepts.
+Lists the names that `-a` accepts, each with the full name of the algorithm, such as `Enhanced LSB (2 bit)` for `lsb_2`, and one line about it.
 
 ## Passphrases
 

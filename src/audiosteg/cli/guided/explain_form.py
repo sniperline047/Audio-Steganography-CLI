@@ -1,12 +1,10 @@
 """The questions before an algorithm is explained."""
 
-from questionary import Choice
-
 from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.cli.commands.explain import DEFAULT_LETTER, one_character
 from audiosteg.cli.errors import UsageError
 from audiosteg.cli.guided.equivalent import command_line
-from audiosteg.cli.guided.labels import explain_label
+from audiosteg.cli.guided.labels import explain_choice
 from audiosteg.cli.guided.prompter import Prompter, Step
 from audiosteg.core.signal_algorithm import check_library
 
@@ -22,9 +20,7 @@ class ExplainForm:
 
     def ask_algorithm(self) -> bool:
         """Ask for one of the algorithms."""
-        self.algorithm = self.prompter.choose(
-            "Which algorithm?", [Choice(explain_label(key), value=key) for key in ALGORITHMS]
-        )
+        self.algorithm = self.prompter.choose("Which algorithm?", [explain_choice(key) for key in ALGORITHMS])
         check_library(ALGORITHMS[self.algorithm])
         return True
 

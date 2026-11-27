@@ -43,9 +43,11 @@ def test_an_algorithm_without_its_library_is_explained(guide: Any, no_numpy: Non
 @pytest.mark.needs_signal
 def test_every_algorithm_is_named_in_order(guide: Any) -> None:
     menu = guide(EXPLAIN, (ALGORITHM, ESCAPE)).text
-    names = [f"{key}: {value.explanation}" for key, value in ALGORITHMS.items()]
+    names = [f"{key}: {value.name}" for key, value in ALGORITHMS.items()]
     positions = [menu.index(name) for name in names]
     assert positions == sorted(positions)
+    assert "lsb_2: Enhanced LSB (2 bit)" in menu and "lsb_4: Enhanced LSB (4 bit)" in menu
+    assert ALGORITHMS["lsb"].explanation in menu
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows shows fewer characters")
@@ -97,5 +99,5 @@ def test_a_new_algorithm_is_offered(guide: Any, monkeypatch: pytest.MonkeyPatch)
     new = Algorithm("New", 1, lambda byte, bits: byte & 254 | bits[0], lambda byte: (byte & 1,), "A new one.")
     monkeypatch.setitem(ALGORITHMS, "new_one", new)
     result = guide(EXPLAIN, (ALGORITHM, DOWN * (len(ALGORITHMS) - 1) + ENTER), (LETTER, ENTER))
-    assert "new_one: A new one." in result.text
+    assert "new_one: New" in result.text and "A new one." in result.text
     assert f"{SAME}audiosteg explain new_one\n" in result.text

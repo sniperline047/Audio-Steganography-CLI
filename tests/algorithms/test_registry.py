@@ -37,6 +37,18 @@ def test_the_documented_names_and_the_order_of_detection_do_not_change() -> None
     ]
 
 
+def test_the_names_shown_to_people_do_not_change() -> None:
+    assert [known.name for known in ALGORITHMS.values()] == [
+        "LSB (1 bit per sample)",
+        "Enhanced LSB (2 bit)",
+        "Enhanced LSB (4 bit)",
+        "LSB matching (1 bit per sample)",
+        "LSB parity (1 bit per 8 samples)",
+        "LSB keyed (1 bit per sample, scattered)",
+        "Echo (1 bit per block of 1,024 frames)",
+    ]
+
+
 def test_every_algorithm_has_a_usable_name_and_one_line_of_explanation() -> None:
     for key, algorithm in ALGORITHMS.items():
         assert re.fullmatch("[a-z][a-z0-9_]*", key)

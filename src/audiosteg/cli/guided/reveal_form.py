@@ -12,7 +12,7 @@ from audiosteg.cli.commands.reveal import (
     read_message,
 )
 from audiosteg.cli.guided.equivalent import command_line, path_word
-from audiosteg.cli.guided.labels import algorithm_label
+from audiosteg.cli.guided.labels import algorithm_choice
 from audiosteg.cli.guided.prompter import GoBack, Prompter, Step
 from audiosteg.cli.results import RevealResult
 from audiosteg.core import crypto
@@ -59,7 +59,7 @@ class RevealForm:
             "How may the message be hidden?",
             [
                 Choice("Not sure: choose another file", value=ANOTHER_FILE),
-                Choice(algorithm_label(KEYED_ALGORITHM), value=KEYED_ALGORITHM),
+                algorithm_choice(KEYED_ALGORITHM),
             ],
         )
         if key == ANOTHER_FILE:
