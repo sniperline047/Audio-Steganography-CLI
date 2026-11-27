@@ -25,6 +25,9 @@ from audiosteg.core.wav_io import AudioSize, measure_input
 from audiosteg.errors import CapacityError, MissingLibraryError
 from audiosteg.utils.text import escape_text
 
+ALGORITHM_QUESTION = "Which algorithm?"
+FIRST_IF_UNSURE = "(arrow keys, then Enter; if you are not sure, use the first)"
+
 
 class HideForm:
     """The questions before a message is hidden."""
@@ -111,8 +114,7 @@ class HideForm:
         elif short:
             self.prompter.view.note(f"The sound is too short for {', '.join(short)}.")
         self.algorithm = self.prompter.choose(
-            "Which algorithm? If you are not sure, use the first.",
-            [algorithm_choice(key) for key in keys],
+            ALGORITHM_QUESTION, [algorithm_choice(key) for key in keys], instruction=FIRST_IF_UNSURE
         )
         check_library(ALGORITHMS[self.algorithm])
         if self.is_keyed():

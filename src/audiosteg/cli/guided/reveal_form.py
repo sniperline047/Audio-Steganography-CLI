@@ -20,6 +20,7 @@ from audiosteg.core.signal_algorithm import SignalAlgorithm
 from audiosteg.errors import NoMessageError, WrongPassphraseError
 
 ANOTHER_FILE = ""
+UNDETECTED_QUESTION = "How was it hidden?"
 TRY_ANOTHER = "Try another passphrase"
 
 
@@ -56,7 +57,7 @@ class RevealForm:
         maybe = f"No message was detected. {KEYED_ALGORITHM} may have made this file."
         self.prompter.view.note(" ".join([maybe, *not_checked(undetectable_here())]))
         key = self.prompter.choose(
-            "How may the message be hidden?",
+            UNDETECTED_QUESTION,
             [
                 Choice("Not sure: choose another file", value=ANOTHER_FILE),
                 algorithm_choice(KEYED_ALGORITHM),

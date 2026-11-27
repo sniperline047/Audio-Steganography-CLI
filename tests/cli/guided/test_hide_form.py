@@ -508,7 +508,7 @@ def test_a_keyed_algorithm_that_cannot_be_used_is_explained(
     make_wav()
     result = guide(START, OWN_FILE, INPUT, message("x"), KEYED, FIRST_ALGORITHM, (OUTPUT, ENTER))
     assert "Error: Not installed." in result.text
-    assert "lsb_keyed (cannot encrypt here): " in result.text
+    assert "lsb_keyed: LSB keyed (1 bit per sample, scattered)" in result.text
     assert decode(str(tmp_path / "input.stego.wav")) == "x"
 
 
@@ -580,7 +580,7 @@ def test_an_echo_without_numpy_is_explained(
     make_wav(frames=noise_for("echo"))
     result = guide(START, OWN_FILE, INPUT, message("x"), ECHO_NUMBER, FIRST_ALGORITHM, (OUTPUT, ENTER))
     assert 'To install it, run: pip install ".[signal]"' in result.text
-    assert "echo (needs NumPy): " in result.text
+    assert "echo: Echo (1 bit per block of 1,024 frames)" in result.text
     assert decode(str(tmp_path / "input.stego.wav")) == "x"
 
 

@@ -35,7 +35,7 @@ def test_every_algorithm(guide: Any, run: Any, number: int, key: str) -> None:
 def test_an_algorithm_without_its_library_is_explained(guide: Any, no_numpy: None) -> None:
     number = list(ALGORITHMS).index("echo")
     result = guide(EXPLAIN, (ALGORITHM, DOWN * number + ENTER), (ALGORITHM, CTRL_C), leave=False)
-    assert "echo (needs NumPy): " in result.text
+    assert "echo: Echo (1 bit per block of 1,024 frames)" in result.text
     assert "Error: This algorithm needs an optional library (NumPy)." in result.text
     assert "lsb_keyed: " in result.text
 

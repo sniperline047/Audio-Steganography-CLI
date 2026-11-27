@@ -44,6 +44,7 @@ class GoBack(Exception):
 
 
 BACK = Choice("Back", value=GoBack)
+INSTRUCTION = "(arrow keys, then Enter)"
 
 
 def can_show_menus() -> bool:
@@ -92,10 +93,12 @@ class Prompter:
         except OSError as error:
             raise OutputClosedError("The terminal was closed.") from error
 
-    def choose(self, question: str, choices: list[Choice], last: Choice = BACK) -> Any:
-        """Ask for one choice of a menu."""
+    def choose(
+        self, question: str, choices: list[Choice], last: Choice = BACK, instruction: str = INSTRUCTION
+    ) -> Any:
+        """Ask for one choice of a menu. The instruction is shown only while choosing."""
         menu = questionary.select(
-            question, [*choices, last], pointer=">", instruction="(arrow keys, then Enter)", **self.look
+            question, [*choices, last], pointer=">", instruction=instruction, **self.look
         )
         answer = self.ask(menu, end_with_ctrl_d=True)
         if answer is GoBack:

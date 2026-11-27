@@ -15,7 +15,7 @@ from audiosteg.algorithms.lsb_keyed import LSB_KEYED
 DOWN, ENTER, ESCAPE, CTRL_C, CTRL_D = "\x1b[B", "\r", "\x1b", "\x03", "\x04"
 REVEAL, VERIFY = (("What would you like to do?", DOWN * number + ENTER) for number in (1, 2))
 FILE = "WAV file with the hidden message:"
-UNDETECTED = "How may the message be hidden?"
+UNDETECTED = "How was it hidden?"
 OTHER_FILE, KEYED = ((UNDETECTED, DOWN * number + ENTER) for number in range(2))
 NEXT = "What next?"
 NOT_ENCRYPTED = "This message was not encrypted, so anyone could have written it."
