@@ -4,6 +4,7 @@ import contextlib
 import json
 import os
 from collections.abc import Mapping
+from math import floor
 from typing import Any, TextIO
 
 from rich.cells import cell_len
@@ -18,12 +19,14 @@ from audiosteg.cli.errors import OutputClosedError, UsageError, error_type, expl
 from audiosteg.cli.logo import MINIMUM_WIDTH, draw_logo, plain_title
 from audiosteg.cli.results import HideResult, RevealResult, VerifyResult
 from audiosteg.core.algorithm import Algorithm, LegacyAlgorithm
+from audiosteg.core.signal_algorithm import SignalAlgorithm
 from audiosteg.utils.text import escape_text
 
 DRAWING_CHARACTERS = "╭─╮│╰╯▀▄"
 DUMB_TERMINALS = ("dumb", "unknown")
 NOT_ENCRYPTED = "This message was not encrypted, so anyone could have written it."
 ENCRYPTED = "This message was encrypted."
+MADE_QUIETER = "The result would have been too loud, so the whole file was made quieter ({} of its level)."
 COLUMN_GAP = 2
 PANEL_FRAME = 6
 FEWEST_DIGITS, MOST_DIGITS = 3, 9
@@ -92,6 +95,11 @@ def format_percentage(accuracy: AccuracyResult) -> str:
     """Return a percentage with two decimals. Only an exact match is shown as 100.00%."""
     percentage = accuracy.percentage if accuracy.exact_match else min(accuracy.percentage, 99.99)
     return f"{percentage:.2f}%"
+
+
+def format_gain(gain: float) -> str:
+    """Return a gain as a percentage, rounded down so that only an unchanged sound has 100%."""
+    return f"{floor(gain * 1000) / 1000:.1%}"
 
 
 class Screen:
@@ -211,6 +219,7 @@ class View:
                 "output": clean_for_json(result.output_file),
                 "algorithm": result.algorithm,
                 "encrypted": result.encrypted,
+                "gain": result.gain,
             }
             self.show_json("hide", True, fields)
             return
@@ -225,6 +234,8 @@ class View:
         if not fits:
             self.out.line("Output:")
             self.out.line(path)
+        if result.gain < 1:
+            self.note(MADE_QUIETER.format(format_gain(result.gain)))
 
     def show_reveal(self, result: RevealResult) -> None:
         """Write the message to stdout and everything else to stderr, the protection line last."""
@@ -313,7 +324,9 @@ def reveal_fields(result: RevealResult) -> dict[str, Any]:
     }
 
 
-def describe(algorithms: Mapping[str, Algorithm | LegacyAlgorithm]) -> list[dict[str, Any]]:
+def describe(
+    algorithms: Mapping[str, Algorithm | SignalAlgorithm] | Mapping[str, LegacyAlgorithm],
+) -> list[dict[str, Any]]:
     """Return the JSON fields that describe algorithms."""
     return [
         {
@@ -327,7 +340,7 @@ def describe(algorithms: Mapping[str, Algorithm | LegacyAlgorithm]) -> list[dict
     ]
 
 
-def group_fields(algorithm: Algorithm | LegacyAlgorithm) -> dict[str, Any]:
+def group_fields(algorithm: Algorithm | SignalAlgorithm | LegacyAlgorithm) -> dict[str, Any]:
     """Return the JSON fields that only an algorithm that can hide messages has."""
     if isinstance(algorithm, LegacyAlgorithm):
         return {}
@@ -335,4 +348,5 @@ def group_fields(algorithm: Algorithm | LegacyAlgorithm) -> dict[str, Any]:
         "samples_per_group": algorithm.samples_per_group,
         "needs_passphrase": algorithm.keyed,
         "reads_like": next((key for key, known in ALGORITHMS.items() if known is algorithm.reads_like), None),
+        "frames_per_bit": algorithm.block_frames if isinstance(algorithm, SignalAlgorithm) else None,
     }

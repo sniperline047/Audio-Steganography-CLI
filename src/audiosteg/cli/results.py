@@ -7,12 +7,17 @@ from audiosteg.cli.accuracy import AccuracyResult
 
 @dataclass(frozen=True)
 class HideResult:
-    """A message was hidden."""
+    """
+    A message was hidden.
+
+    :param gain: What every sample was multiplied by: 1, or less if the result would be too loud
+    """
 
     input_file: str
     output_file: str
     algorithm: str
     encrypted: bool
+    gain: float = 1.0
 
 
 @dataclass(frozen=True)

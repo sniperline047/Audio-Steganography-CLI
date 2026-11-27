@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 crypto = ["cryptography>=50.0.0"]
+signal = ["numpy>=2.4"]
 
 [project.scripts]
 audiosteg = "audiosteg.cli.main:main"
@@ -24,7 +25,10 @@ audiosteg = "audiosteg.cli.main:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-markers = ["needs_crypto: needs the optional encryption library"]
+markers = [
+    "needs_crypto: needs the optional encryption library",
+    "needs_signal: needs the optional library NumPy",
+]
 
 [tool.coverage.run]
 branch = true

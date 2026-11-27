@@ -2,7 +2,13 @@
 
 import re
 
-from audiosteg.errors import MissingLibraryError, NoMessageError, PassphraseRequiredError, StegoError
+from audiosteg.errors import (
+    MissingLibraryError,
+    NoMessageError,
+    PassphraseRequiredError,
+    StegoError,
+    UnsuitableAudioError,
+)
 
 
 class UsageError(Exception):
@@ -89,6 +95,8 @@ def next_step(error: BaseException) -> str | None:
         return "Run the command in a terminal, or use --passphrase_file."
     if isinstance(error, NoMessageError):
         return NO_MESSAGE_HINT
+    if isinstance(error, UnsuitableAudioError):
+        return "Use another audio file, or an algorithm that works with every sound, such as lsb."
     if isinstance(error, MissingLibraryError):
         return "Without it, only messages that are not encrypted can be used."
     return None

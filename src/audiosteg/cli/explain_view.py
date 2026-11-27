@@ -8,6 +8,8 @@ from audiosteg.analysis.walkthrough import DEMO_SEED, Walkthrough, largest_possi
 from audiosteg.cli.change_view import change_fields, group_fields, show_groups, show_samples
 from audiosteg.cli.commands.hide import SAMPLE_FILE, SAMPLE_WORD
 from audiosteg.cli.views import View, clean_for_json, count_word, describe, display_path, format_time
+from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.signal_algorithm import SignalAlgorithm
 
 REPLACED = " (old files only)"
 FROM_THE_START = "The hide command itself starts at the first sample and puts a header before the message."
@@ -64,25 +66,29 @@ def show_step(view: View, title: str, *lines: str) -> None:
         view.out.line(line)
 
 
-def show_character(view: View, walkthrough: Walkthrough) -> None:
+def show_character(view: View, letter: str, data: bytes) -> None:
     """Show the bytes and the bits of the character."""
-    data = walkthrough.data
     show_step(
         view,
         "Step 1: turn the character into bits",
-        f"The character {show_letter(walkthrough.letter)} is {count_word(len(data), 'byte')} in UTF-8:",
+        f"The character {show_letter(letter)} is {count_word(len(data), 'byte')} in UTF-8:",
         *[f"  {byte:#04x} = {byte:08b}" for byte in data],
     )
 
 
-def show_place(view: View, key: str, path: str, walkthrough: Walkthrough) -> None:
+def source_name(path: str) -> str:
+    """Return the name of the file that the sound comes from."""
+    return "the included tune" if path == SAMPLE_FILE else display_path(path)
+
+
+def show_place(view: View, path: str, walkthrough: Walkthrough, algorithm: Algorithm) -> None:
     """Show which samples are used."""
-    name = "the included tune" if path == SAMPLE_FILE else display_path(path)
+    name = source_name(path)
     sample_format = walkthrough.format
     count = len(walkthrough.changes)
     time = format_time(walkthrough.first_frame, sample_format.frame_rate)
     silence = ["The whole file is silent."] if walkthrough.silent else []
-    if ALGORITHMS[key].keyed:
+    if algorithm.keyed:
         where = [f"{count_word(count, 'sample')}, scattered over {name}.", *silence, DEMO, SCATTERED]
     else:
         place = (
@@ -92,9 +98,8 @@ def show_place(view: View, key: str, path: str, walkthrough: Walkthrough) -> Non
     show_step(view, "Step 2: take real samples", *where)
 
 
-def show_changes(view: View, key: str, walkthrough: Walkthrough) -> None:
+def show_changes(view: View, walkthrough: Walkthrough, algorithm: Algorithm) -> None:
     """Show the lowest bits of the samples before and after."""
-    algorithm = ALGORITHMS[key]
     how = [algorithm.how] if algorithm.how else []
     show_step(view, "Step 3: put the bits into the samples", *how)
     if algorithm.parity:
@@ -105,11 +110,10 @@ def show_changes(view: View, key: str, walkthrough: Walkthrough) -> None:
         view.out.line(ALREADY_HELD)
 
 
-def show_result(view: View, key: str, walkthrough: Walkthrough) -> None:
+def show_result(view: View, walkthrough: Walkthrough, algorithm: Algorithm) -> None:
     """Show what the changes mean and that the character can be read again."""
     changed = sum(change.change != 0 for change in walkthrough.changes)
     largest = max(abs(change.change) for change in walkthrough.changes)
-    algorithm = ALGORITHMS[key]
     show_step(
         view,
         "Step 4: read the bits back",
@@ -120,12 +124,16 @@ def show_result(view: View, key: str, walkthrough: Walkthrough) -> None:
     )
 
 
-def show_advice(view: View, key: str) -> None:
-    """Show the strengths, the weaknesses, and commands to try."""
-    algorithm = ALGORITHMS[key]
+def show_sentences(view: View, algorithm: Algorithm | SignalAlgorithm) -> None:
+    """Show the strengths and the weaknesses."""
     for title, sentences in (("Strengths", algorithm.strengths), ("Weaknesses", algorithm.weaknesses)):
         if sentences:
             show_step(view, title, *[f"- {sentence}" for sentence in sentences])
+
+
+def show_advice(view: View, key: str, algorithm: Algorithm) -> None:
+    """Show the strengths, the weaknesses, and commands to try."""
+    show_sentences(view, algorithm)
     passphrase = " -p" if algorithm.keyed else ""
     show_step(
         view,
@@ -135,11 +143,31 @@ def show_advice(view: View, key: str) -> None:
     )
 
 
-def show_walkthrough(
-    view: View, key: str, path: str, walkthrough: Walkthrough, pause: Callable[[], None] | None
+def show_steps(
+    view: View,
+    algorithm: Algorithm | SignalAlgorithm,
+    steps: list[Callable[[], None]],
+    pause: Callable[[], None] | None,
 ) -> None:
-    """Show every step, with a pause between them if that is wanted."""
-    algorithm = ALGORITHMS[key]
+    """Show the name of an algorithm and every step, with a pause between them if that is wanted."""
+    view.out.spans((algorithm.name, "bold"))
+    view.out.line(algorithm.explanation)
+    for number, step in enumerate(steps):
+        if pause is not None and number:
+            pause()
+        view.out.line("")
+        step()
+
+
+def show_walkthrough(
+    view: View,
+    key: str,
+    path: str,
+    walkthrough: Walkthrough,
+    algorithm: Algorithm,
+    pause: Callable[[], None] | None,
+) -> None:
+    """Show what happened to real samples."""
     if view.as_json:
         fields = {
             **describe({key: algorithm})[0],
@@ -161,16 +189,10 @@ def show_walkthrough(
         view.show_json("explain", True, fields)
         return
     steps: list[Callable[[], None]] = [
-        lambda: show_character(view, walkthrough),
-        lambda: show_place(view, key, path, walkthrough),
-        lambda: show_changes(view, key, walkthrough),
-        lambda: show_result(view, key, walkthrough),
-        lambda: show_advice(view, key),
+        lambda: show_character(view, walkthrough.letter, walkthrough.data),
+        lambda: show_place(view, path, walkthrough, algorithm),
+        lambda: show_changes(view, walkthrough, algorithm),
+        lambda: show_result(view, walkthrough, algorithm),
+        lambda: show_advice(view, key, algorithm),
     ]
-    view.out.spans((algorithm.name, "bold"))
-    view.out.line(algorithm.explanation)
-    for number, step in enumerate(steps):
-        if pause is not None and number:
-            pause()
-        view.out.line("")
-        step()
+    show_steps(view, algorithm, steps, pause)

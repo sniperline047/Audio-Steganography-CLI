@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   tests:
-    name: Python ${{ matrix.python }} on ${{ matrix.os }}${{ !matrix.crypto && ' without crypto' || '' }}
+    name: Python ${{ matrix.python }} on ${{ matrix.os }}${{ !matrix.extras && ' without extras' || '' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -23,10 +23,10 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
-        crypto: [true, false]
+        extras: [true, false]
         include:
-          - {os: windows-latest, python: "3.15", crypto: true}
-          - {os: windows-latest, python: "3.15", crypto: false}
+          - {os: windows-latest, python: "3.15", extras: true}
+          - {os: windows-latest, python: "3.15", extras: false}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,27 +34,28 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install -r requirements_dev.txt "${{ matrix.crypto && '.[crypto]' || '.' }}"
+      - run: python -m pip install -r requirements_dev.txt "${{ matrix.extras && '.[crypto,signal]' || '.' }}"
       - name: Check that the installed package is tested
         run: python -c "import audiosteg; assert 'site-packages' in audiosteg.__file__, audiosteg.__file__"
-      - name: Check that the crypto extra is missing
-        if: ${{ !matrix.crypto }}
-        run: python -c "import importlib.util; assert importlib.util.find_spec('cryptography') is None"
-      - name: Test without the crypto extra
-        if: ${{ !matrix.crypto }}
+      - name: Check that the extras are missing
+        if: ${{ !matrix.extras }}
+        run: python -c "from importlib.util import find_spec; assert not any(map(find_spec, ('cryptography', 'numpy')))"
+      - name: Test without the extras
+        if: ${{ !matrix.extras }}
         run: python -m pytest
-      - name: Test with the crypto extra
-        if: ${{ matrix.crypto }}
+      - name: Test with the extras
+        if: ${{ matrix.extras }}
         env:
           AUDIOSTEG_REQUIRE_CRYPTO: "1"
+          AUDIOSTEG_REQUIRE_SIGNAL: "1"
         run: python -m pytest --cov --cov-report=term-missing --cov-report=json
       - name: Add coverage to the job summary
-        if: ${{ !cancelled() && matrix.crypto && matrix.os == 'ubuntu-latest' && matrix.python == '3.15' && hashFiles('.coverage') != '' }}
+        if: ${{ !cancelled() && matrix.extras && matrix.os == 'ubuntu-latest' && matrix.python == '3.15' && hashFiles('.coverage') != '' }}
         run: |
           echo "## Test coverage" >> "$GITHUB_STEP_SUMMARY"
           python -m coverage report --format=markdown --fail-under=0 >> "$GITHUB_STEP_SUMMARY"
       - name: Save coverage
-        if: ${{ !cancelled() && matrix.crypto && matrix.os == 'ubuntu-latest' && matrix.python == '3.15' }}
+        if: ${{ !cancelled() && matrix.extras && matrix.os == 'ubuntu-latest' && matrix.python == '3.15' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage_report
@@ -73,19 +74,20 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.15"
-      - run: python -m pip install -r requirements_dev.txt ".[crypto]"
+      - run: python -m pip install -r requirements_dev.txt ".[crypto,signal]"
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy
-      - name: Audit the development tools, the dependencies, and the crypto extra
+      - name: Audit the development tools, the dependencies, and the extras
         run: |
           set -euo pipefail
           python - > "$RUNNER_TEMP/runtime.txt" <<'EOF'
           import tomllib
           project = tomllib.load(open("pyproject.toml", "rb"))["project"]
-          print(*project["dependencies"], *project["optional-dependencies"]["crypto"], sep="\n")
+          extras = project["optional-dependencies"].values()
+          print(*project["dependencies"], *[package for extra in extras for package in extra], sep="\n")
           EOF
-          for name in rich questionary cryptography; do grep -q "^$name" "$RUNNER_TEMP/runtime.txt"; done
+          for name in rich questionary cryptography numpy; do grep -q "^$name" "$RUNNER_TEMP/runtime.txt"; done
           pip-audit -r requirements_dev.txt -r "$RUNNER_TEMP/runtime.txt"
       - name: Check that the sample audio is reproducible
         run: |
@@ -123,12 +125,19 @@ jobs:
           wheel=$(ls "$RUNNER_TEMP"/dist/*.whl)
           python -m venv "$RUNNER_TEMP/clean"
           python -m venv "$RUNNER_TEMP/clean_crypto"
+          python -m venv "$RUNNER_TEMP/clean_signal"
           "$RUNNER_TEMP/clean/bin/python" -m pip install "$wheel"
           "$RUNNER_TEMP/clean_crypto/bin/python" -m pip install "${wheel}[crypto]"
+          "$RUNNER_TEMP/clean_signal/bin/python" -m pip install "${wheel}[signal]"
           "$RUNNER_TEMP/clean/bin/python" -m pip check
           "$RUNNER_TEMP/clean_crypto/bin/python" -m pip check
-          "$RUNNER_TEMP/clean/bin/python" -c "import importlib.util; assert importlib.util.find_spec('cryptography') is None"
+          "$RUNNER_TEMP/clean_signal/bin/python" -m pip check
+          missing='from importlib.util import find_spec; import sys; assert not any(map(find_spec, sys.argv[1:]))'
+          "$RUNNER_TEMP/clean/bin/python" -c "$missing" cryptography numpy
+          "$RUNNER_TEMP/clean_crypto/bin/python" -c "$missing" numpy
           "$RUNNER_TEMP/clean_crypto/bin/python" -c "import cryptography"
+          "$RUNNER_TEMP/clean_signal/bin/python" -c "$missing" cryptography
+          "$RUNNER_TEMP/clean_signal/bin/python" -c "import numpy"
       - name: Hide and read a message from an empty folder
         run: |
           set -euo pipefail
@@ -138,6 +147,7 @@ jobs:
           chmod 600 key.txt
           plain="$RUNNER_TEMP/clean/bin"
           crypto="$RUNNER_TEMP/clean_crypto/bin"
+          signal="$RUNNER_TEMP/clean_signal/bin"
           "$plain/audiosteg" --version
           "$plain/audiosteg" algorithms --json | python -m json.tool
           for algorithm in lsb lsb_2 lsb_4 lsb_parity lsb_matching; do
@@ -166,6 +176,21 @@ jobs:
           jq -e '.quality == "Excellent" and .largest_change == 1' "$RUNNER_TEMP/compare.json"
           "$plain/audiosteg" explain lsb | grep -F "Reading the same bits gives 'h' again."
           rm sample.stego.wav
+          "$plain/python" - <<'EOF'
+          import random, wave
+          with wave.open("noise.wav", "wb") as audio:
+              audio.setparams((1, 2, 22050, 0, "NONE", ""))
+              audio.writeframes(random.Random(1).randbytes(2 * 500_000))
+          EOF
+          "$signal/audiosteg" hide noise.wav -m "Hello echo" -a echo
+          test "$("$signal/audiosteg" reveal noise.stego.wav)" = "Hello echo"
+          "$signal/audiosteg" verify noise.stego.wav -m "Hello echo"
+          "$signal/audiosteg" explain echo
+          for folder in "$plain" "$crypto"; do
+            if "$folder/audiosteg" reveal noise.stego.wav -a echo 2> "$RUNNER_TEMP/missing.txt"; then exit 1; fi
+            grep -F 'pip install ".[signal]"' "$RUNNER_TEMP/missing.txt"
+          done
+          rm noise.wav noise.stego.wav
           test "$(ls)" = key.txt
 
   badge:

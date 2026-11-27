@@ -20,7 +20,8 @@ from audiosteg.cli.passphrase import ask_new_passphrase
 from audiosteg.cli.views import display_path
 from audiosteg.core import crypto
 from audiosteg.core.message_codec import message_to_bytes
-from audiosteg.core.wav_io import count_input_samples
+from audiosteg.core.signal_algorithm import SignalAlgorithm, check_library
+from audiosteg.core.wav_io import AudioSize, measure_input
 from audiosteg.errors import CapacityError, MissingLibraryError
 from audiosteg.utils.text import escape_text
 
@@ -33,7 +34,7 @@ class HideForm:
         self.prompter = prompter
         self.input_word = SAMPLE_WORD
         self.input_file = SAMPLE_FILE
-        self.samples = 0
+        self.size = AudioSize(0, 1, 1)
         self.output_word = ""
         self.output_file = ""
         self.message = ""
@@ -53,7 +54,7 @@ class HideForm:
         )
         self.input_file = find_input(self.input_word)
         if self.input_word == SAMPLE_WORD:
-            self.samples = count_input_samples(self.input_file)
+            self.size = measure_input(self.input_file)
         return True
 
     def ask_input(self) -> bool:
@@ -61,7 +62,7 @@ class HideForm:
         if self.input_word == SAMPLE_WORD:
             return False
         path = self.prompter.file("Path of the WAV file")
-        self.samples = count_input_samples(path)
+        self.size = measure_input(path)
         self.input_file = path
         self.input_word = path_word(path)
         return True
@@ -69,8 +70,8 @@ class HideForm:
     def ask_message(self) -> bool:
         """Ask for a message that the file can hold."""
         message = self.prompter.text("Message to hide")
-        length, limit = len(message_to_bytes(message)), largest_message(self.samples, encrypted=False)
-        if not fitting_algorithms(message, self.samples, encrypted=False):
+        length, limit = len(message_to_bytes(message)), largest_message(self.size, encrypted=False)
+        if not fitting_algorithms(message, self.size, encrypted=False):
             raise CapacityError(
                 f"The message is too large: it needs {length} bytes and the audio file can hold "
                 f"{limit} bytes. Type a shorter message, or go back and choose a longer audio file."
@@ -88,19 +89,32 @@ class HideForm:
 
     def fitting(self, encrypted: bool) -> list[str]:
         """Return the names of the algorithms that can hold the message."""
-        return fitting_algorithms(self.message, self.samples, encrypted)
+        return fitting_algorithms(self.message, self.size, encrypted)
+
+    def too_short(self) -> list[str]:
+        """Return the names of the algorithms that need a longer sound for any message."""
+        usable = fitting_algorithms("", self.size, encrypted=False)
+        return [
+            key
+            for key, known in ALGORITHMS.items()
+            if isinstance(known, SignalAlgorithm) and key not in usable
+        ]
 
     def ask_algorithm(self) -> bool:
         """Ask for one of the algorithms that can hold the message."""
         keys = self.fitting(encrypted=False)
-        if len(keys) < len(ALGORITHMS):
+        short = self.too_short()
+        if len(keys) + len(short) < len(ALGORITHMS):
             self.prompter.view.note(
                 f"The message is too large for some algorithms. These can hold it: {', '.join(keys)}."
             )
+        elif short:
+            self.prompter.view.note(f"The sound is too short for {', '.join(short)}.")
         self.algorithm = self.prompter.choose(
             "Which algorithm? If you are not sure, use the first.",
             [Choice(algorithm_label(key), value=key) for key in keys],
         )
+        check_library(ALGORITHMS[self.algorithm])
         if self.is_keyed():
             crypto.check_available()
         return True

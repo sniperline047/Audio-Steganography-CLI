@@ -25,6 +25,10 @@ class UnsafeOutputError(StegoError):
     """The output path could damage another file."""
 
 
+class UnsuitableAudioError(StegoError):
+    """The sound cannot carry the message, although it is long enough."""
+
+
 class UnsupportedAlgorithmError(StegoError):
     """The algorithm cannot hide new messages."""
 
@@ -46,4 +50,4 @@ class WrongPassphraseError(StegoError):
 
 
 class MissingLibraryError(StegoError):
-    """Encryption is not available, for example because its library is not installed."""
+    """An optional library is not available, for example because it is not installed."""

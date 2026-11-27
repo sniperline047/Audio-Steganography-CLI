@@ -31,6 +31,7 @@ def folder(
     make_wav(name="private.wav", frames=embed(known_answer.container, 1))
     make_wav(name="damaged.wav", frames=embed(b"ASTG\x01\0\0\0\0\x01A\0\0\0\0", 1))
     make_wav(name="empty.wav", frames=b"\xff" * 800)
+    make_wav(name="silence.wav", frames=bytes(500_000))
     (tmp_path / "text.wav").write_text("not audio " * 10)
     (tmp_path / "bytes.txt").write_bytes(b"PRIVATE \xff")
     (tmp_path / "large.txt").write_bytes(b"PRIVATE" * 100)
@@ -42,6 +43,7 @@ def folder(
 
 HIDE = ["hide", "input.wav", "-m", "PRIVATE"]
 KEY = ["--passphrase_file", "key.txt"]
+EXTRAS = ("crypto", "signal")
 ERRORS = [
     ("usage", 2, ["hide", "input.wav", "--PRIVATE"], {}),
     ("usage", 2, [], {}),
@@ -59,6 +61,7 @@ ERRORS = [
     ("no_message", 1, ["verify", "empty.wav", "-m", "PRIVATE"], {}),
     ("not_encrypted", 1, ["reveal", "plain.wav", *KEY], {}),
     ("passphrase_required", 1, ["reveal", "private.wav"], {"crypto": True}),
+    ("unsuitable_audio", 1, ["hide", "silence.wav", "-m", "PRIVATE", "-a", "echo"], {"signal": True}),
     ("unsafe_output", 1, [*HIDE, "-o", "folder"], {}),
     ("unsupported_format", 1, ["reveal", "text.wav"], {}),
     ("wrong_passphrase", 1, ["verify", "private.wav", "-m", "PRIVATE", *KEY], {"crypto": True}),
@@ -68,14 +71,17 @@ ERRORS = [
 @pytest.mark.parametrize(
     ("name", "code", "words", "options"),
     [
-        pytest.param(*case, marks=[pytest.mark.needs_crypto] if case[3].get("crypto") else [])
+        pytest.param(
+            *case,
+            marks=[getattr(pytest.mark, f"needs_{extra}") for extra in EXTRAS if case[3].get(extra)],
+        )
         for case in ERRORS
     ],
 )
 def test_every_error_in_json(
     run: Any, folder: Path, name: str, code: int, words: list[str], options: dict[str, Any]
 ) -> None:
-    options = {key: value for key, value in options.items() if key != "crypto"}
+    options = {key: value for key, value in options.items() if key not in EXTRAS}
     result = run(*words, "--json", **options)
     assert result.code == code
     assert result.output.count("\n") == 1

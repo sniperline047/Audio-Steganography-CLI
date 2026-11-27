@@ -29,6 +29,14 @@ class AudioData(NamedTuple):
     frames: bytearray
 
 
+class AudioSize(NamedTuple):
+    """How many samples a WAV file holds, counting every channel, and how fast they are played."""
+
+    samples: int
+    channels: int
+    frame_rate: int
+
+
 def check_regular_file(path: str) -> None:
     """Reject directories, pipes, devices, and other files that are not regular files."""
     if not stat.S_ISREG(os.stat(path).st_mode):
@@ -95,8 +103,8 @@ def check_input_size(path: str) -> None:
         raise UnsupportedFormatError("The input file is too large. The limit is 1 GiB.")
 
 
-def count_input_samples(path: str) -> int:
-    """Check that a WAV file can be copied, without reading all of it, and return its number of samples."""
+def measure_input(path: str) -> AudioSize:
+    """Check that a WAV file can be copied, without reading all of it, and return its size."""
     check_regular_file(path)
     check_input_size(path)
     with open_pcm_wav(path) as audio:
@@ -105,7 +113,12 @@ def count_input_samples(path: str) -> int:
             audio.setpos(frames - 1)
             if len(audio.readframes(1)) < audio.getnchannels() * audio.getsampwidth():
                 raise UnsupportedFormatError("The WAV file is shorter than its header says.")
-        return frames * audio.getnchannels()
+        return AudioSize(frames * audio.getnchannels(), audio.getnchannels(), audio.getframerate())
+
+
+def count_input_samples(path: str) -> int:
+    """Check that a WAV file can be copied, without reading all of it, and return its number of samples."""
+    return measure_input(path).samples
 
 
 def read_audio(path: str) -> AudioData:

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import ALL, EVERY_KEY, needed_passphrase
+from conftest import ALL, EVERY_KEY, needed_passphrase, noise_for
 
 from audiosteg import encode
 from audiosteg.algorithms.registry import ALGORITHMS
@@ -17,7 +17,8 @@ from audiosteg.algorithms.registry import ALGORITHMS
 @pytest.mark.usefixtures("fast_scrypt")
 def test_a_match_changes_nothing(run: Any, make_wav: Callable[..., Path], tmp_path: Path, key: str) -> None:
     output, passphrase = tmp_path / "output.wav", needed_passphrase(key)
-    encode(str(make_wav()), str(output), "hidden 🎵", ALGORITHMS[key], passphrase=passphrase)
+    source = make_wav(frames=noise_for(key))
+    encode(str(source), str(output), "hidden 🎵", ALGORITHMS[key], passphrase=passphrase)
     content = output.read_bytes()
     output.chmod(0o444)
     modified = output.stat().st_mtime_ns

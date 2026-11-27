@@ -14,13 +14,13 @@ concurrency:
 
 jobs:
   tests:
-    name: Python 3.15 on macos-latest${{ !matrix.crypto && ' without crypto' || '' }}
+    name: Python 3.15 on macos-latest${{ !matrix.extras && ' without extras' || '' }}
     runs-on: macos-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        crypto: [true, false]
+        extras: [true, false]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -28,17 +28,18 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.15"
-      - run: python -m pip install -r requirements_dev.txt "${{ matrix.crypto && '.[crypto]' || '.' }}"
+      - run: python -m pip install -r requirements_dev.txt "${{ matrix.extras && '.[crypto,signal]' || '.' }}"
       - name: Check that the installed package is tested
         run: python -c "import audiosteg; assert 'site-packages' in audiosteg.__file__, audiosteg.__file__"
-      - name: Check that the crypto extra is missing
-        if: ${{ !matrix.crypto }}
-        run: python -c "import importlib.util; assert importlib.util.find_spec('cryptography') is None"
-      - name: Test without the crypto extra
-        if: ${{ !matrix.crypto }}
+      - name: Check that the extras are missing
+        if: ${{ !matrix.extras }}
+        run: python -c "from importlib.util import find_spec; assert not any(map(find_spec, ('cryptography', 'numpy')))"
+      - name: Test without the extras
+        if: ${{ !matrix.extras }}
         run: python -m pytest
-      - name: Test with the crypto extra
-        if: ${{ matrix.crypto }}
+      - name: Test with the extras
+        if: ${{ matrix.extras }}
         env:
           AUDIOSTEG_REQUIRE_CRYPTO: "1"
+          AUDIOSTEG_REQUIRE_SIGNAL: "1"
         run: python -m pytest --cov --cov-report=term-missing

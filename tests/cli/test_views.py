@@ -156,6 +156,16 @@ def test_json_is_valid_for_names_that_are_not_text() -> None:
     assert "ud" not in output.getvalue().replace("\\\\udcff", "")
 
 
+@pytest.mark.parametrize(
+    ("gain", "shown"), [(0.99999, "99.9%"), (0.9995, "99.9%"), (0.827, "82.7%"), (0.5, "50.0%"), (1.0, None)]
+)
+def test_a_file_that_is_made_quieter_never_keeps_its_whole_level(gain: float, shown: str | None) -> None:
+    errors = io.StringIO()
+    View(io.StringIO(), errors).show_hide(HideResult("in", "out", "echo", False, gain))
+    assert ("%" in errors.getvalue()) is (shown is not None)
+    assert shown is None or f"({shown} of its level)" in errors.getvalue()
+
+
 def test_a_result_does_not_show_its_message() -> None:
     assert "PRIVATE" not in repr(RevealResult("a.wav", "lsb", False, False, "PRIVATE"))
 

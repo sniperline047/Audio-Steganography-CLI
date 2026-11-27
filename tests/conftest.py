@@ -37,6 +37,7 @@ from audiosteg.cli import player
 from audiosteg.cli.commands.hide import SAMPLE_FILE
 from audiosteg.cli.main import main
 from audiosteg.core import crypto
+from audiosteg.core.signal_algorithm import SignalAlgorithm
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -120,10 +121,23 @@ KNOWN_ANSWER = KnownAnswer(
 )
 
 
-EVERY_KEY = [
-    pytest.param(key, marks=pytest.mark.needs_crypto) if known.keyed else key
-    for key, known in ALGORITHMS.items()
-]
+def marked(key: str) -> Any:
+    """Return the name of an algorithm as a test parameter that says what the algorithm needs."""
+    marks = [pytest.mark.needs_crypto] if ALGORITHMS[key].keyed else []
+    if isinstance(ALGORITHMS[key], SignalAlgorithm):
+        marks.append(pytest.mark.needs_signal)
+    return pytest.param(key, marks=marks)
+
+
+EVERY_KEY = [marked(key) for key in ALGORITHMS]
+PLAIN_KEYS = [marked(key) for key, known in ALGORITHMS.items() if not known.keyed]
+
+
+def noise_for(key: str) -> bytes | None:
+    """Return sound in which an algorithm can hide a short message, or None for the sound of make_wav."""
+    if not isinstance(ALGORITHMS[key], SignalAlgorithm):
+        return None
+    return random.Random(7).randbytes(140 * 8 * ALGORITHMS[key].block_frames)
 
 
 def needed_passphrase(key: str) -> str | None:
@@ -148,12 +162,13 @@ def repository_audio() -> dict[str, tuple[int, str]]:
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Skip tests marked needs_crypto without the library, unless AUDIOSTEG_REQUIRE_CRYPTO is set."""
-    if os.environ.get("AUDIOSTEG_REQUIRE_CRYPTO") or importlib.util.find_spec("cryptography"):
-        return
-    for item in items:
-        if item.get_closest_marker("needs_crypto"):
-            item.add_marker(pytest.mark.skip(reason="the crypto extra is not installed"))
+    """Skip tests that need a missing library, unless a variable such as AUDIOSTEG_REQUIRE_CRYPTO is set."""
+    for extra, library in (("crypto", "cryptography"), ("signal", "numpy")):
+        if os.environ.get(f"AUDIOSTEG_REQUIRE_{extra.upper()}") or importlib.util.find_spec(library):
+            continue
+        for item in items:
+            if item.get_closest_marker(f"needs_{extra}"):
+                item.add_marker(pytest.mark.skip(reason=f"the {extra} extra is not installed"))
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -264,6 +279,12 @@ def no_library(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make importing the encryption library fail, whether or not it is installed."""
     for name in ("cryptography", "cryptography.exceptions", "cryptography.hazmat.primitives.ciphers.aead"):
         monkeypatch.setitem(sys.modules, name, None)
+
+
+@pytest.fixture
+def no_numpy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make importing NumPy fail, whether or not it is installed."""
+    monkeypatch.setitem(sys.modules, "numpy", None)
 
 
 @pytest.fixture

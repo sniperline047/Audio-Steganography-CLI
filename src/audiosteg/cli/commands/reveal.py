@@ -3,7 +3,7 @@
 import argparse
 from dataclasses import dataclass
 
-from audiosteg.algorithms.detection import decode, detect
+from audiosteg.algorithms.detection import decode, detect, undetectable_here
 from audiosteg.algorithms.registry import ALGORITHMS, LEGACY_ALGORITHMS, reading_key
 from audiosteg.cli.errors import CHECK_THE_FILE, NO_MESSAGE_HINT
 from audiosteg.cli.options import add_reading_options, file_path, passphrase_source
@@ -11,6 +11,7 @@ from audiosteg.cli.passphrase import BYTE_ORDER_MARK, PassphraseSource
 from audiosteg.cli.results import RevealResult
 from audiosteg.cli.views import View
 from audiosteg.core import crypto
+from audiosteg.core.signal_algorithm import SignalAlgorithm
 from audiosteg.core.stego_file import read_header
 from audiosteg.core.wav_io import open_pcm_wav
 from audiosteg.errors import NoMessageError, NotEncryptedError, WrongPassphraseError
@@ -23,6 +24,16 @@ EXAMPLES = """examples:
   audiosteg reveal old.wav --legacy basic
 """
 KEYED_ALGORITHM = next(key for key, known in ALGORITHMS.items() if known.keyed)
+
+
+def not_checked(keys: tuple[str, ...]) -> list[str]:
+    """Return a sentence about the algorithms whose messages could not be looked for, if there are any."""
+    if not keys:
+        return []
+    return [
+        f"Messages of {' and '.join(keys)} cannot be detected here, because NumPy is missing. "
+        'To install it, run: pip install ".[signal]"'
+    ]
 
 
 @dataclass(frozen=True)
@@ -68,6 +79,8 @@ def find_message(
         error = NoMessageError("No hidden message was found.")
         error.add_note(NO_MESSAGE_HINT)
         error.add_note(f"If it was hidden with {KEYED_ALGORITHM}, add -p and the passphrase that hid it.")
+        for sentence in not_checked(undetectable_here()):
+            error.add_note(sentence)
         raise error
     keys = [key for key, known in ALGORITHMS.items() if known is detected[0]]
     return HiddenMessage(file, keys[0], legacy=False, encrypted=detected[1].encrypted)
@@ -80,16 +93,27 @@ def read_message(hidden: HiddenMessage, passphrase: str | None) -> RevealResult:
     return RevealResult(hidden.file, hidden.algorithm, hidden.legacy, passphrase is not None, message)
 
 
+def add_keyed_hint(error: Exception, hidden: HiddenMessage) -> None:
+    """Say how to read a keyed message in a file that also holds one in its sound."""
+    if isinstance(ALGORITHMS.get(hidden.algorithm), SignalAlgorithm):
+        error.add_note(
+            f"If you expect a message of {KEYED_ALGORITHM}, which this file can hold too, "
+            f"add -a {KEYED_ALGORITHM}."
+        )
+
+
 def get_passphrase(hidden: HiddenMessage, passphrases: PassphraseSource, view: View) -> str | None:
     """Get the passphrase of an encrypted message, and refuse one that cannot protect a message."""
     if hidden.encrypted:
         crypto.check_available()
         return passphrases.read(view.note)
     if passphrases.wanted:
-        raise NotEncryptedError(
+        error = NotEncryptedError(
             "The hidden message is not encrypted, so the passphrase cannot protect it. It may not be the "
             "message you expect. To read it anyway, leave out the passphrase option."
         )
+        add_keyed_hint(error, hidden)
+        raise error
     return None
 
 
@@ -104,6 +128,10 @@ def reveal(args: argparse.Namespace, view: View) -> RevealResult:
         if hidden.legacy:
             others = " or ".join(key for key in LEGACY_ALGORITHMS if key != hidden.algorithm)
             error.add_note(f"{CHECK_THE_FILE} Or try another old algorithm: --legacy {others}.")
+        if isinstance(error, WrongPassphraseError):
+            add_keyed_hint(error, hidden)
+        elif args.algorithm is None and not hidden.legacy and undetectable_here():
+            error.add_note(" ".join([NO_MESSAGE_HINT, *not_checked(undetectable_here())]))
         if passphrase is not None and passphrase.startswith(BYTE_ORDER_MARK):
             error.add_note(
                 "The passphrase file starts with a byte order mark (BOM), which counts as part of the "

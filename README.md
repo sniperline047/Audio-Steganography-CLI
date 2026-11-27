@@ -76,6 +76,7 @@ On Windows, use `py -m venv .venv` and `.venv\Scripts\activate` for the first tw
 <details>
 <summary><b>Good to know</b></summary>
 
+- `".[crypto,signal]"` adds the `echo` algorithm too, through [NumPy](https://numpy.org/). Everything else works without it.
 - `[crypto]` adds encryption through the [cryptography](https://cryptography.io/) library. If it won't install, for example on a Mac with an Intel processor, use `.` instead of `".[crypto]"`. Everything except passphrases still works.
 - To try it without installing, from the project folder: `uv run --extra crypto audiosteg`.
 - With pip, `python -m audiosteg` does the same as `audiosteg`.
@@ -179,6 +180,7 @@ Room with lsb_4: 94,386 bytes, or 94,346 encrypted
 Room with lsb_matching: 23,586 bytes, or 23,546 encrypted
 Room with lsb_parity: 2,936 bytes, or 2,896 encrypted
 Room with lsb_keyed: 23,546 bytes, always encrypted
+Room with echo: none, the sound is too short
 Hidden message: lsb, not encrypted, 41 bytes
 Only the header of the message was read, so damage further on is not detected. A message hidden with lsb_matching looks the same as one hidden with lsb.
 ```
@@ -241,6 +243,7 @@ These are the ones you'll use most. Add `--help` to any command to see them all,
 | `lsb_matching` | Adds or subtracts 1 instead of replacing a bit | Leaving less of a pattern. It is read as `lsb`. |
 | `lsb_parity` | Hides 1 bit in each group of 8 samples | Short messages, with the changes spread out |
 | `lsb_keyed` | Encrypts the message and scatters its bits with your passphrase | A map that `inspect` can't even find. Add `-p` to read it. |
+| `echo` | Hides 1 bit in each block of 1,024 frames, as a short echo you can hear | Seeing how sound itself can carry a message. Very little room; needs `[signal]` and your own longer file. |
 
 ## Explain mode
 

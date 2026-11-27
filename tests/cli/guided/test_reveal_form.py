@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import noise_for
 
 from audiosteg import encode
+from audiosteg.algorithms.echo import ECHO
 from audiosteg.algorithms.lsb import LSB, LSB_2
 from audiosteg.algorithms.lsb_keyed import LSB_KEYED
 
@@ -216,6 +218,42 @@ def test_back_out_of_a_keyed_message(guide: Any, make_wav: Callable[..., Path]) 
         ("Expected", ENTER),
     )
     assert (result.code, "The message matches" in result.text) == (0, True)
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.usefixtures("fast_scrypt", "no_numpy")
+def test_a_passphrase_that_finds_nothing_names_what_was_not_looked_for(
+    guide: Any, make_wav: Callable[..., Path]
+) -> None:
+    make_wav(name="nothing.wav")
+    result = guide(REVEAL, file("nothing.wav"), KEYED, passphrase("wrong"), (NEXT, CTRL_C), leave=False)
+    after = result.text.split("Error: No hidden message was found with this passphrase.")[1]
+    assert "Messages of echo cannot be detected here, because NumPy is missing." in after
+
+
+@pytest.mark.needs_crypto
+@pytest.mark.needs_signal
+@pytest.mark.usefixtures("fast_scrypt")
+def test_a_keyed_message_behind_an_encrypted_echo_can_be_read(
+    guide: Any, run: Any, make_wav: Callable[..., Path], tmp_path: Path
+) -> None:
+    echo, both = str(tmp_path / "echo.wav"), str(tmp_path / "both.wav")
+    encode(str(make_wav(frames=noise_for("echo"))), echo, "in the sound", ECHO, passphrase="other")
+    encode(echo, both, "scattered", LSB_KEYED, passphrase="sésame")
+    keyed = (NEXT, DOWN + ENTER)
+    result = guide(REVEAL, file("both.wav"), passphrase("sésame"), keyed, passphrase("sésame"))
+    assert (result.code, "\nscattered\n" in result.text) == (0, True)
+    command = "audiosteg reveal both.wav -a lsb_keyed"
+    assert f"The same as a command: {command}\n" in result.text
+    assert run(*command.split()[1:], hidden=("sésame",), terminals=("stdin", "stderr")).output == "scattered"
+    again = guide(REVEAL, file("both.wav"), passphrase("wrong"), (NEXT, ENTER), passphrase("other"))
+    assert (again.code, "\nin the sound\n" in again.text) == (0, True)
+    back = guide(
+        REVEAL, file("both.wav"), passphrase("wrong"), keyed, ("Passphrase:", ESCAPE),
+        file("both.wav"), passphrase("other"),
+    )  # fmt: skip
+    assert "\nin the sound\n" in back.text
+    assert "The same as a command: audiosteg reveal both.wav\n" in back.text
 
 
 def test_a_keyed_message_cannot_be_read_without_the_library(

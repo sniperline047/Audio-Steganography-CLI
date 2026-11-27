@@ -29,11 +29,11 @@ def largest_message(file: str, legacy: str | None) -> int:
     """Return the most UTF-8 bytes that the message in a WAV file can have."""
     with open_pcm_wav(file) as audio:
         sample_bytes = count_sample_bytes(audio, file)
-        samples = sample_bytes // audio.getsampwidth()
+        samples, channels = sample_bytes // audio.getsampwidth(), audio.getnchannels()
     if legacy is not None:
         stored = max(sample_bytes * LEGACY_ALGORITHMS[legacy].bits_per_byte - HEADER_BITS, 0) // 8
         return stored * UTF_8_BYTES_PER_LATIN_1_BYTE
-    return max(count_message_bytes(samples, known, False) for known in ALGORITHMS.values())
+    return max(count_message_bytes(samples, known, False, channels) for known in ALGORITHMS.values())
 
 
 def run(args: argparse.Namespace, view: View) -> int:

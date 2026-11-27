@@ -13,7 +13,7 @@ from audiosteg.cli.commands.explain import one_character
 from audiosteg.cli.commands.hide import SAMPLE_FILE
 from audiosteg.cli.errors import UsageError
 
-NAMES = "lsb, lsb_2, lsb_4, lsb_matching, lsb_parity, lsb_keyed"
+NAMES = "lsb, lsb_2, lsb_4, lsb_matching, lsb_parity, lsb_keyed, echo"
 
 
 @pytest.mark.parametrize(

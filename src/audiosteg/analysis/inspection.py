@@ -3,11 +3,13 @@
 import wave
 from dataclasses import dataclass
 
+from audiosteg.algorithms.detection import can_detect, undetectable_here
 from audiosteg.algorithms.registry import ALGORITHMS
 from audiosteg.analysis.samples import BLOCK_BYTES, SampleFormat, is_complete, read_format
 from audiosteg.core.algorithm import Algorithm
+from audiosteg.core.signal_algorithm import SignalAlgorithm
 from audiosteg.core.stego_file import count_message_bytes, read_header
-from audiosteg.core.wav_io import count_input_samples, open_pcm_wav
+from audiosteg.core.wav_io import AudioSize, measure_input, open_pcm_wav
 from audiosteg.errors import DamagedMessageError, UnsupportedFormatError
 
 
@@ -17,12 +19,14 @@ class Capacity:
     The size of the largest message that one algorithm can hide, in bytes.
 
     :param always_encrypted: Whether the algorithm cannot hide a plain message, so that plain is 0
+    :param at_most: Whether the sound decides how much really fits, so that this is no promise
     """
 
     algorithm: str
     plain: int
     encrypted: int
     always_encrypted: bool = False
+    at_most: bool = False
 
 
 @dataclass(frozen=True)
@@ -37,13 +41,18 @@ class FoundMessage:
 
 @dataclass(frozen=True)
 class Inspection:
-    """What is known about a WAV file."""
+    """
+    What is known about a WAV file.
+
+    :param not_checked: The algorithms whose messages could not be looked for, because NumPy is missing
+    """
 
     format: SampleFormat
     frames: int
     cannot_hide: str | None
     capacities: tuple[Capacity, ...]
     messages: tuple[FoundMessage, ...]
+    not_checked: tuple[str, ...] = ()
 
 
 def count_present_frames(audio: wave.Wave_read) -> int:
@@ -58,7 +67,7 @@ def count_present_frames(audio: wave.Wave_read) -> int:
     return present
 
 
-def find_message(path: str, key: str, algorithm: Algorithm) -> FoundMessage | None:
+def find_message(path: str, key: str, algorithm: Algorithm | SignalAlgorithm) -> FoundMessage | None:
     """Look for a message of one algorithm. Only its header is read."""
     try:
         header = read_header(path, algorithm)
@@ -73,20 +82,22 @@ def inspect(path: str) -> Inspection:
         sample_format = read_format(audio)
         frames = count_present_frames(audio)
     try:
-        samples, cannot_hide = count_input_samples(path), None
+        size, cannot_hide = measure_input(path), None
     except UnsupportedFormatError as error:
-        samples, cannot_hide = 0, str(error)
+        size, cannot_hide = AudioSize(0, *sample_format[::2]), str(error)
+    samples, channels = size.samples, size.channels
     capacities = [
         Capacity(
             key,
-            0 if algorithm.keyed else count_message_bytes(samples, algorithm, encrypted=False),
-            count_message_bytes(samples, algorithm, encrypted=True),
+            0 if algorithm.keyed else count_message_bytes(samples, algorithm, False, channels),
+            count_message_bytes(samples, algorithm, True, channels),
             algorithm.keyed,
+            isinstance(algorithm, SignalAlgorithm),
         )
         for key, algorithm in ALGORITHMS.items()
     ]
     found = [
-        find_message(path, key, algorithm) for key, algorithm in ALGORITHMS.items() if algorithm.detectable
+        find_message(path, key, algorithm) for key, algorithm in ALGORITHMS.items() if can_detect(algorithm)
     ]
     return Inspection(
         sample_format,
@@ -94,4 +105,5 @@ def inspect(path: str) -> Inspection:
         cannot_hide,
         () if cannot_hide else tuple(capacities),
         tuple(message for message in found if message is not None),
+        undetectable_here(),
     )
